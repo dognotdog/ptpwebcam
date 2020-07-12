@@ -1,0 +1,7 @@
+#  webcamplugin.exp
+#  D800 Webcam
+#
+#  Created by Dömötör Gulyás on 05.06.2020.
+#  Copyright © 2020 InRobCo. All rights reserved.
+
+_PtpWebcamPluginFactory
