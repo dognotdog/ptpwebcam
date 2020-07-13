@@ -24,9 +24,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ## Supported Cameras over USB
 
 ### Tested
- - Nikon D800
+- Nikon D800 (note: needs to be in Photography LiveView mode for exposure preview)
  
  ### Untested
+  - Nikon D3
+  - Nikon D3S
+  - Nikon D300
+  - Nikon D300S
+  - Nikon D700
+  - Nikon D750
   - Nikon D800E
   - Nikon D810
   - Nikon D810A
