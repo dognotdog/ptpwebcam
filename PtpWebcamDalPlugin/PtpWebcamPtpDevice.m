@@ -9,6 +9,7 @@
 #import "PtpWebcamPtpDevice.h"
 #import "PtpWebcamPtpStream.h"
 
+
 @interface PtpWebcamPtpDevice ()
 {
 	uint32_t transactionId;
@@ -20,8 +21,42 @@
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpProgramModeNames = nil;
 static NSDictionary* _ptpWhiteBalanceModeNames = nil;
+static NSDictionary* _supportedCameras = nil;
+
+static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 @implementation PtpWebcamPtpDevice
+
++ (BOOL) supportsCamera: (ICDevice*) camera
+{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		_supportedCameras = @{
+			// Nikon
+			@(0x04B0) : @{
+//				@(0x0410) : @[@"Nikon", @"D200"],
+//				@(0x0422) : @[@"Nikon", @"D700"],
+//				@(0x0423) : @[@"Nikon", @"D5000"],
+//				@(0x0424) : @[@"Nikon", @"D3000"],
+//				@(0x0425) : @[@"Nikon", @"D300S"],
+//				@(0x0428) : @[@"Nikon", @"D7000"],
+//				@(0x0429) : @[@"Nikon", @"D5100"],
+				@(0x042A) : @[@"Nikon", @"D800"],
+				@(0x042E) : @[@"Nikon", @"D800E"],
+//				@(0x0430) : @[@"Nikon", @"D7100"],
+				@(0x0436) : @[@"Nikon", @"D810"],
+//				@(0x043F) : @[@"Nikon", @"D5600"],
+			},
+		};
+	});
+	NSDictionary* modelDict = _supportedCameras[@(camera.usbVendorID)];
+	if (!modelDict)
+		return NO;
+	NSArray* cameraInfo = modelDict[@(camera.usbProductID)];
+	if (cameraInfo)
+		return YES;
+	return NO;
+}
 
 - (instancetype) initWithIcDevice: (ICCameraDevice*) device
 {
@@ -68,8 +103,18 @@ static NSDictionary* _ptpWhiteBalanceModeNames = nil;
 			@(0x8013) : @"Preset",
 		};
 
+		_liveViewJpegDataOffsets = @{
+			@(0x04B0) : @{
+				@(0x042A) : @(384), // D800
+				@(0x042E) : @(384), // D800E
+				@(0x0436) : @(376), // D810
+			},
+		};
 
 	});
+	
+	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(device.usbVendorID)];
+	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(device.usbProductID)] unsignedIntegerValue];
 	
 	self.cameraDevice = device;
 	device.delegate = self;
@@ -78,8 +123,8 @@ static NSDictionary* _ptpWhiteBalanceModeNames = nil;
 	self.manufacturer = @"Nikon";
 	self.elementNumberName = @"1";
 	self.elementCategoryName = @"DSLR Webcam";
-	self.deviceUid = @"d800-webcam-plugin-device";
-	self.modelUid = @"d800-webcam-plugin-model";
+	self.deviceUid = @"ptp-webcam-plugin-device";
+	self.modelUid = @"ptp-webcam-plugin-model";
 	self.ptpPropertyInfos = @{};
 
 	device.delegate = self;

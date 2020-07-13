@@ -65,12 +65,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSDictionary* ptpDeviceInfo;
 @property NSDictionary* ptpPropertyInfos;
 
+@property size_t liveViewHeaderLength;
+
 - (uint32_t) nextTransactionId;
 
 - (instancetype) initWithIcDevice: (ICCameraDevice*) device;
 
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
 - (void) ptpQueryKnownDeviceProperties;
+
++ (BOOL) supportsCamera: (ICDevice*) camera;
 
 @end
 

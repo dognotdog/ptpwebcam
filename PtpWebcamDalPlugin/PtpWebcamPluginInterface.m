@@ -389,7 +389,6 @@ static OSStatus _deviceStartStream(CMIOHardwarePlugInRef interfaceRef, CMIODevic
 	NSLog(@"_deviceStartStream()");
 	if (!interfaceRef)
 		return kCMIOHardwareIllegalOperationError;
-//	D800WebcamPlugin* self = _refToObj(interfaceRef);
 
 	PtpWebcamDevice* device = nil;
 	@synchronized (_objectMap) {
@@ -406,7 +405,6 @@ static OSStatus _deviceSuspend(CMIOHardwarePlugInRef interfaceRef, CMIODeviceID 
 	NSLog(@"_deviceSuspend()");
 	if (!interfaceRef)
 		return kCMIOHardwareIllegalOperationError;
-//	D800WebcamPlugin* self = _refToObj(interfaceRef);
 
 	PtpWebcamDevice* device = nil;
 	@synchronized (_objectMap) {
@@ -423,7 +421,6 @@ static OSStatus _deviceResume(CMIOHardwarePlugInRef interfaceRef, CMIODeviceID d
 	NSLog(@"_deviceResume()");
 	if (!interfaceRef)
 		return kCMIOHardwareIllegalOperationError;
-//	D800WebcamPlugin* self = _refToObj(interfaceRef);
 
 	PtpWebcamDevice* device = nil;
 	@synchronized (_objectMap) {
@@ -439,7 +436,6 @@ static OSStatus _deviceStopStream(CMIOHardwarePlugInRef interfaceRef, CMIODevice
 {
 	if (!interfaceRef)
 		return kCMIOHardwareIllegalOperationError;
-//	D800WebcamPlugin* self = _refToObj(interfaceRef);
 
 	PtpWebcamDevice* device = nil;
 	@synchronized (_objectMap) {

@@ -25,7 +25,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Supported Cameras over USB
 
+### Tested
  - Nikon D800
+ 
+ ### Untested
+  - Nikon D800E
+  - Nikon D810
+	- note: D810 supports QVGA LiveView image size, but it is not possible to select that at this time
  
  Many other cameras can in theory be made to work, but are not yet supported.
  

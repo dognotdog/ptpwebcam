@@ -167,9 +167,9 @@
 {
 //	NSLog(@"add device %@", device);
 	
-	if ([camera.name isEqualToString: @"D800"])
+	if ([PtpWebcamPtpDevice supportsCamera: camera])
 	{
-//		NSLog(@"D800 capabilities %@", camera.capabilities);
+//		NSLog(@"camera capabilities %@", camera.capabilities);
 		camera.delegate = self;
 		[camera requestOpenSession];
 

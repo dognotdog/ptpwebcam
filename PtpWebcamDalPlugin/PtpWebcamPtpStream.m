@@ -164,7 +164,7 @@
 	
 	
 	// D800 LiveView image has a heaer of length 384 with metadata, with the rest being the JPEG image.
-	size_t headerLen = 384;
+	size_t headerLen = self.ptpDevice.liveViewHeaderLength;
 	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
 	
 	
