@@ -1,6 +1,6 @@
 //
 //  main.m
-//  D800 Webcam
+//  PTP Webcam Preview
 //
 //  Created by Dömötör Gulyás on 27.05.2020.
 //  Copyright © 2020 InRobCo. All rights reserved.
