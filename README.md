@@ -6,8 +6,6 @@ The project consists of a CoreMediaIO DAL plugin, and a preview app to test func
 
 ## License
 
-
-
 Copyright (C) 2020 Doemoetoer Gulyas
 
 This program is free software: you can redistribute it and/or modify
@@ -38,6 +36,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
  
  Many other cameras can in theory be made to work, but are not yet supported.
  
+ ### Not usable because of hardware limitations
+ - Nikon D40 does not support tethered live view.
+ - Nikon D80 does not support tethered live view.
+ 
  ## Known Issues
  
  ### Library Validation
@@ -56,11 +58,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
  
  #### Skype workaround
  
- Skype has several helper apps inside its application bundle that might need code signing disabled.
+ Skype has several helper apps inside its application bundle that might need code signing disabled. 
 
 ```
 cd /Applications/Skype.app/Contents/Frameworks
 codesign --remove-signature Skype\ Helper.app
+```
+The following additional helpers might be named differently in different Skype versions.
+```
 codesign --remove-signature Skype\ Helper\ \(GPU\).app
 codesign --remove-signature Skype\ Helper\ \(Plugin\).app
 codesign --remove-signature Skype\ Helper\ \(Renderer\).app
