@@ -15,7 +15,6 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customObject id="Voe-Tx-rLC" customClass="AppDelegate">
             <connections>
-                <outlet property="imageView" destination="cjE-gQ-3pC" id="nDK-t1-RDk"/>
                 <outlet property="window" destination="QvC-M9-y7g" id="gIp-Ho-8D9"/>
             </connections>
         </customObject>
@@ -682,35 +681,40 @@
             </items>
             <point key="canvasLocation" x="117" y="152"/>
         </menu>
-        <window title="PTP Webcam" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" id="QvC-M9-y7g">
+        <window title="PTP Webcam" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" frameAutosaveName="PtpWebcamPreview" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="335" y="390" width="784" height="430"/>
+            <rect key="contentRect" x="335" y="390" width="1068" height="333"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1177"/>
             <view key="contentView" misplaced="YES" id="EiT-Mj-1SZ">
-                <rect key="frame" x="0.0" y="0.0" width="784" height="430"/>
+                <rect key="frame" x="0.0" y="0.0" width="1068" height="301"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
-                    <imageView horizontalHuggingPriority="251" verticalHuggingPriority="251" translatesAutoresizingMaskIntoConstraints="NO" id="cjE-gQ-3pC">
-                        <rect key="frame" x="0.0" y="432" width="372" height="0.0"/>
-                        <imageCell key="cell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyUpOrDown" id="ZwO-n0-MLQ"/>
-                    </imageView>
                     <customView translatesAutoresizingMaskIntoConstraints="NO" id="rKR-ay-dDK" customClass="AVCaptureView">
-                        <rect key="frame" x="0.0" y="0.0" width="784" height="432"/>
+                        <rect key="frame" x="0.0" y="0.0" width="534" height="300"/>
+                        <constraints>
+                            <constraint firstAttribute="width" secondItem="rKR-ay-dDK" secondAttribute="height" multiplier="16:9" priority="500" id="ASP-Wi-hk6"/>
+                        </constraints>
+                    </customView>
+                    <customView translatesAutoresizingMaskIntoConstraints="NO" id="Dpk-QX-nUu" customClass="AVCaptureView">
+                        <rect key="frame" x="534" y="0.0" width="534" height="300"/>
+                        <constraints>
+                            <constraint firstAttribute="width" secondItem="Dpk-QX-nUu" secondAttribute="height" multiplier="16:9" priority="500" id="qxZ-YU-deK"/>
+                        </constraints>
                     </customView>
                 </subviews>
                 <constraints>
                     <constraint firstAttribute="bottom" secondItem="rKR-ay-dDK" secondAttribute="bottom" id="23U-ZY-US1"/>
-                    <constraint firstAttribute="trailing" secondItem="cjE-gQ-3pC" secondAttribute="trailing" constant="412" id="Src-nw-Uj5"/>
+                    <constraint firstItem="Dpk-QX-nUu" firstAttribute="top" secondItem="EiT-Mj-1SZ" secondAttribute="top" id="HIw-9N-ke2"/>
+                    <constraint firstItem="Dpk-QX-nUu" firstAttribute="leading" secondItem="rKR-ay-dDK" secondAttribute="trailing" id="IH6-QE-sro"/>
+                    <constraint firstAttribute="trailing" secondItem="Dpk-QX-nUu" secondAttribute="trailing" id="Kcz-Ns-Af5"/>
                     <constraint firstItem="rKR-ay-dDK" firstAttribute="leading" secondItem="EiT-Mj-1SZ" secondAttribute="leading" id="Z99-2M-ZY9"/>
-                    <constraint firstItem="cjE-gQ-3pC" firstAttribute="leading" secondItem="EiT-Mj-1SZ" secondAttribute="leading" id="a6b-z4-xtW"/>
-                    <constraint firstAttribute="trailing" secondItem="rKR-ay-dDK" secondAttribute="trailing" id="ddi-9e-P8K"/>
+                    <constraint firstItem="Dpk-QX-nUu" firstAttribute="width" secondItem="rKR-ay-dDK" secondAttribute="width" id="Zmk-Vz-FWc"/>
                     <constraint firstItem="rKR-ay-dDK" firstAttribute="top" secondItem="EiT-Mj-1SZ" secondAttribute="top" id="hac-vj-P1q"/>
-                    <constraint firstAttribute="bottom" secondItem="cjE-gQ-3pC" secondAttribute="bottom" constant="432" id="uzY-yV-2Av"/>
-                    <constraint firstItem="cjE-gQ-3pC" firstAttribute="top" secondItem="EiT-Mj-1SZ" secondAttribute="top" id="v0Y-kp-RjM"/>
+                    <constraint firstAttribute="bottom" secondItem="Dpk-QX-nUu" secondAttribute="bottom" id="uRO-u3-cLV"/>
                 </constraints>
             </view>
-            <point key="canvasLocation" x="159" y="-366"/>
+            <point key="canvasLocation" x="73" y="-398"/>
         </window>
     </objects>
 </document>
