@@ -37,16 +37,20 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			// Nikon
 			@(0x04B0) : @{
 //				@(0x0410) : @[@"Nikon", @"D200"],
-//				@(0x0422) : @[@"Nikon", @"D700"],
+				@(0x041A) : @[@"Nikon", @"D300"],
+				@(0x041C) : @[@"Nikon", @"D3"],
+				@(0x0422) : @[@"Nikon", @"D700"],
 //				@(0x0423) : @[@"Nikon", @"D5000"],
 //				@(0x0424) : @[@"Nikon", @"D3000"],
-//				@(0x0425) : @[@"Nikon", @"D300S"],
+				@(0x0425) : @[@"Nikon", @"D300S"],
+				@(0x0426) : @[@"Nikon", @"D3S"],
 //				@(0x0428) : @[@"Nikon", @"D7000"],
 //				@(0x0429) : @[@"Nikon", @"D5100"],
 				@(0x042A) : @[@"Nikon", @"D800"],
 				@(0x042E) : @[@"Nikon", @"D800E"],
 //				@(0x0430) : @[@"Nikon", @"D7100"],
 				@(0x0436) : @[@"Nikon", @"D810"],
+				@(0x0437) : @[@"Nikon", @"D750"],
 				@(0x043B) : @[@"Nikon", @"D810A"],
 //				@(0x043F) : @[@"Nikon", @"D5600"],
 //				@(0x0440) : @[@"Nikon", @"D7500"],
@@ -119,9 +123,16 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 		_liveViewJpegDataOffsets = @{
 			@(0x04B0) : @{
+				// JPEG data offset
+				@(0x041A) : @(64), // D300
+				@(0x041C) : @(64), // D3
+				@(0x0422) : @(64), // D700
+				@(0x0425) : @(64), // D300S
+				@(0x0426) : @(128), // D3S
 				@(0x042A) : @(384), // D800
 				@(0x042E) : @(384), // D800E
 				@(0x0436) : @(384), // D810
+				@(0x0437) : @(384), // D750
 				@(0x043B) : @(384), // D810A
 				@(0x0441) : @(384), // D850
 			},
@@ -347,11 +358,47 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case MTP_CMD_GETOBJECTPROPSSUPPORTED:
 			[self parseMtpObjectPropertiesSupportedResponse: data];
 			break;
+		case PTP_CMD_NIKON_GETVENDORPROPS:
+			[self parseNikonPropertiesResponse: data];
+			break;
 		default:
 			NSLog(@"didSendPTPCommand  cmd=%@", command);
 			NSLog(@"didSendPTPCommand data=%@", data);
 			break;
 	}
+	
+}
+
+- (void) parseNikonPropertiesResponse: (NSData*) data
+{
+	uint32_t len = 0;
+	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+	assert(len*2+4 == data.length); // length is how many items we have following
+	
+	NSMutableArray* properties = [NSMutableArray arrayWithCapacity: len];
+	for (size_t i = 0; i < len; ++i)
+	{
+		uint16_t propertyId = 0;
+		[data getBytes: &propertyId range: NSMakeRange(4+2*i, sizeof(propertyId))];
+		[properties addObject: @(propertyId)];
+	}
+	
+//	NSLog(@"Nikon Vendor Properties: %@", properties);
+	
+	for (NSNumber* prop in properties)
+	{
+		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
+	}
+
+	@synchronized (self) {
+		NSMutableDictionary* ptpDeviceInfo = self.ptpDeviceInfo.mutableCopy;
+		NSArray* deviceProperties = [ptpDeviceInfo[@"properties"] arrayByAddingObjectsFromArray: properties];
+		
+		ptpDeviceInfo[@"properties"] = deviceProperties;
+		self.ptpDeviceInfo = ptpDeviceInfo;
+
+	}
+	
 	
 }
 
@@ -412,11 +459,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_PROP_FLEN:
 		case PTP_PROP_EXPOSURETIME:
 			return PTP_DATATYPE_UINT32_RAW;
-		case PTP_PROP_NIKON_LV_WHITEBALANCE:
-			assert(0);
-			return 0;
+//		case PTP_PROP_NIKON_LV_WHITEBALANCE:
+//			assert(0);
+//			return 0;
 		default:
-			NSLog(@"Unknown Property 0x%04X, cannot determine type.", property);
+//			NSLog(@"Unknown Property 0x%04X, cannot determine type.", property);
 			return 0;
 	}
 
@@ -679,8 +726,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
 	}
 	// The Nikon LiveView properties are not returned as device properties, but are still there
-	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
-	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
+	if ([opsSupported containsObject: @(PTP_CMD_NIKON_GETVENDORPROPS)])
+		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
+
+//	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
+//	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
 
 	
 //	if ([ptpDeviceInfo[@"operations"] containsObject: @(MTP_CMD_GETOBJECTPROPSSUPPORTED)])
@@ -688,6 +738,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //		[self querySupportedMtpProperties];
 //	}
 	
+}
+
+- (void) requestSendPtpCommandWithCode: (int) code
+{
+	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId]];
+	
+	[self.cameraDevice requestSendPTPCommand: command
+									 outData: nil
+						 sendCommandDelegate: self
+					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
+								 contextInfo: NULL];
 }
 
 - (void) ptpQueryKnownDeviceProperties
@@ -701,14 +762,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) querySupportedMtpProperties
 {
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: MTP_CMD_GETOBJECTPROPSSUPPORTED transactionId: [self nextTransactionId]];
-	
-	[self.cameraDevice requestSendPTPCommand: command
-									 outData: nil
-						 sendCommandDelegate: self
-					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
-								 contextInfo: NULL];
-
+	[self requestSendPtpCommandWithCode: MTP_CMD_GETOBJECTPROPSSUPPORTED];
 }
 
 - (uint32_t) nextTransactionId
@@ -816,6 +870,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			valueString = name;
 			break;
 		}
+		case PTP_PROP_NIKON_LV_STATUS:
+		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
+		{
+			valueString = [value boolValue] ? @"On" : @"Off";
+			break;
+		}
 	}
 
 	return valueString;
@@ -862,6 +922,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 					subItem.action =  @selector(changeCameraPropertyAction:);
 					subItem.tag = propertyId.integerValue;
 					subItem.representedObject = enumVal;
+					
+					if ([value isEqual: enumVal])
+						subItem.state = NSControlStateValueOn;
+					
 					[submenu addItem: subItem];
 
 				}
