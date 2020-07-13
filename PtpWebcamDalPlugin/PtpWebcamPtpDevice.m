@@ -21,6 +21,8 @@
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpProgramModeNames = nil;
 static NSDictionary* _ptpWhiteBalanceModeNames = nil;
+static NSDictionary* _ptpLiveViewImageSizeNames = nil;
+
 static NSDictionary* _supportedCameras = nil;
 
 static NSDictionary* _liveViewJpegDataOffsets = nil;
@@ -45,7 +47,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x042E) : @[@"Nikon", @"D800E"],
 //				@(0x0430) : @[@"Nikon", @"D7100"],
 				@(0x0436) : @[@"Nikon", @"D810"],
+				@(0x043B) : @[@"Nikon", @"D810A"],
 //				@(0x043F) : @[@"Nikon", @"D5600"],
+//				@(0x0440) : @[@"Nikon", @"D7500"],
+				@(0x0441) : @[@"Nikon", @"D850"],
 			},
 		};
 	});
@@ -103,11 +108,21 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x8013) : @"Preset",
 		};
 
+		_ptpLiveViewImageSizeNames = @{
+			@(0x0000) : @"Undefined",
+			@(0x0001) : @"VGA",
+			@(0x0002) : @"QVGA",
+			@(0x0003) : @"XGA",
+		};
+
+
 		_liveViewJpegDataOffsets = @{
 			@(0x04B0) : @{
 				@(0x042A) : @(384), // D800
 				@(0x042E) : @(384), // D800E
-				@(0x0436) : @(376), // D810
+				@(0x0436) : @(384), // D810
+				@(0x043B) : @(384), // D810A
+				@(0x0441) : @(384), // D850
 			},
 		};
 
@@ -772,6 +787,15 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_PROP_WHITEBALANCE:
 		{
 			NSString* name = [_ptpWhiteBalanceModeNames objectForKey: value];
+			if (!name)
+				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			
+			valueString = name;
+			break;
+		}
+		case PTP_PROP_NIKON_LV_IMAGESIZE:
+		{
+			NSString* name = [_ptpLiveViewImageSizeNames objectForKey: value];
 			if (!name)
 				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
 			

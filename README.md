@@ -31,7 +31,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
  ### Untested
   - Nikon D800E
   - Nikon D810
-	- note: D810 supports QVGA LiveView image size, but it is not possible to select that at this time
+  - Nikon D810A
+  - Nikon D850
+  
+  note: D810 and D850 support larger LiveView image sizes, but it is not possible to select that at this time.
  
  Many other cameras can in theory be made to work, but are not yet supported.
  
