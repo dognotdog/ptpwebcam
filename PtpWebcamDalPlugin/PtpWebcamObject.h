@@ -31,6 +31,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface PtpWebcamObject : NSObject <PtpWebcamObject>
 
+- (instancetype) initWithPluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
+
+@property _Nonnull CMIOHardwarePlugInRef pluginInterfaceRef;
+
 @end
 
 @interface PtpWebcamObject (CMIOObject)

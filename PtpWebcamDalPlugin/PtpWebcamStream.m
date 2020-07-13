@@ -19,9 +19,9 @@
 
 @implementation PtpWebcamStream
 
-- (instancetype) init
+- (instancetype) initWithPluginInterface: (CMIOHardwarePlugInRef)pluginInterface
 {
-	if (!(self = [super init]))
+	if (!(self = [super initWithPluginInterface: pluginInterface]))
 		return nil;
 		
 	{
@@ -45,11 +45,11 @@
 	CFRelease(cmQueue);
 }
 
-- (void) createCmioStreamWithPluginInterface: (CMIOHardwarePlugInRef) pluginInterface device: (PtpWebcamDevice*) device
+- (void) createCmioStreamWithDevice: (PtpWebcamDevice*) device
 {
 	// create stream as child of device
 	CMIOObjectID streamId = 0;
-	OSStatus createErr = CMIOObjectCreate(pluginInterface, device.objectId, kCMIOStreamClassID, &streamId);
+	OSStatus createErr = CMIOObjectCreate(self.pluginInterfaceRef, device.objectId, kCMIOStreamClassID, &streamId);
 	if (createErr != kCMIOHardwareNoError)
 	{
 		NSLog(@"failed to create stream with error %d", createErr);
@@ -63,11 +63,11 @@
 	self.device = device;
 }
 
-- (void) publishCmioStreamWithPluginInterface: (CMIOHardwarePlugInRef) pluginInterface
+- (void) publishCmioStream
 {
 	CMIOObjectID streamId = self.objectId;
 //	OSStatus err = CMIOObjectsPublishedAndDied(&_pluginInterface, kCMIOObjectSystemObject, 1, &streamId, 0, NULL);
-	OSStatus err = CMIOObjectsPublishedAndDied(pluginInterface, self.deviceId, 1, &streamId, 0, NULL);
+	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, self.deviceId, 1, &streamId, 0, NULL);
 	if (err != kCMIOHardwareNoError)
 	{
 		NSLog(@"failed to publish stream with error %d", err);
@@ -76,6 +76,26 @@
 	NSLog(@"published stream %u", streamId);
 
 }
+
+- (void) unpublishCmioStream
+{
+	CMIOObjectID streamId = self.objectId;
+//	OSStatus err = CMIOObjectsPublishedAndDied(&_pluginInterface, kCMIOObjectSystemObject, 1, &streamId, 0, NULL);
+	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, self.deviceId, 0, NULL, 1, &streamId);
+	if (err != kCMIOHardwareNoError)
+	{
+		NSLog(@"failed to unpublish stream with error %d", err);
+		assert(0);
+	}
+	NSLog(@"unpublished stream %u", streamId);
+
+}
+
+- (void) deleteCmioStream
+{
+	[self unpublishCmioStream];
+}
+
 
 - (OSStatus) startStream
 {
@@ -89,6 +109,12 @@
 	[self doesNotRecognizeSelector: _cmd];
 
 	return kCMIOHardwareNoError;
+}
+
+- (void) unplugDevice
+{
+	[self stopStream];
+	[self deleteCmioStream];
 }
 
 

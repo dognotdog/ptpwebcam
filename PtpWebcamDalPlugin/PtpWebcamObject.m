@@ -18,11 +18,12 @@
 
 @synthesize objectId;
 
-- (instancetype) init
+- (instancetype) initWithPluginInterface: (CMIOHardwarePlugInRef)pluginInterfaceRef
 {
 	if (!(self = [super init]))
 		return nil;
 	
+	self.pluginInterfaceRef = pluginInterfaceRef;
 	listeners = [NSMutableDictionary dictionary];
 	
 	return self;

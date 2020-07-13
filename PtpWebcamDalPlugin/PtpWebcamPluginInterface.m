@@ -544,6 +544,7 @@ void* PtpWebcamPluginFactory(CFAllocatorRef allocator, CFUUIDRef requestedTypeUU
 	PtpWebcamPlugin* self = [[PtpWebcamPlugin alloc] init];
 	
 	self.pluginInterface = &_gPluginInterface;
+	self.pluginInterfaceRef = &self->_pluginInterface;
 	
 	// add a retain as we're leaving ARC domain
 	CFRetain((__bridge void*)self);

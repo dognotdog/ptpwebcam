@@ -40,8 +40,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property PtpWebcamStream* stream;
 
-- (void) createCmioDeviceWithPluginInterface: (CMIOHardwarePlugInRef _Nonnull) pluginInterface id: (CMIOObjectID) pluginId;
-- (void) publishCmioDeviceWithPluginInterface: (CMIOHardwarePlugInRef _Nonnull) pluginInterface;
+- (void) createCmioDeviceWithPluginId: (CMIOObjectID) pluginId;
+- (void) publishCmioDevice;
+- (void) unpublishCmioDevice;
+
+- (void) deleteCmioDevice;
 
 - (void) unplugDevice;
 - (void) finalizeDevice;

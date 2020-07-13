@@ -70,7 +70,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (uint32_t) nextTransactionId;
 
-- (instancetype) initWithIcDevice: (ICCameraDevice*) device;
+- (instancetype) initWithIcDevice: (ICCameraDevice*) device pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
 
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
 - (void) ptpQueryKnownDeviceProperties;

@@ -16,14 +16,15 @@
 	dispatch_source_t frameTimerSource;
 	dispatch_queue_t frameQueue;
 	BOOL isStreaming;
+	BOOL liveViewShouldBeEnabled; // indicate that live view should be running, so try to restart stream on error
 }
 @end
 
 @implementation PtpWebcamPtpStream
 
-- (instancetype) init
+- (instancetype) initWithPluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface
 {
-	if (!(self = [super init]))
+	if (!(self = [super initWithPluginInterface: pluginInterface]))
 		return nil;
 		
 	self.name = @"D800 Webcam Plugin Stream";
@@ -71,8 +72,9 @@
 	
 	isStreaming = YES;
 	
-	// refresh device properties
+	// refresh device properties after live view is on
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+		self->liveViewShouldBeEnabled = YES;
 		[self.ptpDevice ptpQueryKnownDeviceProperties];
 	});
 
@@ -81,7 +83,10 @@
 
 - (OSStatus) stopStream
 {
-	dispatch_suspend(frameTimerSource);
+	if (frameTimerSource)
+		dispatch_suspend(frameTimerSource);
+	
+	liveViewShouldBeEnabled = NO;
 
 	[self.ptpDevice.cameraDevice requestSendPTPCommand: [self.ptpDevice ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_STOPLIVEVIEW transactionId: [self.ptpDevice nextTransactionId]]
 						  outData: nil
@@ -127,6 +132,14 @@
 	if (!data)
 	{
 		NSLog(@"parsePtpLiveViewImageResponse: no data!");
+		
+		// restart live view if it got turned off after timeout or error
+		if (liveViewShouldBeEnabled)
+		{
+			[self stopStream];
+			[self startStream];
+		}
+		
 		return;
 	}
 	

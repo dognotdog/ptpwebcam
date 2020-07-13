@@ -19,11 +19,11 @@
 
 @implementation PtpWebcamDevice
 
-- (void) createCmioDeviceWithPluginInterface: (CMIOHardwarePlugInRef) pluginInterface id: (CMIOObjectID) pluginId
+- (void) createCmioDeviceWithPluginId: (CMIOObjectID) pluginId
 {
 	// create device as systemobject
 		CMIOObjectID deviceId = 0;
-		OSStatus createErr = CMIOObjectCreate(pluginInterface, kCMIOObjectSystemObject, kCMIODeviceClassID, &deviceId);
+		OSStatus createErr = CMIOObjectCreate(self.pluginInterfaceRef, kCMIOObjectSystemObject, kCMIODeviceClassID, &deviceId);
 		if (createErr != kCMIOHardwareNoError)
 		{
 			NSLog(@"failed to create device with error %d", createErr);
@@ -33,16 +33,34 @@
 		self.pluginId = pluginId;
 }
 
-- (void) publishCmioDeviceWithPluginInterface: (CMIOHardwarePlugInRef) pluginInterface
+- (void) publishCmioDevice
 {
 	CMIOObjectID deviceId = self.objectId;
-	OSStatus err = CMIOObjectsPublishedAndDied(pluginInterface, kCMIOObjectSystemObject, 1, &deviceId, 0, NULL);
+	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, kCMIOObjectSystemObject, 1, &deviceId, 0, NULL);
 	if (err != kCMIOHardwareNoError)
 	{
 		NSLog(@"failed to publish device with error %d", err);
 		assert(0);
 	}
 	NSLog(@"published device %u", deviceId);
+}
+
+- (void) unpublishCmioDevice
+{
+	CMIOObjectID deviceId = self.objectId;
+	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, kCMIOObjectSystemObject, 0, NULL, 1, &deviceId);
+	if (err != kCMIOHardwareNoError)
+	{
+		NSLog(@"failed to publish device with error %d", err);
+		assert(0);
+	}
+	NSLog(@"published device %u", deviceId);
+
+}
+
+- (void) deleteCmioDevice
+{
+	[self unpublishCmioDevice];
 }
 
 - (uint32_t) numStreams

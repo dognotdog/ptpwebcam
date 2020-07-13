@@ -36,16 +36,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(weak) PtpWebcamDevice* device;
 
-- (void) createCmioStreamWithPluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface device: (PtpWebcamDevice*) device;
-- (void) publishCmioStreamWithPluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
+- (void) createCmioStreamWithDevice: (PtpWebcamDevice*) device;
+- (void) publishCmioStream;
+- (void) deleteCmioStream;
 
 - (CMSimpleQueueRef) copyBufferQueueWithAlteredProc: (CMIODeviceStreamQueueAlteredProc) queueAlteredProc refCon: (void*) refCon;
 
 - (CMVideoFormatDescriptionRef) createFormatDescription;
 
+- (void) unplugDevice;
+
 - (OSStatus) startStream;
 - (OSStatus) stopStream;
-- (void) restartStreamIfRunning;
+//- (void) restartStreamIfRunning;
 
 
 @end

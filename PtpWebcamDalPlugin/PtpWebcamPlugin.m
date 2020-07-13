@@ -121,17 +121,17 @@
 
 - (void) createDummyDeviceAndStream
 {
-	PtpWebcamDummyDevice* device = [[PtpWebcamDummyDevice alloc] init];
-	[device createCmioDeviceWithPluginInterface: &_pluginInterface id: self.objectId];
+	PtpWebcamDummyDevice* device = [[PtpWebcamDummyDevice alloc] initWithPluginInterface: self.pluginInterfaceRef];
+	[device createCmioDeviceWithPluginId: self.objectId];
 	[PtpWebcamObject registerObject: device];
 	
-	PtpWebcamDummyStream* stream = [[PtpWebcamDummyStream alloc] init];
-	[stream createCmioStreamWithPluginInterface: &_pluginInterface device: device];
+	PtpWebcamDummyStream* stream = [[PtpWebcamDummyStream alloc] initWithPluginInterface: self.pluginInterfaceRef];
+	[stream createCmioStreamWithDevice: device];
 	[PtpWebcamObject registerObject: stream];
 
 	// then publish stream and device
-	[device publishCmioDeviceWithPluginInterface: &_pluginInterface];
-	[stream publishCmioStreamWithPluginInterface: &_pluginInterface];
+	[device publishCmioDevice];
+	[stream publishCmioStream];
 	
 	@synchronized (self) {
 		self.devices = [self.devices arrayByAddingObject: device];
@@ -145,18 +145,18 @@
 	
 	// create and register stream and device
 	
-	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithIcDevice: camera];
-	[device createCmioDeviceWithPluginInterface: &_pluginInterface id: self.objectId];
+	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithIcDevice: camera pluginInterface: self.pluginInterfaceRef];
+	[device createCmioDeviceWithPluginId: self.objectId];
 	[PtpWebcamObject registerObject: device];
 	
-	PtpWebcamPtpStream* stream = [[PtpWebcamPtpStream alloc] init];
+	PtpWebcamPtpStream* stream = [[PtpWebcamPtpStream alloc] initWithPluginInterface: self.pluginInterfaceRef];
 	stream.ptpDevice = device;
-	[stream createCmioStreamWithPluginInterface: &_pluginInterface device: device];
+	[stream createCmioStreamWithDevice: device];
 	[PtpWebcamObject registerObject: stream];
 
 	// then publish stream and device
-	[device publishCmioDeviceWithPluginInterface: &_pluginInterface];
-	[stream publishCmioStreamWithPluginInterface: &_pluginInterface];
+	[device publishCmioDevice];
+	[stream publishCmioStream];
 	
 	@synchronized (self) {
 		self.devices = [self.devices arrayByAddingObject: device];
@@ -176,17 +176,27 @@
 	}
 }
 
-- (void)deviceBrowser:(nonnull ICDeviceBrowser *)browser didRemoveDevice:(nonnull ICDevice *)device moreGoing:(BOOL)moreGoing
+- (void)deviceBrowser:(nonnull ICDeviceBrowser *)browser didRemoveDevice:(nonnull ICDevice *)icDevice moreGoing:(BOOL)moreGoing
 {
-	NSLog(@"remove device %@", device);
+	NSLog(@"remove device %@", icDevice);
+	
+	for(PtpWebcamDevice* device in self.devices)
+	{
+		if([device isKindOfClass: [PtpWebcamPtpDevice class]])
+		{
+			PtpWebcamPtpDevice* ptpDevice = (id)device;
+			if ([icDevice isEqual: ptpDevice.cameraDevice])
+				[ptpDevice unplugDevice];
+		}
+	}
 }
 
 
 - (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
 {
-	NSLog(@"D800 didOpenSession");
+	NSLog(@"device didOpenSession");
 	if (error)
-		NSLog(@"D800 could not open session because %@", error);
+		NSLog(@"device could not open session because %@", error);
 	
 }
 

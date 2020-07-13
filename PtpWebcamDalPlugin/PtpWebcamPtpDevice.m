@@ -63,9 +63,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return NO;
 }
 
-- (instancetype) initWithIcDevice: (ICCameraDevice*) device
+- (instancetype) initWithIcDevice: (ICCameraDevice*) device pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface
 {
-	if (!(self = [super init]))
+	if (!(self = [super initWithPluginInterface: pluginInterface]))
 		return nil;
 	
 	static dispatch_once_t onceToken;
@@ -80,7 +80,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(PTP_PROP_EXPOSUREBIAS) : @"Exposure Correction",
 			@(PTP_PROP_FLEN) : @"Focal Length",
 			@(PTP_PROP_EXPOSURETIME) : @"Exposure Time",
-			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview"
+			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
+			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
 		};
 		_ptpProgramModeNames = @{
 			@(0x0000) : @"Undefined",
@@ -215,7 +216,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (NSData*) paramData
 {
-	uint32_t length = 12 + paramData.length;
+	uint32_t length = 12 + (uint32_t)paramData.length;
 	NSMutableData* data = [NSMutableData data];
 	[data appendBytes: &length length: 4];
 	[data appendBytes: &type length: 2];
@@ -397,6 +398,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	switch(property)
 	{
 		case PTP_PROP_BATTERYLEVEL:
+		case PTP_PROP_NIKON_LV_STATUS:
 		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
 			return PTP_DATATYPE_UINT8_RAW;
 		case PTP_PROP_WHITEBALANCE:
@@ -676,9 +678,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	{
 		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
 	}
-	// D800: exposure preview is not reteruned as a property, but should be there?
+	// The Nikon LiveView properties are not returned as device properties, but are still there
 	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
-	
+	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
+
 	
 //	if ([ptpDeviceInfo[@"operations"] containsObject: @(MTP_CMD_GETOBJECTPROPSSUPPORTED)])
 //	{
@@ -713,6 +716,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	@synchronized (self) {
 		return ++transactionId;
 	}
+}
+
+- (void) unplugDevice
+{
+	
+	[self.stream unplugDevice];
+
+	[self removeStatusItem];
+
+	[self deleteCmioDevice];
+	
 }
 
 - (void) createStatusItem
