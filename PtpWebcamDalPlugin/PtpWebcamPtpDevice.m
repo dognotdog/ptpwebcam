@@ -1071,8 +1071,24 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[menu addItem: menuItem];
 	}
 	
+	// add autofocus command
+	if ([self.ptpDeviceInfo[@"operations"] containsObject: @(PTP_CMD_NIKON_AFDRIVE)])
+	{
+		[menu addItem: [NSMenuItem separatorItem]];
+		NSMenuItem* item = [[NSMenuItem alloc] init];
+		item.title =  @"Autofocus…";
+		item.target = self;
+		item.action =  @selector(autofocusAction:);
+		[menu addItem: item];
+	}
+	
+	
 	statusItem.menu = menu;
 
+}
+- (IBAction) autofocusAction:(NSMenuItem*)sender
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
 }
 
 - (IBAction) changeCameraPropertyAction:(NSMenuItem*)sender
