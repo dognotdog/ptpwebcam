@@ -1,8 +1,8 @@
 #  PTP Webcam DAL Plugin
 
-Large sensor digital still cameras can provide an exceptionally improved image for video conferencing, compared to most built-in web cameras.
+Large sensor digital still cameras can provide an exceptionally good image for video conferencing, compared to most built-in web cameras.
 
-This is a plugin to make compatible digital cameras available as webcams in video calls, for example in Zoom or Skype on macOS.
+This is a plugin to make compatible digital cameras available as webcams in video calls, for example in Zoom or Skype on macOS. It also allows control of camera settings from the computer to adjust exposure parameters and focus.
 
 The project consists of a CoreMediaIO DAL plugin, and a preview app to test functionality.
 
@@ -18,57 +18,52 @@ The project consists of a CoreMediaIO DAL plugin, and a preview app to test func
 #### Nikon D3400
 - exposure preview not available
  
- ### Untested
+### Untested
   
-  The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
+The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
   
   - Nikon D90
-  - Nikon D300, Nikon D300S
-  - Nikon D500
+  - Nikon D300, Nikon D300S, Nikon D500
   - Nikon D3200, Nikon D3300, Nikon D3500
   - Nikon D5000, Nikon D5100, Nikon D5200, Nikon D5300, Nikon D5500, Nikon D5600
   - Nikon D7000, Nikon D7100, Nikon D7200, Nikon D7500
   
   - Nikon Df
-  - Nikon D3, Nikon D3S, Nikon D3X
-  - Nikon D4, Nikon D4S
-  - Nikon D5
-  - Nikon D6
+  - Nikon D3, Nikon D3S, Nikon D3X, Nikon D4, Nikon D4S, Nikon D5, Nikon D6
   - Nikon D600, Nikon D610
   - Nikon D700, Nikon D750, Nikon D780
   - Nikon D800E, Nikon D810, Nikon D810A, Nikon D850
   
   - Nikon Z50
   
-  - Nikon Z6
-  - Nikon Z7
+  - Nikon Z6, Nikon Z7
   
-  note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
+Note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
  
- Many other cameras can in theory be made to work, but are not yet supported.
+Many other cameras can in theory be made to work, but are not yet supported.
  
- ### Not usable because of hardware limitations
+### Not usable because of hardware limitations
  - Nikon D40, D60, D80, D200 do not support tethered live view.
  
  ## Known Issues
  
- ### Library Validation
+### Library Validation
  
- macOS applications that have library validation enabled cannot load DAL plugins that have not been signed or signed by another developer. Therefore, some popular video conferencing tools do not work out of the box.
+macOS applications that have library validation enabled cannot load DAL plugins that have not been signed or signed by another developer. Therefore, some popular video conferencing tools do not work out of the box.
  
- The easiest way to workaround is to remove the signature for the offending applications, but note that this might be affected by security settings on your system, and might require to relax security settings.
+The easiest way to workaround is to remove the signature for the offending applications, but note that this might be affected by security settings on your system, and might require to relax security settings.
  
- #### References
+#### References
  
- https://stackoverflow.com/a/62456259/4296447
+https://stackoverflow.com/a/62456259/4296447
  
- #### Zoom workaround
+#### Zoom workaround
  
- `codesign --remove-signature /Applications/zoom.us.app`
+`codesign --remove-signature /Applications/zoom.us.app`
  
- #### Skype workaround
+#### Skype workaround
  
- Skype has several helper apps inside its application bundle that might need code signing disabled. 
+Skype has several helper apps inside its application bundle that might need code signing disabled. 
 
 ```
 cd /Applications/Skype.app/Contents/Frameworks
@@ -101,6 +96,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
 ## Acknowledgements
+
+Thanks to Marty Swartz for being the first to help testing additional cameras.
 
 This work would not have been possible without other open-source work:
 https://github.com/johnboiles/coremediaio-dal-minimal-example
