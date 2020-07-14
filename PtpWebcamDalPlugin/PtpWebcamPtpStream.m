@@ -72,8 +72,8 @@
 	
 	isStreaming = YES;
 	
-	// refresh device properties after live view is on
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+	// refresh device properties after live view is on, having given the camera little time to switch
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
 		self->liveViewShouldBeEnabled = YES;
 		[self.ptpDevice ptpQueryKnownDeviceProperties];
 	});
