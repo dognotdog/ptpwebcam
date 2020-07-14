@@ -156,7 +156,7 @@
 	
 	switch (code)
 	{
-		case PTP_RSP_NOTLIVEVIEW:
+		case PTP_RSP_NIKON_NOTLIVEVIEW:
 		{
 			NSLog(@"camera not in liveview, no image.");
 			//			[self asyncGetLiveViewImage];
