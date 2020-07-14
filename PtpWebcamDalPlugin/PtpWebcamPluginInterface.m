@@ -32,7 +32,7 @@ static NSMutableDictionary* _objectMap = nil;
 		return _objectMap[@(objectId)];
 	}
 }
-+ (void) registerObject: (NSObject <PtpWebcamObject> *) obj
++ (void) registerObject: (PtpWebcamObject *) obj
 {
 	@synchronized (_objectMap) {
 		_objectMap[@(obj.objectId)] = obj;
@@ -257,7 +257,7 @@ static Boolean _objectHasProperty(CMIOHardwarePlugInRef interfaceRef, CMIOObject
 		return false;
 	@synchronized(_objectMap)
 	{
-		NSObject<PtpWebcamObject>* self = _objectMap[@(objectId)];
+		PtpWebcamObject* self = _objectMap[@(objectId)];
 		if (!self)
 			return false;
 		return [self hasPropertyWithAddress: *address];

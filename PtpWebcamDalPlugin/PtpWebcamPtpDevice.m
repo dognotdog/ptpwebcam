@@ -22,6 +22,7 @@ static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpProgramModeNames = nil;
 static NSDictionary* _ptpWhiteBalanceModeNames = nil;
 static NSDictionary* _ptpLiveViewImageSizeNames = nil;
+static NSDictionary* _ptpNonAdvertisedOperations = nil;
 
 static NSDictionary* _supportedCameras = nil;
 
@@ -39,22 +40,44 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0410) : @[@"Nikon", @"D200"],
 				@(0x041A) : @[@"Nikon", @"D300"],
 				@(0x041C) : @[@"Nikon", @"D3"],
+				@(0x0420) : @[@"Nikon", @"D3X"],
+				@(0x0421) : @[@"Nikon", @"D90"],
 				@(0x0422) : @[@"Nikon", @"D700"],
-//				@(0x0423) : @[@"Nikon", @"D5000"],
+				@(0x0423) : @[@"Nikon", @"D5000"],
 //				@(0x0424) : @[@"Nikon", @"D3000"],
 				@(0x0425) : @[@"Nikon", @"D300S"],
 				@(0x0426) : @[@"Nikon", @"D3S"],
-//				@(0x0428) : @[@"Nikon", @"D7000"],
-//				@(0x0429) : @[@"Nikon", @"D5100"],
+				@(0x0428) : @[@"Nikon", @"D7000"],
+				@(0x0429) : @[@"Nikon", @"D5100"],
 				@(0x042A) : @[@"Nikon", @"D800"],
+				@(0x042B) : @[@"Nikon", @"D4"],
+				@(0x042C) : @[@"Nikon", @"D3200"],
+				@(0x042D) : @[@"Nikon", @"D600"],
 				@(0x042E) : @[@"Nikon", @"D800E"],
-//				@(0x0430) : @[@"Nikon", @"D7100"],
+				@(0x042F) : @[@"Nikon", @"D5200"],
+				@(0x0430) : @[@"Nikon", @"D7100"],
+				@(0x0431) : @[@"Nikon", @"D5300"],
+				@(0x0432) : @[@"Nikon", @"Df"],
+				@(0x0433) : @[@"Nikon", @"D3300"],
+				@(0x0434) : @[@"Nikon", @"D610"],
+				@(0x0435) : @[@"Nikon", @"D4S"],
 				@(0x0436) : @[@"Nikon", @"D810"],
 				@(0x0437) : @[@"Nikon", @"D750"],
+				@(0x0438) : @[@"Nikon", @"D5500"],
+				@(0x0439) : @[@"Nikon", @"D7200"],
+				@(0x043A) : @[@"Nikon", @"D5"],
 				@(0x043B) : @[@"Nikon", @"D810A"],
-//				@(0x043F) : @[@"Nikon", @"D5600"],
-//				@(0x0440) : @[@"Nikon", @"D7500"],
+				@(0x043C) : @[@"Nikon", @"D500"],
+				@(0x043D) : @[@"Nikon", @"D3400"],
+				@(0x043F) : @[@"Nikon", @"D5600"],
+				@(0x0440) : @[@"Nikon", @"D7500"],
 				@(0x0441) : @[@"Nikon", @"D850"],
+				@(0x0442) : @[@"Nikon", @"Z7"],
+				@(0x0443) : @[@"Nikon", @"Z6"],
+				@(0x0444) : @[@"Nikon", @"Z50"],
+				@(0x0445) : @[@"Nikon", @"D3500"],
+				@(0x0446) : @[@"Nikon", @"D780"],
+				@(0x0447) : @[@"Nikon", @"D6"],
 			},
 		};
 	});
@@ -96,6 +119,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x0005) : @"Creative",
 			@(0x0006) : @"Action",
 			@(0x0007) : @"Portrait",
+			@(0x8010) : @"Auto",
+			@(0x8011) : @"Portrait",
+			@(0x8012) : @"Landscape",
+			@(0x8013) : @"Close-up",
+			@(0x8014) : @"Sports",
+			@(0x8015) : @"Night Portrait",
+			@(0x8016) : @"Flash Off Auto",
+			@(0x8018) : @"SCENE",
+			@(0x8019) : @"EFFECTS",
+			@(0x8050) : @"U1",
+			@(0x8051) : @"U2",
 		};
 		_ptpWhiteBalanceModeNames = @{
 			@(0x0000) : @"Undefined",
@@ -107,10 +141,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x0006) : @"Tungsten",
 			@(0x0007) : @"Flash",
 			// Nikon specific
-			@(0x8010) : @"Overcast",
-			@(0x8011) : @"Shadow",
+			@(0x8010) : @"Cloudy",
+			@(0x8011) : @"Shade",
 			@(0x8012) : @"Color Temperature",
 			@(0x8013) : @"Preset",
+			@(0x8014) : @"Off",
+			@(0x8016) : @"Natural Light Auto",
 		};
 
 		_ptpLiveViewImageSizeNames = @{
@@ -120,21 +156,58 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x0003) : @"XGA",
 		};
 
+		_ptpNonAdvertisedOperations = @{
+			@(0x04B0) : @{
+				// TODO: it looks as though the D3200 and newer in the series not advertise everything they can do, confirm that this is actually the case
+				@(0x042C) : @[@(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3200
+				@(0x0433) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3300
+				@(0x043D) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3400
+				@(0x0445) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3500
+			},
+		};
 
 		_liveViewJpegDataOffsets = @{
 			@(0x04B0) : @{
 				// JPEG data offset
 				@(0x041A) : @(64), // D300
 				@(0x041C) : @(64), // D3
+				@(0x0420) : @(64), // D3X
+				@(0x0421) : @(128), // D90
 				@(0x0422) : @(64), // D700
+				@(0x0423) : @(128), // D5000
 				@(0x0425) : @(64), // D300S
 				@(0x0426) : @(128), // D3S
+				@(0x0428) : @(384), // D7000
+				@(0x0429) : @(384), // D5100
 				@(0x042A) : @(384), // D800
+				@(0x042B) : @(384), // D4
+				@(0x042C) : @(384), // D3200
+				@(0x042D) : @(384), // D600
 				@(0x042E) : @(384), // D800E
+				@(0x042F) : @(384), // D5200
+				@(0x0430) : @(384), // D7100
+				@(0x0431) : @(384), // D5300
+				@(0x0432) : @(384), // Df
+				@(0x0433) : @(384), // D3300
+				@(0x0434) : @(384), // D610
+				@(0x0435) : @(384), // D4S
 				@(0x0436) : @(384), // D810
 				@(0x0437) : @(384), // D750
+				@(0x0438) : @(384), // D5500
+				@(0x0439) : @(384), // D7200
+				@(0x043A) : @(384), // D5
 				@(0x043B) : @(384), // D810A
+				@(0x043C) : @(384), // D500
+				@(0x043D) : @(384), // D3400
+				@(0x043F) : @(384), // D5600
+				@(0x0440) : @(384), // D7500
 				@(0x0441) : @(384), // D850
+				@(0x0442) : @(384), // Z7
+				@(0x0443) : @(384), // Z6
+				@(0x0444) : @(384), // Z50
+				@(0x0445) : @(384), // D3500
+				@(0x0446) : @(384), // D780
+				@(0x0447) : @(384), // D6
 			},
 		};
 
@@ -182,6 +255,46 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void)cameraDevice:(nonnull ICCameraDevice *)camera didReceivePTPEvent:(nonnull NSData *)eventData
 {
+	uint32_t len = 0;
+	[eventData getBytes: &len range: NSMakeRange(0, sizeof(len))];
+	uint16_t type = 0;
+	[eventData getBytes: &type range: NSMakeRange(4, sizeof(type))];
+	uint16_t code = 0;
+	[eventData getBytes: &code range: NSMakeRange(6, sizeof(code))];
+	uint32_t transactionId = 0;
+	[eventData getBytes: &transactionId range: NSMakeRange(8, sizeof(transactionId))];
+	uint32_t eventParam = 0;
+	[eventData getBytes: &eventParam range: NSMakeRange(12, sizeof(eventParam))];
+	
+	bool rebuildStatusItem = false;
+	switch (code)
+	{
+		case PTP_EVENT_DEVICEPROPCHANGED:
+		{
+			switch (eventParam)
+			{
+				case PTP_PROP_BATTERYLEVEL:
+				{
+					rebuildStatusItem = true;
+					break;
+				}
+				case PTP_PROP_NIKON_LV_STATUS:
+				{
+					rebuildStatusItem = true;
+					break;
+				}
+			}
+			break;
+		}
+	}
+	
+	if (rebuildStatusItem)
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self rebuildStatusItem];
+		});
+
+	}
 }
 
 
@@ -209,6 +322,14 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 }
 
+- (void) cameraDevice:(ICCameraDevice *)camera didReceiveThumbnailForItem:(ICCameraItem *)item
+{
+	
+}
+- (void) cameraDevice:(ICCameraDevice *)camera didReceiveMetadataForItem:(ICCameraItem *)item
+{
+	
+}
 
 - (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
 {
@@ -656,6 +777,16 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSArray* opsSupported = [self parsePtpUint16Array: [moreData subdataWithRange: NSMakeRange( 2, moreData.length - 2)] remainingData: &moreData];
 	//	NSLog(@"  ops = %@", opsSupported);
 	
+	// check for hard-coded operations and add them to property list
+	if (_ptpNonAdvertisedOperations[@(self.cameraDevice.usbVendorID)])
+	{
+		NSDictionary* vendorOpsTable = _ptpNonAdvertisedOperations[@(self.cameraDevice.usbVendorID)];
+		if (vendorOpsTable[@(self.cameraDevice.usbProductID)])
+		{
+			opsSupported = [opsSupported arrayByAddingObjectsFromArray: vendorOpsTable[@(self.cameraDevice.usbProductID)]];
+		}
+	}
+	
 	ptpDeviceInfo[@"operations"] = opsSupported;
 	
 	for (id prop in opsSupported)
@@ -788,7 +919,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
 
 	// The text that will be shown in the menu bar
-	statusItem.button.title = @"D800";
+	statusItem.button.title = self.name;
 
 	// The image that will be shown in the menu bar, a 16x16 black png works best
 //	_statusItem.image = [NSImage imageNamed:@"feedbin-logo"];

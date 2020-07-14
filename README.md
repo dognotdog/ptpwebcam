@@ -1,6 +1,8 @@
 #  PTP Webcam DAL Plugin
 
-This is a DAL plugin to make PTP-compatible digital cameras available as webcams in video calls.
+This is a DAL plugin to make PTP-compatible digital cameras available as webcams in video calls, for example in Zoom or Skype.
+
+
 
 The project consists of a CoreMediaIO DAL plugin, and a preview app to test functionality.
 
@@ -24,27 +26,66 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ## Supported Cameras over USB
 
 ### Tested
-- Nikon D800 (note: needs to be in Photography LiveView mode for exposure preview)
+
+#### Nikon D800 
+
+- needs to be in Photography LiveView mode for exposure preview to be available
+- LiveView timeout can be set to infinity via  `CUSTOM SETTINGS MENU -> c Timers/AE Lock -> c4 Monitor off delay -> Live view` 
+
+#### Nikon D3400
+- exposure preview not available
  
  ### Untested
-  - Nikon D3
-  - Nikon D3S
+  
+  The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
+  
+  - Nikon D90
   - Nikon D300
   - Nikon D300S
+  - Nikon D500
+  - Nikon D3200
+  - Nikon D3300
+  - Nikon D3500
+  - Nikon D5000
+  - Nikon D5100
+  - Nikon D5200
+  - Nikon D5300
+  - Nikon D5500
+  - Nikon D5600
+  - Nikon D7000
+  - Nikon D7100
+  - Nikon D7200
+  - Nikon D7500
+  
+  - Nikon Df
+  - Nikon D3
+  - Nikon D3S
+  - Nikon D3X
+  - Nikon D4
+  - Nikon D4S
+  - Nikon D5
+  - Nikon D6
+  - Nikon D600
+  - Nikon D610
   - Nikon D700
   - Nikon D750
+  - Nikon D780
   - Nikon D800E
   - Nikon D810
   - Nikon D810A
   - Nikon D850
   
-  note: D810 and D850 support larger LiveView image sizes, but it is not possible to select that at this time.
+  - Nikon Z50
+  
+  - Nikon Z6
+  - Nikon Z7
+  
+  note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
  
  Many other cameras can in theory be made to work, but are not yet supported.
  
  ### Not usable because of hardware limitations
- - Nikon D40 does not support tethered live view.
- - Nikon D80 does not support tethered live view.
+ - Nikon D40, D60, D80, D200 do not support tethered live view.
  
  ## Known Issues
  

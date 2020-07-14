@@ -14,13 +14,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol PtpWebcamObject <NSObject>
 
-- (BOOL) hasPropertyWithAddress: (CMIOObjectPropertyAddress) address;
-- (BOOL) isPropertySettable: (CMIOObjectPropertyAddress) address;
-- (uint32_t) getPropertyDataSizeForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData* __nullable) qualifierData;
-- (NSData* __nullable) getPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData*) qualifierData;
-- (OSStatus) setPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData* __nullable) qualifierData data: (NSData*) data;
-
-@property CMIOObjectID objectId;
 
 @optional
 
@@ -29,9 +22,17 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 
-@interface PtpWebcamObject : NSObject <PtpWebcamObject>
+@interface PtpWebcamObject : NSObject
 
 - (instancetype) initWithPluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
+
+- (BOOL) hasPropertyWithAddress: (CMIOObjectPropertyAddress) address;
+- (BOOL) isPropertySettable: (CMIOObjectPropertyAddress) address;
+- (uint32_t) getPropertyDataSizeForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData* __nullable) qualifierData;
+- (NSData* __nullable) getPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData*) qualifierData;
+- (OSStatus) setPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData* __nullable) qualifierData data: (NSData*) data;
+
+@property CMIOObjectID objectId;
 
 @property _Nonnull CMIOHardwarePlugInRef pluginInterfaceRef;
 
@@ -39,7 +40,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface PtpWebcamObject (CMIOObject)
 + (id) objectWithId: (CMIOObjectID) objectId;
-+ (void) registerObject: (NSObject <PtpWebcamObject> *) obj;
++ (void) registerObject: (PtpWebcamObject*) obj;
 + (NSString*) cmioPropertyIdToString: (uint32_t) property;
 @end
 
