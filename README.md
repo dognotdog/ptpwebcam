@@ -66,15 +66,13 @@ https://stackoverflow.com/a/62456259/4296447
 Skype has several helper apps inside its application bundle that might need code signing disabled. 
 
 ```
+codesign --remove-signature /Applications/Skype.app
 cd /Applications/Skype.app/Contents/Frameworks
 codesign --remove-signature Skype\ Helper.app
-```
-The following additional helpers might be named differently in different Skype versions.
-```
-codesign --remove-signature Skype\ Helper\ \(GPU\).app
-codesign --remove-signature Skype\ Helper\ \(Plugin\).app
 codesign --remove-signature Skype\ Helper\ \(Renderer\).app
 ```
+Additional helpers might be named differently in different Skype versions.
+
 ## License
 
 The full license is available in `LICENSE.md` at the same location as this readme.
