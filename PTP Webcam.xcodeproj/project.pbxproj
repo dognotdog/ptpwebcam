@@ -21,6 +21,7 @@
 		DA2922DD247EDA5E00794577 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DC247EDA5E00794577 /* Assets.xcassets */; };
 		DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DE247EDA5E00794577 /* MainMenu.xib */; };
 		DA2922E3247EDA5E00794577 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922E2247EDA5E00794577 /* main.m */; };
+		DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = DA47648E24BE504C00F228B4 /* LICENSE.md */; };
 		DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */; };
 		DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A380248C85D70029D4FB /* PtpWebcamDummyStream.m */; };
 		DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A383248C86090029D4FB /* PtpWebcamPtpDevice.m */; };
@@ -64,6 +65,7 @@
 		DA2922E1247EDA5E00794577 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA2922E2247EDA5E00794577 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DA2922E4247EDA5E00794577 /* PTP_Webcam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PTP_Webcam.entitlements; sourceTree = "<group>"; };
+		DA47648E24BE504C00F228B4 /* LICENSE.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
 		DAD0A37C248C85AB0029D4FB /* PtpWebcamDummyDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyDevice.h; sourceTree = "<group>"; };
 		DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamDummyDevice.m; sourceTree = "<group>"; };
 		DAD0A37F248C85D70029D4FB /* PtpWebcamDummyStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyStream.h; sourceTree = "<group>"; };
@@ -73,6 +75,7 @@
 		DAD0A385248C8D550029D4FB /* PtpWebcamPtpStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamPtpStream.h; sourceTree = "<group>"; };
 		DAD0A386248C8D550029D4FB /* PtpWebcamPtpStream.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamPtpStream.m; sourceTree = "<group>"; };
 		DAF01A4224BB7FB80056F853 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		DAF3AAE724BFB2B00081F9FA /* ptpwebcam-logo-22x22.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "ptpwebcam-logo-22x22.png"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -101,6 +104,7 @@
 		DA2681042481BB2100FF75EF /* PtpWebcamDalPlugin */ = {
 			isa = PBXGroup;
 			children = (
+				DAF3AAE724BFB2B00081F9FA /* ptpwebcam-logo-22x22.png */,
 				DA2681052481BB2100FF75EF /* Info.plist */,
 				DA2681162481C4E300FF75EF /* PtpWebcamPluginInterface.m */,
 				DA26811824821E2A00FF75EF /* PtpWebcamPlugin.h */,
@@ -127,6 +131,7 @@
 		DA2922CD247EDA5B00794577 = {
 			isa = PBXGroup;
 			children = (
+				DA47648E24BE504C00F228B4 /* LICENSE.md */,
 				DAF01A4224BB7FB80056F853 /* README.md */,
 				DA2922D8247EDA5B00794577 /* PTP Webcam Preview */,
 				DA2681042481BB2100FF75EF /* PtpWebcamDalPlugin */,
@@ -258,6 +263,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA2922DD247EDA5E00794577 /* Assets.xcassets in Resources */,
+				DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */,
 				DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -315,18 +321,21 @@
 		DA2681072481BB2100FF75EF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
 				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
-				INSTALL_GROUP = "$(GROUP)";
-				INSTALL_OWNER = "$(USER)";
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/CoreMediaIO/Plug-Ins/DAL";
-				PRODUCT_BUNDLE_IDENTIFIER = com.monkeyinthejungle.ptpwebcamdalplugin;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MARKETING_VERSION = "1.0.0-alpha2";
+				PRODUCT_BUNDLE_IDENTIFIER = net.monkeyinthejungle.ptpwebcamdalplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = NO;
 				WRAPPER_EXTENSION = plugin;
 			};
@@ -335,18 +344,21 @@
 		DA2681082481BB2100FF75EF /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
 				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
-				INSTALL_GROUP = "$(GROUP)";
-				INSTALL_OWNER = "$(USER)";
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/CoreMediaIO/Plug-Ins/DAL";
-				PRODUCT_BUNDLE_IDENTIFIER = com.monkeyinthejungle.ptpwebcamdalplugin;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MARKETING_VERSION = "1.0.0-alpha2";
+				PRODUCT_BUNDLE_IDENTIFIER = net.monkeyinthejungle.ptpwebcamdalplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = NO;
 				WRAPPER_EXTENSION = plugin;
 			};
@@ -407,6 +419,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 			};
 			name = Debug;
 		};
@@ -458,6 +471,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 			};
 			name = Release;
 		};
@@ -466,10 +480,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "PTP Webcam Preview/PTP_Webcam.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -483,8 +499,12 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.inrobco.PtpWebcam;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MARKETING_VERSION = "1.0.0-alpha2";
+				PRODUCT_BUNDLE_IDENTIFIER = net.monkeyinthejungle.PtpWebcam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = NO;
 				VALID_ARCHS = x86_64;
 			};
 			name = Debug;
@@ -494,10 +514,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "PTP Webcam Preview/PTP_Webcam.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -511,8 +533,12 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.inrobco.PtpWebcam;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MARKETING_VERSION = "1.0.0-alpha2";
+				PRODUCT_BUNDLE_IDENTIFIER = net.monkeyinthejungle.PtpWebcam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = NO;
 				VALID_ARCHS = x86_64;
 			};
 			name = Release;
