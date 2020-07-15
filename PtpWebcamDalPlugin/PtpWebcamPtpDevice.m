@@ -119,6 +119,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x0005) : @"Creative",
 			@(0x0006) : @"Action",
 			@(0x0007) : @"Portrait",
+			// Nikon specific
 			@(0x8010) : @"Auto",
 			@(0x8011) : @"Portrait",
 			@(0x8012) : @"Landscape",
@@ -151,9 +152,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 		_ptpLiveViewImageSizeNames = @{
 			@(0x0000) : @"Undefined",
-			@(0x0001) : @"VGA",
-			@(0x0002) : @"QVGA",
-			@(0x0003) : @"XGA",
+			@(0x0001) : @"QVGA",	// 320x240
+			@(0x0002) : @"VGA",		// 640x480
+			@(0x0003) : @"XGA",		// 1024x768
 		};
 
 		_ptpNonAdvertisedOperations = @{
@@ -275,7 +276,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			{
 				case PTP_PROP_BATTERYLEVEL:
 				{
-					rebuildStatusItem = true;
+					[self ptpGetPropertyDescription: PTP_PROP_BATTERYLEVEL];
+//					rebuildStatusItem = true;
 					break;
 				}
 				case PTP_PROP_NIKON_LV_STATUS:
@@ -291,7 +293,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	if (rebuildStatusItem)
 	{
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self rebuildStatusItem];
+//			[self rebuildStatusItem];
 		});
 
 	}
@@ -916,10 +918,32 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) createStatusItem
 {
-	statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
+	// blacklist some processes from creating status items to weed out the worst offenders
+	NSString *processName = [[NSProcessInfo processInfo] processName];
+	NSArray* blacklistedProcesses = @[
+		@"Skype Helper (Renderer)",
+//		@"Skype Helper",
+//		@"Skype",
+		@"caphost",
+//		@"zoom.us",
+	];
+	if ([blacklistedProcesses containsObject: processName])
+		return;
+	
+	NSLog(@"PTPWEBCAM PROCESS NAME %@", processName);
+
+	// do not create status item if stream isn't running to avoid duplicates for apps with multiple processes accessing DAL plugins
+
+	if (!statusItem)
+		statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
 
 	// The text that will be shown in the menu bar
 	statusItem.button.title = self.name;
+	
+	// we could set an image, but the text somehow makes more sense
+//	NSBundle *otherBundle = [NSBundle bundleWithIdentifier: @"net.monkeyinthejungle.ptpwebcamdalplugin"];
+//	NSImage *image = [otherBundle imageForResource: @"ptpwebcam-logo-22x22"];
+//	statusItem.button.image = image;
 
 	// The image that will be shown in the menu bar, a 16x16 black png works best
 //	_statusItem.image = [NSImage imageNamed:@"feedbin-logo"];
@@ -936,6 +960,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	
 	[[NSStatusBar systemStatusBar] removeStatusItem: statusItem];
+	statusItem = nil;
 	
 }
 
