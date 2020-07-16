@@ -8,6 +8,12 @@ The project consists of a CoreMediaIO DAL plugin, and a preview app to test func
 
 ## Installation
 
+### System Requirements
+
+A compatible camera connected via USB to a Mac running OS X 10.12 through 10.15 (only 10.14 has been confirmed to work so far). 
+
+### Binary Packages
+
 Installer packages from the latest release are available from the [Releases page](https://github.com/dognotdog/ptpwebcam/releases) of this project. 
 
 ### Testing the Installation
