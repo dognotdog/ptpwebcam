@@ -6,6 +6,20 @@ This is a plugin to make compatible digital cameras available as webcams in vide
 
 The project consists of a CoreMediaIO DAL plugin, and a preview app to test functionality.
 
+## Installation
+
+Installer packages from the latest release are available from the [Releases page](https://github.com/dognotdog/ptpwebcam/releases) of this project. 
+
+### Testing the Installation
+
+Opening _Quicktime Player_ and creating a _New Movie Recording_ via `File -> New Movie Recording`, then selecting the camera source can be used to verify functionality. The camera needs to be plugged in and turned on, and it might take a few seconds to show up.
+
+If the camera is connected, a status bar item with the camera's model number should appear and can be used to change settings.
+
+### Building from Source
+
+If you want to build from source, you need Xcode. You can build the project and the plugin should be automatically copied into `/Library/CoreMediaIO/Plug-Ins/DAL` to be available to the system. However, apps with _Library Validation_ enabled will need to have codesigning disabled to be able to access the plugin, see the **Known Issues** section below.
+
 ## Supported Cameras over USB
 
 ### Tested
