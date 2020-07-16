@@ -45,7 +45,7 @@ Many other cameras can in theory be made to work, but are not yet supported.
 ### Not usable because of hardware limitations
  - Nikon D40, D60, D80, D200 do not support tethered live view.
  
- ## Known Issues
+## Known Issues
  
 ### Library Validation
  
@@ -72,6 +72,10 @@ codesign --remove-signature Skype\ Helper.app
 codesign --remove-signature Skype\ Helper\ \(Renderer\).app
 ```
 Additional helpers might be named differently in different Skype versions.
+
+## Funding and Donations
+
+This project is open-source and free to use, but can be [supported through Patreon](https://www.patreon.com/dognotdog).
 
 ## License
 
