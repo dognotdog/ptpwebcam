@@ -6,6 +6,7 @@ This is a plugin to make compatible digital cameras available as webcams in vide
 
 The project consists of a CoreMediaIO DAL plugin, and a preview app to test functionality.
 
+
 ## Installation
 
 ### System Requirements
@@ -20,7 +21,10 @@ Installer packages from the latest release are available from the [Releases page
 
 Opening _Quicktime Player_ and creating a _New Movie Recording_ via `File -> New Movie Recording`, then selecting the camera source can be used to verify functionality. The camera needs to be plugged in and turned on, and it might take a few seconds to show up.
 
+
 If the camera is connected, a status bar item with the camera's model number should appear and can be used to change settings.
+
+<img src="docs/screenshot-cam-menu.png" width=400px> <img src="docs/screenshot-cam-select.png" width=400px>
 
 ### Building from Source
 
