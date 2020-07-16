@@ -73,9 +73,11 @@ codesign --remove-signature Skype\ Helper\ \(Renderer\).app
 ```
 Additional helpers might be named differently in different Skype versions.
 
-## Funding and Donations
+## Funding and Sponsorship
 
 This project is open-source and free to use, but can be [supported through Patreon](https://www.patreon.com/dognotdog).
+
+If you'd like to contribute in another way, contact (dognotdog)[https://github.com/dognotdog] directly.
 
 ## License
 
