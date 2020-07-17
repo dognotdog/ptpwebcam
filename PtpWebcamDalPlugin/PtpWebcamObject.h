@@ -12,6 +12,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+bool PtpWebcamIsProcessGuiBlacklisted(void);
+void PtpWebcamShowCatastrophicAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
+
 @protocol PtpWebcamObject <NSObject>
 
 

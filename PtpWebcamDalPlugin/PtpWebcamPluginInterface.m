@@ -21,8 +21,56 @@ break command add -s python -o "return any('SafeGetElement' in f.name for f in f
 #import "PtpWebcamStream.h"
 
 #include <objc/runtime.h>
+#include <stdarg.h>
 
 static NSMutableDictionary* _objectMap = nil;
+
+NSArray* PtpWebcamGuiBlacklistedProcesses(void)
+{
+	// Some processes in which the plugin lives might not have proper UI runloops setup, so things like alerts and the status item might not work right.
+	static NSArray* blacklistedProcesses = nil;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		blacklistedProcesses = @[
+			@"Skype Helper (Renderer)",
+	//		@"Skype Helper",
+	//		@"Skype",
+			@"caphost",
+	//		@"zoom.us",
+		];
+	});
+	return blacklistedProcesses;
+}
+
+bool PtpWebcamIsProcessGuiBlacklisted(void)
+{
+	NSString *processName = [[NSProcessInfo processInfo] processName];
+	NSArray* blacklistedProcesses = PtpWebcamGuiBlacklistedProcesses();
+	return ([blacklistedProcesses containsObject: processName]);
+}
+
+void PtpWebcamShowCatastrophicAlert(NSString* format, ...)
+{
+    va_list args;
+    va_start(args, format);
+	NSString* message = [[NSString alloc] initWithFormat: format arguments: args];
+	va_end(args);
+	
+	NSLog(@"PtpWebcamDalPlugin process name: %@", [[NSProcessInfo processInfo] processName]);
+	NSLog(@"PtpWebcamDalPlugin experienced a catastrophic failure: %@", message);
+	
+	if (!PtpWebcamIsProcessGuiBlacklisted())
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			NSAlert *alert = [[NSAlert alloc] init];
+			[alert setMessageText: @"The PTP Webcam DAL Plugin has encountered an unrecoverable error:"];
+			[alert setInformativeText: [NSString stringWithFormat: @"%@\n\nPlease file a bug report.", message]];
+			[alert addButtonWithTitle:@"Bummer."];
+			[alert setAlertStyle: NSAlertStyleCritical];
+			[alert runModal];
+		});
+	}
+}
 
 @implementation PtpWebcamObject (CMIOObject)
 
@@ -202,7 +250,6 @@ static HRESULT _queryInterface(void* interfaceRef, REFIID uuidBytes, void** inte
 static OSStatus _initializeWithObjectId(CMIOHardwarePlugInRef interfaceRef, CMIOObjectID objectId)
 {
 	NSLog(@"PtpWebcamPluginInterface _initializeWithObjectId(%u)", objectId);
-	
 	if (!interfaceRef)
 		return kCMIOHardwareIllegalOperationError;
 	PtpWebcamPlugin* self = _refToObj(interfaceRef);

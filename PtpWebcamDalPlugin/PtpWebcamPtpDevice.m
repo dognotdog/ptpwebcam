@@ -919,18 +919,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) createStatusItem
 {
 	// blacklist some processes from creating status items to weed out the worst offenders
-	NSString *processName = [[NSProcessInfo processInfo] processName];
-	NSArray* blacklistedProcesses = @[
-		@"Skype Helper (Renderer)",
-//		@"Skype Helper",
-//		@"Skype",
-		@"caphost",
-//		@"zoom.us",
-	];
-	if ([blacklistedProcesses containsObject: processName])
+	if (PtpWebcamIsProcessGuiBlacklisted())
 		return;
 	
-	NSLog(@"PTPWEBCAM PROCESS NAME %@", processName);
 
 	// do not create status item if stream isn't running to avoid duplicates for apps with multiple processes accessing DAL plugins
 
