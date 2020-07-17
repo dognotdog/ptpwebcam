@@ -134,7 +134,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Thanks to Marty Swartz for being the first to help testing additional cameras.
 
 This work would not have been possible without other open-source work:
-https://github.com/johnboiles/coremediaio-dal-minimal-example
-https://github.com/lvsti/CoreMediaIO-DAL-Example
-https://github.com/gphoto/libgphoto2
-http://libptp.sourceforge.net
+- https://github.com/johnboiles/coremediaio-dal-minimal-example
+- https://github.com/lvsti/CoreMediaIO-DAL-Example
+- https://github.com/gphoto/libgphoto2
+- http://libptp.sourceforge.net
