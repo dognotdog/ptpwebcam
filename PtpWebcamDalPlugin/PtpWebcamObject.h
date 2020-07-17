@@ -10,10 +10,22 @@
 
 #import <CoreMediaIo/CMIOHardwarePlugIn.h>
 
+#include <stdbool.h>
+
 NS_ASSUME_NONNULL_BEGIN
 
 bool PtpWebcamIsProcessGuiBlacklisted(void);
 void PtpWebcamShowCatastrophicAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
+
+#define PtpWebcamShowCatastrophicAlertOnce(format, ...) \
+{ 										\
+	static bool happenedOnce = false; 	\
+	if (!happenedOnce)					\
+	{									\
+		happenedOnce = true;			\
+		PtpWebcamShowCatastrophicAlert(format, ## __VA_ARGS__); \
+	}									\
+}
 
 @protocol PtpWebcamObject <NSObject>
 

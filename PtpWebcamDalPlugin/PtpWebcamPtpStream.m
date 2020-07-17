@@ -45,7 +45,8 @@
 
 - (void) dealloc
 {
-	dispatch_suspend(frameTimerSource);
+	if (frameTimerSource)
+		dispatch_suspend(frameTimerSource);
 }
 
 
@@ -61,7 +62,13 @@
 
 - (OSStatus) startStream
 {
-	assert(self.ptpDevice);
+	if (!self.ptpDevice)
+	{
+		PtpWebcamShowCatastrophicAlert(@"-startStream failed because stream's PTP device is not set.");
+		return kCMIOHardwareBadStreamError;
+	}
+	
+	
 	[self.ptpDevice.cameraDevice requestSendPTPCommand: [self.ptpDevice ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_STARTLIVEVIEW transactionId: [self.ptpDevice nextTransactionId]]
 						  outData: nil
 			  sendCommandDelegate: self
@@ -198,7 +205,12 @@
 	};
 	
 	OSStatus err = CMIOStreamClockPostTimingEvent(timingInfo.presentationTimeStamp, now, true, streamClock);
-	assert(err == noErr);
+	
+	if (err)
+	{
+		PtpWebcamShowCatastrophicAlertOnce(@"-parsePtpLiveViewImageResponse:data: failed to post stream clock timing event with error %d.", err);
+	}
+
 	
 	sequenceNumber = CMIOGetNextSequenceNumber(sequenceNumber);
 

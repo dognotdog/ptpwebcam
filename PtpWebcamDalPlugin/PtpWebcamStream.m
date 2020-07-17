@@ -26,13 +26,21 @@
 		
 	{
 		OSStatus err = CMSimpleQueueCreate(kCFAllocatorDefault,WEBCAM_STREAM_FPS, &cmQueue);
-		assert(err == noErr);
+		if (err)
+		{
+			PtpWebcamShowCatastrophicAlert(@"-initWithPluginInterface: failed to allocate CMQueue with error %d.", err);
+			return nil;
+		}
 	}
 
 	{
 		OSStatus err = CMIOStreamClockCreate(kCFAllocatorDefault, CFSTR("webcamPluginStreamClock"), (__bridge void*)self, CMTimeMake(1, WEBCAM_STREAM_FPS), WEBCAM_STREAM_BASE, 10, &streamClock);
 		
-		assert(err == noErr);
+		if (err)
+		{
+			PtpWebcamShowCatastrophicAlert(@"-initWithPluginInterface: failed to allocate CMIOClock with error %d.", err);
+			return nil;
+		}
 	}
 
 	return self;
@@ -52,8 +60,7 @@
 	OSStatus createErr = CMIOObjectCreate(self.pluginInterfaceRef, device.objectId, kCMIOStreamClassID, &streamId);
 	if (createErr != kCMIOHardwareNoError)
 	{
-		NSLog(@"failed to create stream with error %d", createErr);
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"-createCmioStreamWithDevice: failed to create CMIOObject for stream with error %d.", createErr);
 	}
 	self.objectId = streamId;
 	device.streamId = streamId;
@@ -70,8 +77,8 @@
 	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, self.deviceId, 1, &streamId, 0, NULL);
 	if (err != kCMIOHardwareNoError)
 	{
-		NSLog(@"failed to publish stream with error %d", err);
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"-createCmioStreamWithDevice: failed to publish stream with error %d.", err);
+		return;
 	}
 	NSLog(@"published stream %u", streamId);
 
@@ -84,8 +91,8 @@
 	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, self.deviceId, 0, NULL, 1, &streamId);
 	if (err != kCMIOHardwareNoError)
 	{
-		NSLog(@"failed to unpublish stream with error %d", err);
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"-createCmioStreamWithDevice: failed to unpublish stream with error %d.", err);
+		return;
 	}
 	NSLog(@"unpublished stream %u", streamId);
 
@@ -218,7 +225,12 @@
 		}
 		case kCMIOStreamPropertyClock:
 		{
-			assert(streamClock);
+	
+			if (!streamClock)
+			{
+				PtpWebcamShowCatastrophicAlertOnce(@"-getPropertyDataForAddress:qualifierData: stream clock invalid.");
+				return nil;
+			}
 			CFTypeRef clock = CFRetain(streamClock);
 			return [NSData dataWithBytes: &clock length: sizeof(clock)];
 		}

@@ -197,7 +197,8 @@ static PtpWebcamPlugin* _refToObj(void* interfaceRef)
 	}
 	else
 	{
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"_refToObj(%p) could not determine \"_pluginInterface\" offset.", interfaceRef);
+		return nil;
 	}
 }
 
@@ -389,7 +390,7 @@ static OSStatus _objectGetPropertyData(CMIOHardwarePlugInRef interfaceRef, CMIOO
 		NSData* objData = [self getPropertyDataForAddress: *address qualifierData: [NSData dataWithBytes: qualifierData length: qualifierDataSize]];
 		if (dataSize < objData.length)
 		{
-			assert(0);
+			PtpWebcamShowCatastrophicAlert(@"_objectGetPropertyData(%u, 0x%08X) actual data size (%zu) larger than allocated storage (%u).", objectId, address->mSelector, objData.length, dataSize);
 			return kCMIOHardwareBadPropertySizeError;
 		}
 		memcpy(data, objData.bytes, objData.length);

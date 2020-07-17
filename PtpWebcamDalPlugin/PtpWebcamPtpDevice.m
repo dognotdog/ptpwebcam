@@ -496,7 +496,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	uint32_t len = 0;
 	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
-	assert(len*2+4 == data.length); // length is how many items we have following
+	if (len*2+4 != data.length) // length is how many items we have following
+	{
+		PtpWebcamShowCatastrophicAlert(@"-parseNikonPropertiesResponse: expected response data length (%u) does not match buffer size (%zu).", len*2+4, data.length);
+		return;
+	}
+	
 	
 	NSMutableArray* properties = [NSMutableArray arrayWithCapacity: len];
 	for (size_t i = 0; i < len; ++i)
@@ -698,8 +703,15 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	uint8_t len = 0;
 	[data getBytes: &len range: NSMakeRange(0, 1)];
+		
+	if (1+len*2 > data.length) // length header encodes number of 2byte chars
+	{
+		PtpWebcamShowCatastrophicAlert(@"-parsePtpString:remainingData: expected data length (%u) exceeds actual remaining data length (%zu).", 1+len*2, data.length);
+		return nil;
+	}
+
 	
-	assert(1+len*2 <= data.length);
+	
 	NSData* charData = [data subdataWithRange: NSMakeRange(1, 2*len)];
 	
 	// UCS-2 == UTF16?

@@ -26,8 +26,7 @@
 		OSStatus createErr = CMIOObjectCreate(self.pluginInterfaceRef, kCMIOObjectSystemObject, kCMIODeviceClassID, &deviceId);
 		if (createErr != kCMIOHardwareNoError)
 		{
-			NSLog(@"failed to create device with error %d", createErr);
-			assert(0);
+			PtpWebcamShowCatastrophicAlert(@"createCmioDeviceWithPluginId(%u) failed to create CMIO object with error %d.", pluginId, createErr);
 		}
 		self.objectId = deviceId;
 		self.pluginId = pluginId;
@@ -39,8 +38,8 @@
 	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, kCMIOObjectSystemObject, 1, &deviceId, 0, NULL);
 	if (err != kCMIOHardwareNoError)
 	{
-		NSLog(@"failed to publish device with error %d", err);
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"publishCmioDevice() failed to publish CMIO object with error %d.", err);
+		return;
 	}
 	NSLog(@"published device %u", deviceId);
 }
@@ -51,10 +50,10 @@
 	OSStatus err = CMIOObjectsPublishedAndDied(self.pluginInterfaceRef, kCMIOObjectSystemObject, 0, NULL, 1, &deviceId);
 	if (err != kCMIOHardwareNoError)
 	{
-		NSLog(@"failed to publish device with error %d", err);
-		assert(0);
+		PtpWebcamShowCatastrophicAlert(@"unpublishCmioDevice() failed to unpublish CMIO object with error %d.", err);
+		return;
 	}
-	NSLog(@"published device %u", deviceId);
+	NSLog(@"unpublished device %u", deviceId);
 
 }
 
