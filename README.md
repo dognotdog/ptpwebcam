@@ -15,7 +15,9 @@ A compatible camera connected via USB to a Mac running OS X 10.12 through 10.15 
 
 ### Binary Packages
 
-Installer packages from the latest release are available from the [Releases page](https://github.com/dognotdog/ptpwebcam/releases) of this project. 
+Download and install the binary package from the [PTP Webcam Homepage](https://ptpwebcam.org).
+
+Installer packages for older releases are available from the [Releases page](https://github.com/dognotdog/ptpwebcam/releases) of this project. 
 
 ### Testing the Installation
 
