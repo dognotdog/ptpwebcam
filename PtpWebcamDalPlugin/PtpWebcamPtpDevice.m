@@ -496,9 +496,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	uint32_t len = 0;
 	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
-	if (len*2+4 != data.length) // length is how many items we have following
+	// some cameras, return a longer data buffer than necessary (eg. D7000 with 386 vs. 380 bytes), why is that?
+	// TODO: investigate if the length header is wrong, eg. there are really 3 more entries than there should be, or if it the last 6 bytes are just garbage
+	if (len*2+4 > data.length) // length is how many items we have following the header
 	{
-		PtpWebcamShowCatastrophicAlert(@"-parseNikonPropertiesResponse: expected response data length (%u) does not match buffer size (%zu).", len*2+4, data.length);
+		PtpWebcamShowCatastrophicAlert(@"-parseNikonPropertiesResponse: expected response data length (%u) exceeds buffer size (%zu).", len*2+4, data.length);
 		return;
 	}
 	
