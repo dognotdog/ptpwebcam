@@ -166,9 +166,13 @@
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
 {
 //	NSLog(@"add device %@", device);
-	
-	if ([PtpWebcamPtpDevice supportsCamera: camera])
+	NSDictionary* cameraInfo = [PtpWebcamPtpDevice supportsCamera: camera];
+	if (cameraInfo)
 	{
+		if (![cameraInfo[@"confirmed"] boolValue])
+		{
+			PTPWebcamShowCameraIssueBlockingAlert(cameraInfo[@"make"], cameraInfo[@"model"]);
+		}
 //		NSLog(@"camera capabilities %@", camera.capabilities);
 		camera.delegate = self;
 		[camera requestOpenSession];

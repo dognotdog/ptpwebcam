@@ -25,12 +25,13 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 static NSDictionary* _ptpNonAdvertisedOperations = nil;
 
 static NSDictionary* _supportedCameras = nil;
+static NSDictionary* _confirmedCameras = nil;
 
 static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 @implementation PtpWebcamPtpDevice
 
-+ (BOOL) supportsCamera: (ICDevice*) camera
++ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera
 {
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
@@ -80,14 +81,68 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0447) : @[@"Nikon", @"D6"],
 			},
 		};
+		_confirmedCameras = @{
+			// Nikon
+			@(0x04B0) : @{
+//				@(0x0410) : @[@"Nikon", @"D200"],
+//				@(0x041A) : @[@"Nikon", @"D300"],
+//				@(0x041C) : @[@"Nikon", @"D3"],
+//				@(0x0420) : @[@"Nikon", @"D3X"],
+//				@(0x0421) : @[@"Nikon", @"D90"],
+//				@(0x0422) : @[@"Nikon", @"D700"],
+//				@(0x0423) : @[@"Nikon", @"D5000"],
+//				@(0x0424) : @[@"Nikon", @"D3000"],
+//				@(0x0425) : @[@"Nikon", @"D300S"],
+//				@(0x0426) : @[@"Nikon", @"D3S"],
+//				@(0x0428) : @[@"Nikon", @"D7000"],
+//				@(0x0429) : @[@"Nikon", @"D5100"],
+				@(0x042A) : @(YES), // D800
+//				@(0x042B) : @[@"Nikon", @"D4"],
+//				@(0x042C) : @[@"Nikon", @"D3200"],
+//				@(0x042D) : @[@"Nikon", @"D600"],
+//				@(0x042E) : @[@"Nikon", @"D800E"],
+//				@(0x042F) : @[@"Nikon", @"D5200"],
+//				@(0x0430) : @[@"Nikon", @"D7100"],
+//				@(0x0431) : @[@"Nikon", @"D5300"],
+//				@(0x0432) : @[@"Nikon", @"Df"],
+//				@(0x0433) : @[@"Nikon", @"D3300"],
+//				@(0x0434) : @[@"Nikon", @"D610"],
+//				@(0x0435) : @[@"Nikon", @"D4S"],
+//				@(0x0436) : @[@"Nikon", @"D810"],
+//				@(0x0437) : @[@"Nikon", @"D750"],
+//				@(0x0438) : @[@"Nikon", @"D5500"],
+//				@(0x0439) : @[@"Nikon", @"D7200"],
+//				@(0x043A) : @[@"Nikon", @"D5"],
+//				@(0x043B) : @[@"Nikon", @"D810A"],
+//				@(0x043C) : @[@"Nikon", @"D500"],
+				@(0x043D) : @(YES), //D3400
+//				@(0x043F) : @[@"Nikon", @"D5600"],
+//				@(0x0440) : @[@"Nikon", @"D7500"],
+//				@(0x0441) : @[@"Nikon", @"D850"],
+//				@(0x0442) : @[@"Nikon", @"Z7"],
+//				@(0x0443) : @[@"Nikon", @"Z6"],
+//				@(0x0444) : @[@"Nikon", @"Z50"],
+//				@(0x0445) : @[@"Nikon", @"D3500"],
+//				@(0x0446) : @[@"Nikon", @"D780"],
+//				@(0x0447) : @[@"Nikon", @"D6"],
+			},
+		};
 	});
 	NSDictionary* modelDict = _supportedCameras[@(camera.usbVendorID)];
 	if (!modelDict)
-		return NO;
+		return nil;
 	NSArray* cameraInfo = modelDict[@(camera.usbProductID)];
-	if (cameraInfo)
-		return YES;
-	return NO;
+	if (!cameraInfo)
+		return nil;
+	
+	NSDictionary* confirmedModelDict = _confirmedCameras[@(camera.usbVendorID)];
+	NSNumber* confirmedCameraInfo = confirmedModelDict[@(camera.usbProductID)];
+
+	return @{
+		@"make" : cameraInfo[0],
+		@"model" : cameraInfo[1],
+		@"confirmed" : @([confirmedCameraInfo boolValue]),
+	};
 }
 
 - (instancetype) initWithIcDevice: (ICCameraDevice*) device pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface

@@ -84,7 +84,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
 - (void) ptpQueryKnownDeviceProperties;
 
-+ (BOOL) supportsCamera: (ICDevice*) camera;
++ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera;
 
 @end
 
