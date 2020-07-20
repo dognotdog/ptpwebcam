@@ -136,19 +136,13 @@
 
 - (void) parsePtpLiveViewImageResponse: (NSData*) response data: (NSData*) data
 {
-	if (!data)
-	{
-		NSLog(@"parsePtpLiveViewImageResponse: no data!");
-		
-		// restart live view if it got turned off after timeout or error
-		if (liveViewShouldBeEnabled)
-		{
-			[self stopStream];
-			[self startStream];
-		}
-		
-		return;
-	}
+	// response structure
+	// 32bit length
+	// 16bit 0x0003 type = response
+	// 16bit response code
+	// 32bit transaction id
+	// 32bit response parameter
+	
 	
     uint64_t now = mach_absolute_time();
 	
@@ -160,6 +154,24 @@
 	[response getBytes: &code range: NSMakeRange(6, 2)];
 	uint32_t transId = 0;
 	[response getBytes: &transId range: NSMakeRange(8, 4)];
+
+	bool isDeviceBusy = code == PTP_RSP_DEVICEBUSY;
+	
+	if (!data) // no data means no image to present
+	{
+		NSLog(@"parsePtpLiveViewImageResponse: no data!");
+		
+		// restart live view if it got turned off after timeout or error
+		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
+		if (liveViewShouldBeEnabled && !isDeviceBusy)
+		{
+			[self stopStream];
+			[self startStream];
+		}
+		
+		return;
+	}
+	
 	
 	switch (code)
 	{
