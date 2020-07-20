@@ -21,8 +21,15 @@ Installer packages for older releases are available from the [Releases page](htt
 
 ### Testing the Installation
 
+#### OS X 10.14
+
 Opening _Quicktime Player_ and creating a _New Movie Recording_ via `File -> New Movie Recording`, then selecting the camera source can be used to verify functionality. The camera needs to be plugged in and turned on, and it might take a few seconds to show up.
 
+#### OS X 10.15
+
+On OS X 10.15.6, _QuickTime Player_ has been reported to not show video, despite the camera being selectable. An alternative to test with is _Photo Booth_
+
+#### What it should look like
 
 If the camera is connected, a status bar item with the camera's model number should appear and can be used to change settings.
 
@@ -35,6 +42,9 @@ If you want to build from source, you need Xcode. You can build the project and 
 ## Supported Cameras over USB
 
 ### Tested
+
+- Nikon D750
+- Nikon Z6
 
 #### Nikon D800 
 
@@ -66,7 +76,7 @@ The following cameras have support in the code, but have not been confirmed to a
   
   - Nikon Z50
   
-  - Nikon Z6, Nikon Z7
+  - Nikon Z7
   
 Note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
  

@@ -109,7 +109,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0434) : @[@"Nikon", @"D610"],
 //				@(0x0435) : @[@"Nikon", @"D4S"],
 //				@(0x0436) : @[@"Nikon", @"D810"],
-//				@(0x0437) : @[@"Nikon", @"D750"],
+				@(0x0437) : @(YES), // D750
 //				@(0x0438) : @[@"Nikon", @"D5500"],
 //				@(0x0439) : @[@"Nikon", @"D7200"],
 //				@(0x043A) : @[@"Nikon", @"D5"],
@@ -120,7 +120,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0440) : @[@"Nikon", @"D7500"],
 //				@(0x0441) : @[@"Nikon", @"D850"],
 //				@(0x0442) : @[@"Nikon", @"Z7"],
-//				@(0x0443) : @[@"Nikon", @"Z6"],
+				@(0x0443) : @(YES), // Z6
 //				@(0x0444) : @[@"Nikon", @"Z50"],
 //				@(0x0445) : @[@"Nikon", @"D3500"],
 //				@(0x0446) : @[@"Nikon", @"D780"],
