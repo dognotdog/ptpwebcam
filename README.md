@@ -6,6 +6,7 @@ This is a plugin to make compatible digital cameras available as webcams in vide
 
 The project consists of a CoreMediaIO DAL plugin, and a preview app to test functionality.
 
+**Note:** only video is currently captured, no audio.
 
 ## Installation
 
