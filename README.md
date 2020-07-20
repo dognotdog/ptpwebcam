@@ -11,23 +11,23 @@ The project consists of a CoreMediaIO DAL plugin, and a preview app to test func
 
 ### System Requirements
 
-A compatible camera connected via USB to a Mac running OS X 10.12 through 10.15 (only 10.14 has been confirmed to work so far). 
+A compatible camera connected via USB to a Mac running macOS / OS X 10.12 through 10.15. 
 
 ### Binary Packages
 
-Download and install the binary package from the [PTP Webcam Homepage](https://ptpwebcam.org).
+Download and install the latest release from the [PTP Webcam Homepage](https://ptpwebcam.org).
 
 Installer packages for older releases are available from the [Releases page](https://github.com/dognotdog/ptpwebcam/releases) of this project. 
 
-### Testing the Installation
+### Building from Source
 
-#### OS X 10.14
+If you want to build from source, you need Xcode. You can build the project and the plugin should be automatically copied into `/Library/CoreMediaIO/Plug-Ins/DAL` to be available to the system. However, apps with _Library Validation_ enabled will need to have codesigning disabled to be able to access the plugin, see the **Known Issues** section below.
+
+### Testing the Installation
 
 Opening _Quicktime Player_ and creating a _New Movie Recording_ via `File -> New Movie Recording`, then selecting the camera source can be used to verify functionality. The camera needs to be plugged in and turned on, and it might take a few seconds to show up.
 
-#### OS X 10.15
-
-On OS X 10.15.6, _QuickTime Player_ has been reported to not show video, despite the camera being selectable. An alternative to test with is _Photo Booth_
+_Quicktime Player_ works because it has _Library Validation_ disabled out-of-the-box, unlike eg. _Photo Booth_, which has the capability to use different video sources, but is prevented from doing so because _Library Validation_ is enabled.
 
 #### What it should look like
 
@@ -35,9 +35,6 @@ If the camera is connected, a status bar item with the camera's model number sho
 
 <img src="docs/screenshot-cam-menu.png" width=400px> <img src="docs/screenshot-cam-select.png" width=400px>
 
-### Building from Source
-
-If you want to build from source, you need Xcode. You can build the project and the plugin should be automatically copied into `/Library/CoreMediaIO/Plug-Ins/DAL` to be available to the system. However, apps with _Library Validation_ enabled will need to have codesigning disabled to be able to access the plugin, see the **Known Issues** section below.
 
 ## Supported Cameras over USB
 
