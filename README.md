@@ -42,7 +42,7 @@ If the camera is connected, a status bar item with the camera's model number sho
 ### Tested
 
 - Nikon D750
-- Nikon Z6
+- Nikon Z6, Nikon Z7
 
 #### Nikon D800 
 
@@ -73,8 +73,6 @@ The following cameras have support in the code, but have not been confirmed to a
   - Nikon D800E, Nikon D810, Nikon D810A, Nikon D850
   
   - Nikon Z50
-  
-  - Nikon Z7
   
 Note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
  
