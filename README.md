@@ -44,6 +44,10 @@ If you want to build from source, you need Xcode. You can build the project and 
 #### Nikon D3400
 - exposure preview not available
  
+ #### Nikon D5200
+ - potentially frequent (every few minutes) shutter cycling because of LiveView restarts
+  
+
 ### Untested
   
 The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
@@ -51,7 +55,7 @@ The following cameras have support in the code, but have not been confirmed to a
   - Nikon D90
   - Nikon D300, Nikon D300S, Nikon D500
   - Nikon D3200, Nikon D3300, Nikon D3500
-  - Nikon D5000, ~Nikon D5100~, Nikon D5200, Nikon D5300, Nikon D5500, Nikon D5600
+  - Nikon D5000, ~Nikon D5100~, Nikon D5300, Nikon D5500, Nikon D5600
   - Nikon D7000, Nikon D7100, Nikon D7200, Nikon D7500
   
   - Nikon Df
@@ -68,9 +72,9 @@ Note: some cameras support larger LiveView image sizes, but it is not possible t
  
 Many other cameras can in theory be made to work, but are not yet supported.
 
-### Reported not working
+### Reported having Issues
 
- - Nikon D5100: crashes QuickTime Player when connected (OS X version?)
+- Nikon D5100: v1.0.0-alpha2 crashed QuickTime Player when connected, needs to be tested with newer release.
  
 ### Not usable because of hardware limitations
  - Nikon D40, D60, D80, D200 do not support tethered live view.
