@@ -279,8 +279,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	self.manufacturer = @"Nikon";
 	self.elementNumberName = @"1";
 	self.elementCategoryName = @"DSLR Webcam";
-	self.deviceUid = @"ptp-webcam-plugin-device";
-	self.modelUid = @"ptp-webcam-plugin-model";
+	self.deviceUid = [NSString stringWithFormat: @"ptp-webcam-plugin-device-%@", device.name];
+	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@", device.name];
 	self.ptpPropertyInfos = @{};
 
 	device.delegate = self;
