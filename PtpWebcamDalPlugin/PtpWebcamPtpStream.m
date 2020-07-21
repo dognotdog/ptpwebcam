@@ -134,6 +134,23 @@
 	
 }
 
+- (nullable NSData*) extractNikonLiveViewJpegData: (NSData*) liveViewData
+{
+	// use JPEG SOI marker (0xFF 0xD8) to find image start
+	const uint8_t soi[2] = {0xFF, 0xD8};
+	const uint8_t* buf = liveViewData.bytes;
+	
+	const uint8_t* soiPtr = memmem(buf, liveViewData.length, soi, sizeof(soi));
+	
+	if (!soiPtr)
+		return nil;
+	
+	size_t offs = soiPtr-buf;
+	
+	return [liveViewData subdataWithRange: NSMakeRange( offs, liveViewData.length - offs)];
+	
+}
+
 - (void) parsePtpLiveViewImageResponse: (NSData*) response data: (NSData*) data
 {
 	// response structure
@@ -196,8 +213,11 @@
 	
 	
 	// D800 LiveView image has a heaer of length 384 with metadata, with the rest being the JPEG image.
-	size_t headerLen = self.ptpDevice.liveViewHeaderLength;
-	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
+//	size_t headerLen = self.ptpDevice.liveViewHeaderLength;
+//	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
+	
+	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+
 	
 	
 	// queue is full, don't add another image
