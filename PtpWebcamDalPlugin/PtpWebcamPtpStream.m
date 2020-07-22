@@ -60,6 +60,16 @@
 	
 }
 
+- (void) queryDeviceBusy
+{
+	[self.ptpDevice.cameraDevice requestSendPTPCommand: [self.ptpDevice ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_NIKON_DEVICEREADY transactionId: [self.ptpDevice nextTransactionId]]
+						  outData: nil
+			  sendCommandDelegate: self
+		   didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
+					  contextInfo: NULL];
+
+}
+
 - (OSStatus) startStream
 {
 	if (!self.ptpDevice)
@@ -75,15 +85,29 @@
 		   didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
 					  contextInfo: NULL];
 
-	dispatch_resume(frameTimerSource);
 	
-	isStreaming = YES;
+	BOOL isDeviceReadySupported = [self.ptpDevice isPtpOperationSupported: PTP_CMD_NIKON_DEVICEREADY];
 	
-	// refresh device properties after live view is on, having given the camera little time to switch
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
-		self->liveViewShouldBeEnabled = YES;
-		[self.ptpDevice ptpQueryKnownDeviceProperties];
-	});
+	if (isDeviceReadySupported)
+	{
+		// if the deviceReady command is supported, issue it to find out when live view is ready instead of simply waiting
+		[self queryDeviceBusy];
+
+		isStreaming = YES;
+
+	}
+	else
+	{
+		// refresh device properties after live view is on, having given the camera little time to switch
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+			self->liveViewShouldBeEnabled = YES;
+			[self.ptpDevice ptpQueryKnownDeviceProperties];
+		});
+
+		dispatch_resume(frameTimerSource);
+		
+		isStreaming = YES;
+	}
 
 	return kCMIOHardwareNoError;
 }
@@ -124,8 +148,41 @@
 	switch (cmd)
 	{
 		case PTP_CMD_GETLIVEVIEWIMG:
+		{
 			[self parsePtpLiveViewImageResponse: response data: data];
 			break;
+		}
+		case PTP_CMD_NIKON_DEVICEREADY:
+		{
+			uint16_t code = 0;
+			[response getBytes: &code range: NSMakeRange(6, 2)];
+			
+			switch (code)
+			{
+				case PTP_RSP_DEVICEBUSY:
+					[self queryDeviceBusy];
+					break;
+				case PTP_RSP_OK:
+				{
+					// activate frame timer when device is ready after starting live view to start getting images
+					if (isStreaming)
+					{
+						liveViewShouldBeEnabled = YES;
+						dispatch_resume(frameTimerSource);
+					}
+					break;
+				}
+				default:
+				{
+					// some error occured
+					NSLog(@"didSendPTPCommand  DeviceReady returned error 0x%04X", code);
+					[self stopStream];
+					break;
+				}
+			}
+
+			break;
+		}
 		default:
 			NSLog(@"didSendPTPCommand  cmd=%@", command);
 			NSLog(@"didSendPTPCommand data=%@", data);
@@ -213,10 +270,11 @@
 	
 	
 	// D800 LiveView image has a heaer of length 384 with metadata, with the rest being the JPEG image.
-//	size_t headerLen = self.ptpDevice.liveViewHeaderLength;
-//	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
+	size_t headerLen = self.ptpDevice.liveViewHeaderLength;
+	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
 	
-	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+//	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
 
 	
 	
@@ -226,7 +284,11 @@
 	
 #ifndef JPEG_OUTPUT
 	NSImage* img = [[NSImage alloc] initWithData: jpegData];
+	if (!img)
+		return;
 	CVPixelBufferRef pixels = [self createPixelBufferWithNSImage: img];
+	if (!pixels)
+		return;
 #endif
 	
 	CMTimeScale scale = 600;

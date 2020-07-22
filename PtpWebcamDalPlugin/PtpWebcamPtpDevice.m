@@ -186,6 +186,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(0x8019) : @"EFFECTS",
 			@(0x8050) : @"U1",
 			@(0x8051) : @"U2",
+			@(0x8052) : @"U3",
 		};
 		_ptpWhiteBalanceModeNames = @{
 			@(0x0000) : @"Undefined",
@@ -928,7 +929,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
 	}
 	// The Nikon LiveView properties are not returned as device properties, but are still there
-	if ([opsSupported containsObject: @(PTP_CMD_NIKON_GETVENDORPROPS)])
+	if ([self isPtpOperationSupported: PTP_CMD_NIKON_GETVENDORPROPS])
 		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
 
 //	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
@@ -961,6 +962,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 
 }
+
+- (BOOL) isPtpOperationSupported: (uint16_t) opId
+{
+	return [self.ptpDeviceInfo[@"operations"] containsObject: @(opId)];
+}
+
 
 - (void) querySupportedMtpProperties
 {
