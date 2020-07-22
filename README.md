@@ -60,16 +60,16 @@ If the camera is connected, a status bar item with the camera's model number sho
   
 The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
   
-  - Nikon D90
+  - ~Nikon D90~
   - Nikon D300, Nikon D300S, Nikon D500
   - Nikon D3200, Nikon D3300, Nikon D3500
   - Nikon D5000, ~Nikon D5100~, Nikon D5300, Nikon D5500, Nikon D5600
   - Nikon D7000, Nikon D7100, Nikon D7200, Nikon D7500
   
   - Nikon Df
-  - Nikon D3, Nikon D3S, Nikon D3X, Nikon D4, Nikon D4S, Nikon D5, Nikon D6
+  - ~Nikon D3~, Nikon D3S, Nikon D3X, Nikon D4, Nikon D4S, Nikon D5, Nikon D6
   - Nikon D600, Nikon D610
-  - Nikon D700, Nikon D750, Nikon D780
+  - Nikon D700, Nikon D780
   - Nikon D800E, Nikon D810, Nikon D810A, Nikon D850
   
   - Nikon Z50
@@ -80,7 +80,9 @@ Many other cameras can in theory be made to work, but are not yet supported.
 
 ### Reported having Issues
 
-- Nikon D5100: v1.0.0-alpha2 crashed QuickTime Player when connected, needs to be tested with newer release.
+- Nikon D3 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
+- Nikon D90 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
+- Nikon D5100 with PTP Webcam v1.0.0-alpha2: crashed QuickTime Player when camera is connected, need report on behavior with newer PTP Webcam versions.
  
 ### Not usable because of hardware limitations
  - Nikon D40, D60, D80, D200 do not support tethered live view.
