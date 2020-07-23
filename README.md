@@ -115,6 +115,15 @@ codesign --remove-signature Skype\ Helper\ \(Renderer\).app
 ```
 Additional helpers might be named differently in different Skype versions.
 
+#### Chrome workaround
+
+```
+codesign --remove-signature /Applications/Google\ Chrome.app
+codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper.app
+codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(GPU\).app
+codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
+```
+
 ## Funding and Sponsorship
 
 This project is open-source and free to use, but can be [supported through Patreon](https://www.patreon.com/dognotdog).
