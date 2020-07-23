@@ -1,4 +1,4 @@
-#  PTP Webcam DAL Plugin
+#  PTP Webcam – DSLR Live View Video Plugin
 
 Large sensor digital still cameras can provide an exceptionally good image for video conferencing, compared to most built-in web cameras.
 
