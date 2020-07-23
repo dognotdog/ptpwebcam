@@ -323,35 +323,16 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	uint32_t eventParam = 0;
 	[eventData getBytes: &eventParam range: NSMakeRange(12, sizeof(eventParam))];
 	
-	bool rebuildStatusItem = false;
 	switch (code)
 	{
 		case PTP_EVENT_DEVICEPROPCHANGED:
 		{
-			switch (eventParam)
-			{
-				case PTP_PROP_BATTERYLEVEL:
-				{
-					[self ptpGetPropertyDescription: PTP_PROP_BATTERYLEVEL];
-//					rebuildStatusItem = true;
-					break;
-				}
-				case PTP_PROP_NIKON_LV_STATUS:
-				{
-					rebuildStatusItem = true;
-					break;
-				}
-			}
+			// if a device property changed that's shown in the UI, update its value
+			if (_ptpPropertyNames[@(eventParam)])
+				[self ptpGetPropertyDescription: eventParam];
+
 			break;
 		}
-	}
-	
-	if (rebuildStatusItem)
-	{
-		dispatch_async(dispatch_get_main_queue(), ^{
-//			[self rebuildStatusItem];
-		});
-
 	}
 }
 
@@ -935,7 +916,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
 //	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
 
-	
+	// MTP GetObjectPropsSupported requires a format code to be specified
+//	if ([self isPtpOperationSupported: MTP_CMD_GETOBJECTPROPSSUPPORTED])
+//		[self requestSendPtpCommandWithCode: MTP_CMD_GETOBJECTPROPSSUPPORTED];
+
 //	if ([ptpDeviceInfo[@"operations"] containsObject: @(MTP_CMD_GETOBJECTPROPSSUPPORTED)])
 //	{
 //		[self querySupportedMtpProperties];
@@ -968,11 +952,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return [self.ptpDeviceInfo[@"operations"] containsObject: @(opId)];
 }
 
-
-- (void) querySupportedMtpProperties
-{
-	[self requestSendPtpCommandWithCode: MTP_CMD_GETOBJECTPROPSSUPPORTED];
-}
 
 - (uint32_t) nextTransactionId
 {
