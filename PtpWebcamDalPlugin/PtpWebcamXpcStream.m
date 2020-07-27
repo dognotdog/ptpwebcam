@@ -31,16 +31,16 @@
 	self.name = @"PTP Webcam Plugin Stream";
 	self.elementName = @"PTP Webcam Plugin Stream Element";
 
-//	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
-//	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", queueAttributes);
-//
-//	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
-//	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1000u*NSEC_PER_SEC);
-//
-//	__weak id weakSelf = self;
-//	dispatch_source_set_event_handler(frameTimerSource, ^{
-//		[weakSelf asyncGetLiveViewImage];
-//	});
+	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
+	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", queueAttributes);
+
+	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1000u*NSEC_PER_SEC);
+
+	__weak id weakSelf = self;
+	dispatch_source_set_event_handler(frameTimerSource, ^{
+		[weakSelf asyncGetLiveViewImage];
+	});
 	
 	return self;
 }
@@ -60,7 +60,7 @@
 	if (frameTimerSource)
 		dispatch_resume(frameTimerSource);
 	
-	[self asyncGetLiveViewImage];
+//	[self asyncGetLiveViewImage];
 
 }
 
@@ -129,8 +129,8 @@
 		self->alteredProc(self.objectId, buf, self->alteredRefCon);
 	}
 	
-	if (isStreaming)
-		[self asyncGetLiveViewImage];
+//	if (isStreaming)
+//		[self asyncGetLiveViewImage];
 }
 
 - (CMVideoFormatDescriptionRef) createFormatDescription
