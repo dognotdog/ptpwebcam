@@ -9,7 +9,7 @@
 #import "PtpWebcamAssistantService.h"
 #import "PtpCameraProtocol.h"
 #import "PtpCamera.h"
-#import "PtpWebcamAlerts.h"
+#import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 
 #import <AppKit/AppKit.h>
 
@@ -87,14 +87,25 @@
 	for(id cameraId in self.devices.copy)
 	{
 		
-//			PtpCamera* cam = (id)device;
-//			if ([icDevice isEqual: cam.icCamera])
-//				[cam didRemoveDevice];
-		@synchronized (self) {
-			NSMutableDictionary* devices = self.devices.mutableCopy;
-			[devices removeObjectForKey: cameraId];
-			self.devices = devices;
+		PtpCamera* camera = self.devices[cameraId];
+		
+		if ([icDevice isEqual: camera.icCamera])
+		{
+			// remove camera from devices list
+			@synchronized (self) {
+				NSMutableDictionary* devices = self.devices.mutableCopy;
+				[devices removeObjectForKey: cameraId];
+				self.devices = devices;
+			}
+			
+			// notify clients that camera is gone
+			for (NSXPCConnection* connection in self.connections)
+			{
+				[[connection remoteObjectProxy] cameraDisconnected: camera.cameraId];
+			}
+
 		}
+
 	}
 }
 
@@ -116,14 +127,19 @@
 	// do nothing, as we receive a notification from the device browser, roo
 }
 
-
-- (void) cameraReady: (PtpCamera*) camera
+- (NSDictionary*) cameraConnectionInfo: (PtpCamera*) camera
 {
 	NSDictionary* cameraInfo = @{
 		@"make" : camera.make,
 		@"model" : camera.model,
 		@"serialNumber" : camera.icCamera.serialNumberString,
 	};
+	return cameraInfo;
+}
+
+- (void) cameraReady: (PtpCamera*) camera
+{
+	NSDictionary* cameraInfo = [self cameraConnectionInfo: camera];
 	for (NSXPCConnection* connection in self.connections)
 	{
 		[[connection remoteObjectProxy] cameraConnected: camera.cameraId withInfo: cameraInfo];
@@ -148,12 +164,61 @@
 	}
 }
 
+// MARK: Listener Delegate
+
+- (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)newConnection
+{
+    // This method is where the NSXPCListener configures, accepts, and resumes a new incoming NSXPCConnection.
+	    
+    // Configure the connection.
+    // First, set the interface that the exported object implements.
+    newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+	
+//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpCameraProtocol)];
+	
+	NSXPCInterface* remoteInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantDelegateProtocol)];
+//	[remoteInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+	
+	
+	newConnection.remoteObjectInterface = remoteInterface;
+    
+    // Next, set the object that the connection exports. All messages sent on the connection to this service will be sent to the exported object to handle. The connection retains the exported object.
+    newConnection.exportedObject = self;
+    
+	newConnection.invalidationHandler = ^{
+		PtpLog(@"connection died");
+		@synchronized (self) {
+			NSMutableArray* connections = self.connections.mutableCopy;
+			[connections removeObject: newConnection];
+			self.connections = connections;
+		}
+	};
+
+	@synchronized (self) {
+		self.connections = [self.connections arrayByAddingObject: newConnection];
+	}
+
+    // Resuming the connection allows the system to deliver more incoming messages.
+    [newConnection resume];
+	    
+    // Returning YES from this method tells the system that you have accepted this connection. If you want to reject the connection for some reason, call -invalidate on the connection and return NO.
+    return YES;
+}
+
+
 // MARK: Assistant Service Delegate
 
 - (void) pingService: (void (^)(void))pongCallback
 {
 	PtpLog(@"ping received.");
 	pongCallback();
+	
+	// after the initial ping, also inform the client of already connected devices
+	NSXPCConnection* connection = [NSXPCConnection currentConnection];
+	for (PtpCamera* camera in self.devices)
+	{
+		[[connection remoteObjectProxy] cameraConnected: camera.cameraId withInfo: [self cameraConnectionInfo: camera]];
+	}
 }
 
 - (void) startLiveViewForCamera:(id)cameraId
