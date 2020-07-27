@@ -94,7 +94,14 @@ Many other cameras can in theory be made to work, but are not yet supported.
 macOS applications that have library validation enabled cannot load DAL plugins that have not been signed or signed by another developer. Therefore, some popular video conferencing tools do not work out of the box.
  
 The easiest way to workaround is to remove the signature for the offending applications, but note that this might be affected by security settings on your system, and might require to relax security settings.
- 
+
+Status for an unknown app can be checked via `codesign -d --entitlements :- /Path/to/App` and if any entitlements show up, `com.apple.security.cs.disable-library-validation` needs to be among them: 
+```
+<key>com.apple.security.cs.disable-library-validation</key>
+<true/>
+```
+If it is not, codesigning has to be removed from the app and potentially its helper apps. 
+
 #### References
  
 https://stackoverflow.com/a/62456259/4296447
