@@ -218,11 +218,7 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 				self.cameraSupportedProperties = supportedProperties;
 			}
 
-			for (id propertyId in _ptpPropertyNames)
-			{
-				if ([supportedProperties containsObject: propertyId])
-					[self queryCameraProperty: propertyId];
-			}
+			[self queryAllCameraProperties];
 
 			break;
 		}
@@ -254,6 +250,8 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 			NSNumber* propertyId = [NSKeyedUnarchiver unarchiveObjectWithData: propertyIdData];
 			NSDictionary* property = [NSKeyedUnarchiver unarchiveObjectWithData: propertyData];
 			
+			
+			
 			@synchronized (self) {
 				NSMutableDictionary* properties = self.cameraProperties.mutableCopy;
 				properties[propertyId] = property;
@@ -274,7 +272,18 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 	}
 }
 
+
 // MARK: User Interface
+
+- (void) queryAllCameraProperties
+{
+	for (id propertyId in _ptpPropertyNames)
+	{
+		if ([self.cameraSupportedProperties containsObject: propertyId])
+			[self queryCameraProperty: propertyId];
+	}
+
+}
 
 - (void) queryCameraProperty: (NSNumber*) propertyId
 {
@@ -494,7 +503,8 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 		message.msgid = PTP_WEBCAM_AGENT_MSG_SET_PROPERTY_VALUE;
 		[message sendBeforeDate: [NSDate distantFuture]];
 	}
-	[self queryCameraProperty: @(propertyId)];
+
+	[self queryAllCameraProperties];
 }
 
 
