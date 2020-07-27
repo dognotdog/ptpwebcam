@@ -272,7 +272,7 @@
 //	SMLoginItemSetEnabled((__bridge CFStringRef)agentId, true);
 //	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
 	assistantConnection.invalidationHandler = ^{
-		NSLog(@"oops");
+		NSLog(@"oops, connection failed: %@", assistantConnection);
 	};
 	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
 	
@@ -294,11 +294,24 @@
 
 - (void) cameraConnected: (id) cameraId withInfo: (NSDictionary*) cameraInfo
 {
-	PtpLog(@"");
+//	PtpLog(@"");
 	
 	// create and register stream and device
 	
 	PtpWebcamXpcDevice* device = [[PtpWebcamXpcDevice alloc] initWithCameraId: cameraId info: cameraInfo pluginInterface: self.pluginInterfaceRef];
+
+	// checking and adding to self.devices must happen atomically, hence the @sync block
+	@synchronized (self) {
+		// do nothing if we already know of the camera
+		if (self.devices[cameraId])
+			return;
+		
+		// add to devices list
+		NSMutableDictionary* devices = self.devices.mutableCopy;
+		devices[device.cameraId] = device;
+		self.devices = devices;
+	}
+
 	device.xpcConnection = assistantConnection;
 
 	[device createCmioDeviceWithPluginId: self.objectId];
@@ -313,13 +326,27 @@
 	[device publishCmioDevice];
 	[stream publishCmioStream];
 	
-	@synchronized (self) {
-		NSMutableDictionary* devices = self.devices.mutableCopy;
-		devices[device.cameraId] = device;
-		self.devices = devices;
-	}
 
 }
+
+- (void)cameraDisconnected:(id)cameraId {
+	
+	PtpWebcamXpcDevice* device = nil;
+	@synchronized (self) {
+		// do nothing if we didn't know about the camera
+		if (!(device = self.devices[cameraId]))
+			return;
+		
+		// remove from devices list
+		NSMutableDictionary* devices = self.devices.mutableCopy;
+		[devices removeObjectForKey: device.cameraId];
+		self.devices = devices;
+	}
+	
+	[device unplugDevice];
+
+}
+
 
 - (void) liveViewReadyforCameraWithId:(id)cameraId
 {
@@ -335,5 +362,11 @@
 	PtpWebcamXpcStream* stream = (id)device.stream;
 	[stream receivedLiveViewJpegImageData: jpegData withInfo: info];
 }
+
+
+//- (void)propertyChanged:(NSDictionary *)property forCameraWithId:(id)cameraId {
+//	<#code#>
+//}
+
 
 @end
