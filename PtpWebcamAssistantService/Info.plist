@@ -27,7 +27,7 @@
 		<key>RunLoopType</key>
 		<string>NSRunLoop</string>
 		<key>ServiceType</key>
-		<string>Application</string>
+		<string>User</string>
 	</dict>
 </dict>
 </plist>
