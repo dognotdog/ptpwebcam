@@ -8,6 +8,7 @@
 
 #import "PtpWebcamDevice.h"
 #import "PtpWebcamStream.h"
+#import "PtpWebcamAlerts.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 

@@ -8,6 +8,8 @@
 
 #import "PtpWebcamPtpStream.h"
 #import "PtpWebcamPtpDevice.h"
+#import "PtpWebcamAlerts.h"
+#import "PtpWebcamPtp.h"
 
 #import <CoreMediaIO/CMIOSampleBuffer.h>
 
@@ -27,8 +29,8 @@
 	if (!(self = [super initWithPluginInterface: pluginInterface]))
 		return nil;
 		
-	self.name = @"D800 Webcam Plugin Stream";
-	self.elementName = @"D800 Webcam Plugin Stream Element";
+	self.name = @"PTP Webcam Plugin Stream";
+	self.elementName = @"PTP Webcam Plugin Stream Element";
 
 	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", DISPATCH_QUEUE_SERIAL);
 		

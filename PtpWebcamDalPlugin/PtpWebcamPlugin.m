@@ -9,10 +9,19 @@
 #import "PtpWebcamPlugin.h"
 #import "PtpWebcamPtpDevice.h"
 #import "PtpWebcamPtpStream.h"
+#import "PtpWebcamXpcDevice.h"
+#import "PtpWebcamXpcStream.h"
 #import "PtpWebcamDummyDevice.h"
 #import "PtpWebcamDummyStream.h"
+#import "PtpWebcamAlerts.h"
+
+#import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
+#import "../PtpWebcamAssistantService/PtpCameraProtocol.h"
+//#import "../PtpWebcamAgent/PtpWebcamAgentProtocol.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
+
+#import <ServiceManagement/ServiceManagement.h>
 
 // define DUMMY_DEVICE_ENABLED to enable the dummy device to test that the DAL plugin can deliver images without a camera connection
 //#define DUMMY_DEVICE_ENABLED=1
@@ -20,6 +29,8 @@
 @interface PtpWebcamPlugin ()
 {
 	ICDeviceBrowser* deviceBrowser;
+	
+	NSXPCConnection* assistantConnection;
 }
 @end
 
@@ -30,7 +41,7 @@
 	if (!(self = [super init]))
 		return nil;
 	
-	self.devices = [NSArray array];
+	self.devices = @{};
 	
 	return self;
 }
@@ -71,12 +82,13 @@
 
 - (OSStatus) initialize
 {
+	[self connectToAssistantService];
 	
 	deviceBrowser = [[ICDeviceBrowser alloc] init];
 	deviceBrowser.delegate = self;
 	deviceBrowser.browsedDeviceTypeMask |= ICDeviceTypeMaskCamera | ICDeviceLocationTypeMaskLocal;
 	
-	[deviceBrowser start];
+//	[deviceBrowser start];
 	
 #ifdef DUMMY_DEVICE_ENABLED
 	[self createDummyDeviceAndStream];
@@ -134,7 +146,9 @@
 	[stream publishCmioStream];
 	
 	@synchronized (self) {
-		self.devices = [self.devices arrayByAddingObject: device];
+		NSMutableDictionary* devices = self.devices.mutableCopy;
+		devices[@"dummy"] = device;
+		self.devices = devices;
 	}
 
 }
@@ -159,7 +173,9 @@
 	[stream publishCmioStream];
 	
 	@synchronized (self) {
-		self.devices = [self.devices arrayByAddingObject: device];
+		NSMutableDictionary* devices = self.devices.mutableCopy;
+		devices[device.deviceUid] = device;
+		self.devices = devices;
 	}
 }
 
@@ -244,5 +260,80 @@
 //- (OSStatus)setPropertyDataForAddress:(CMIOObjectPropertyAddress)address qualifierData:(NSData * _Nullable)qualifierData data:(nonnull NSData *)data {
 //	<#code#>
 //}
+
+- (void) connectToAssistantService
+{
+//	NSString* agentPath = @"/Library/CoreMediaIO/Plug-ins/DAL/PtpWebcamDalPlugin.plugin/Contents/Library/LoginItems/PtpWebcamAgent.app";
+//	OSStatus err =  LSRegisterURL((__bridge CFURLRef)[NSURL fileURLWithPath: agentPath], false);
+//	assert(noErr == err);
+
+	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
+//	NSString* agentId = @"org.ptpwebcam.PtpWebcamAgent";
+//	SMLoginItemSetEnabled((__bridge CFStringRef)agentId, true);
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+	assistantConnection.invalidationHandler = ^{
+		NSLog(@"oops");
+	};
+	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+	
+//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+	
+	assistantConnection.exportedObject = self;
+	assistantConnection.exportedInterface = exportedInterface;
+	
+	[assistantConnection resume];
+	
+	// send message to get the service started by launchd
+	[[assistantConnection remoteObjectProxy] pingService:^{
+		PtpLog(@"pong received.");
+	}];
+
+}
+
+- (void) cameraConnected: (id) cameraId withInfo: (NSDictionary*) cameraInfo
+{
+	PtpLog(@"");
+	
+	// create and register stream and device
+	
+	PtpWebcamXpcDevice* device = [[PtpWebcamXpcDevice alloc] initWithCameraId: cameraId info: cameraInfo pluginInterface: self.pluginInterfaceRef];
+	device.xpcConnection = assistantConnection;
+
+	[device createCmioDeviceWithPluginId: self.objectId];
+	[PtpWebcamObject registerObject: device];
+	
+	PtpWebcamXpcStream* stream = [[PtpWebcamXpcStream alloc] initWithPluginInterface: self.pluginInterfaceRef];
+	stream.xpcDevice = device;
+	[stream createCmioStreamWithDevice: device];
+	[PtpWebcamObject registerObject: stream];
+
+	// then publish stream and device
+	[device publishCmioDevice];
+	[stream publishCmioStream];
+	
+	@synchronized (self) {
+		NSMutableDictionary* devices = self.devices.mutableCopy;
+		devices[device.cameraId] = device;
+		self.devices = devices;
+	}
+
+}
+
+- (void) liveViewReadyforCameraWithId:(id)cameraId
+{
+	PtpWebcamXpcDevice* device = self.devices[cameraId];
+	PtpWebcamXpcStream* stream = (id)device.stream;
+	[stream liveViewStreamReady];
+
+}
+
+- (void) receivedLiveViewJpegImageData:(NSData *)jpegData withInfo:(NSDictionary *)info forCameraWithId:(id)cameraId
+{
+	PtpWebcamXpcDevice* device = self.devices[cameraId];
+	PtpWebcamXpcStream* stream = (id)device.stream;
+	[stream receivedLiveViewJpegImageData: jpegData withInfo: info];
+}
 
 @end

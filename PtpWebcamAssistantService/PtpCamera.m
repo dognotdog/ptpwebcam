@@ -1,24 +1,41 @@
 //
-//  PtpWebcamPtpDevice.m
-//  PtpWebcamDalPlugin
+//  PtpCamera.m
+//  PtpWebcamAssistantService
 //
-//  Created by Dömötör Gulyás on 06.06.2020.
+//  Created by Dömötör Gulyás on 25.07.2020.
 //  Copyright © 2020 Doemoetoer Gulyas. All rights reserved.
 //
 
-#import "PtpWebcamPtpDevice.h"
-#import "PtpWebcamPtpStream.h"
+#import "PtpCamera.h"
+
+#import <ImageCaptureCore/ImageCaptureCore.h>
+
+#import "PtpWebcamAssistantService.h"
 #import "PtpWebcamAlerts.h"
-#import "PtpWebcamPtp.h"
+#import "../PtpWebcamDalPlugin/PtpWebcamPtp.h"
 
 
-@interface PtpWebcamPtpDevice ()
+typedef enum {
+	PTP_CAMERA_MECHANISM_NIKON,
+	PTP_CAMERA_MECHANISM_CANON,
+} ptpWebcamCameraMechanism_t;
+
+
+@implementation PtpCamera
 {
 	uint32_t transactionId;
-	NSStatusItem* statusItem;
+	
+	ptpWebcamCameraMechanism_t mechanism;
+	
+	NSTask* uiAgent;
+	NSPort* assistantPort;
+	NSPort* agentPort;
+	NSString* agentPortName;
 
 }
-@end
+
+static NSDictionary* _supportedCameras = nil;
+static NSDictionary* _confirmedCameras = nil;
 
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpProgramModeNames = nil;
@@ -26,17 +43,12 @@ static NSDictionary* _ptpWhiteBalanceModeNames = nil;
 static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 static NSDictionary* _ptpNonAdvertisedOperations = nil;
 
-static NSDictionary* _supportedCameras = nil;
-static NSDictionary* _confirmedCameras = nil;
-
 static NSDictionary* _liveViewJpegDataOffsets = nil;
 
-@implementation PtpWebcamPtpDevice
-
-+ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera
++ (void)initialize
 {
-	static dispatch_once_t onceToken;
-	dispatch_once(&onceToken, ^{
+	if (self == [PtpCamera self])
+	{
 		_supportedCameras = @{
 			// Nikon
 			@(0x04B0) : @{
@@ -81,6 +93,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0445) : @[@"Nikon", @"D3500"],
 				@(0x0446) : @[@"Nikon", @"D780"],
 				@(0x0447) : @[@"Nikon", @"D6"],
+			},
+			// Canon
+			@(0x049A) : @{
+//				@(0x3294) : @[@"Canon", @"80D"],
 			},
 		};
 		_confirmedCameras = @{
@@ -129,31 +145,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0447) : @[@"Nikon", @"D6"],
 			},
 		};
-	});
-	NSDictionary* modelDict = _supportedCameras[@(camera.usbVendorID)];
-	if (!modelDict)
-		return nil;
-	NSArray* cameraInfo = modelDict[@(camera.usbProductID)];
-	if (!cameraInfo)
-		return nil;
-	
-	NSDictionary* confirmedModelDict = _confirmedCameras[@(camera.usbVendorID)];
-	NSNumber* confirmedCameraInfo = confirmedModelDict[@(camera.usbProductID)];
 
-	return @{
-		@"make" : cameraInfo[0],
-		@"model" : cameraInfo[1],
-		@"confirmed" : @([confirmedCameraInfo boolValue]),
-	};
-}
-
-- (instancetype) initWithIcDevice: (ICCameraDevice*) device pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface
-{
-	if (!(self = [super initWithPluginInterface: pluginInterface]))
-		return nil;
-	
-	static dispatch_once_t onceToken;
-	dispatch_once(&onceToken, ^{
 		_ptpPropertyNames = @{
 			@(PTP_PROP_BATTERYLEVEL) : @"Battery Level",
 			@(PTP_PROP_WHITEBALANCE) : @"White Balance",
@@ -270,36 +262,81 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			},
 		};
 
+	}
+}
+
+
++ (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device
+{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
 	});
 	
-	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(device.usbVendorID)];
-	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(device.usbProductID)] unsignedIntegerValue];
+	uint16_t vendorId = device.usbVendorID;
+	uint16_t productId = device.usbProductID;
+
+	NSDictionary* modelDict = _supportedCameras[@(vendorId)];
+	if (!modelDict)
+		return nil;
+	NSArray* cameraInfo = modelDict[@(productId)];
+	if (!cameraInfo)
+		return nil;
 	
-	self.cameraDevice = device;
-	device.delegate = self;
+	NSDictionary* confirmedModelDict = _confirmedCameras[@(vendorId)];
+	NSNumber* confirmedCameraInfo = confirmedModelDict[@(productId)];
+
+	return @{
+		@"make" : cameraInfo[0],
+		@"model" : cameraInfo[1],
+		@"confirmed" : @([confirmedCameraInfo boolValue]),
+	};
+}
+
+- (instancetype) initWithIcCamera: (ICCameraDevice*) camera service: (PtpWebcamAssistantService*) service
+{
+	if (!(self = [super init]))
+		return nil;
 	
-	self.name = device.name;
-	self.manufacturer = @"Nikon";
-	self.elementNumberName = @"1";
-	self.elementCategoryName = @"DSLR Webcam";
-	self.deviceUid = [NSString stringWithFormat: @"ptp-webcam-plugin-device-%@", device.name];
-	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@", device.name];
-	self.ptpPropertyInfos = @{};
-
-	device.delegate = self;
-
-		
-	[device requestEnableTethering];
-
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_GETDEVICEINFO transactionId: [self nextTransactionId]];
+	NSDictionary* cameraInfo = [[self class] isDeviceSupported: camera];
 	
-	[device requestSendPTPCommand: command
-						  outData: nil
-			  sendCommandDelegate: self
-		   didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
-					  contextInfo: NULL];
+	if (!cameraInfo)
+		return nil;
+	
+	// setup UI agent plumbing
+	// for naming see https://mattrajca.com/2016/09/12/designing-shared-services-for-the-mac-app-sandbox.html
+	
+	agentPortName = [NSString stringWithFormat: @"ZYF8X9Z6M2.org.ptpwebcam.%@", [[NSUUID UUID] UUIDString]];
 
+	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: agentPortName];
+
+	if (!assistantPort)
+	{
+		PtpWebcamShowCatastrophicAlert(@"Assistant Service Could not create UI agent Mach port with name %@.", agentPortName);
+		return nil;
+	}
+	
+	assistantPort.delegate = self;
+	[[NSRunLoop currentRunLoop] addPort: assistantPort forMode: NSRunLoopCommonModes];
+
+	
+	
+	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(camera.usbVendorID)];
+	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(camera.usbProductID)] unsignedIntegerValue];
+
+	self.service = service;
+	self.icCamera = camera;
+	self.make = cameraInfo[@"make"];
+	self.model = cameraInfo[@"model"];
+	self.cameraId = [NSString stringWithFormat: @"ptpwebcam-%@-%@-%@", self.make, self.model, camera.serialNumberString];
+	
+	camera.delegate = self;
+	
+	[camera requestEnableTethering];
+	
+	[self requestSendPtpCommandWithCode:PTP_CMD_GETDEVICEINFO];
+	
 	return self;
+
 }
 
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)device
@@ -374,17 +411,20 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
 {
-	NSLog(@"D800 didOpenSession");
+	NSLog(@"-device:didOpenSessionWithError");
 	if (error)
-		NSLog(@"D800 could not open session because %@", error);
+		NSLog(@"PTP Webcam could not open ddevice session because %@", error);
 	
 }
 
-- (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(nonnull NSError *)error {
+- (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(nonnull NSError *)error
+{
 }
 
-- (void)didRemoveDevice:(nonnull ICDevice *)device
+- (void) didRemoveDevice:(nonnull ICDevice *)device
 {
+	NSLog(@"%@", NSStringFromSelector(_cmd));
+	[self terminateUserInterfaceAgent];
 }
 
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (NSData*) paramData
@@ -469,7 +509,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) sendPtpCommand: (NSData*) command
 {
-	[self.cameraDevice requestSendPTPCommand: command
+	[self.icCamera requestSendPTPCommand: command
 									 outData: nil
 						 sendCommandDelegate: self
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
@@ -479,7 +519,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) sendPtpCommand: (NSData*) command withData: (NSData*) data
 {
-	[self.cameraDevice requestSendPTPCommand: command
+	[self.icCamera requestSendPTPCommand: command
 									 outData: data
 						 sendCommandDelegate: self
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
@@ -517,17 +557,120 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_CMD_GETPROPVAL:
 			[self parsePtpPropertyValue: data];
 			break;
-		case MTP_CMD_GETOBJECTPROPSSUPPORTED:
-			[self parseMtpObjectPropertiesSupportedResponse: data];
-			break;
 		case PTP_CMD_NIKON_GETVENDORPROPS:
 			[self parseNikonPropertiesResponse: data];
 			break;
+		case PTP_CMD_GETLIVEVIEWIMG:
+		{
+			[self parsePtpLiveViewImageResponse: response data: data];
+			break;
+		}
+		case PTP_CMD_NIKON_DEVICEREADY:
+		{
+			uint16_t code = 0;
+			[response getBytes: &code range: NSMakeRange(6, 2)];
+			
+			switch (code)
+			{
+				case PTP_RSP_DEVICEBUSY:
+					[self queryDeviceBusy];
+					break;
+				case PTP_RSP_OK:
+				{
+					// activate frame timer when device is ready after starting live view to start getting images
+					[self.service cameraLiveViewReady: self];
+					break;
+				}
+				default:
+				{
+					// some error occured
+					NSLog(@"didSendPTPCommand  DeviceReady returned error 0x%04X", code);
+					[self stopLiveView];
+					break;
+				}
+			}
+
+			break;
+		}
 		default:
 			NSLog(@"didSendPTPCommand  cmd=%@", command);
 			NSLog(@"didSendPTPCommand data=%@", data);
 			break;
 	}
+	
+}
+
+- (void) queryDeviceBusy
+{
+	[self requestSendPtpCommandWithCode:PTP_CMD_NIKON_DEVICEREADY];
+}
+
+- (void) parsePtpLiveViewImageResponse: (NSData*) response data: (NSData*) data
+{
+	// response structure
+	// 32bit length
+	// 16bit 0x0003 type = response
+	// 16bit response code
+	// 32bit transaction id
+	// 32bit response parameter
+		
+	uint32_t len = 0;
+	[response getBytes: &len range: NSMakeRange(0, 4)];
+	uint16_t type = 0;
+	[response getBytes: &type range: NSMakeRange(4, 2)];
+	uint16_t code = 0;
+	[response getBytes: &code range: NSMakeRange(6, 2)];
+	uint32_t transId = 0;
+	[response getBytes: &transId range: NSMakeRange(8, 4)];
+
+	bool isDeviceBusy = code == PTP_RSP_DEVICEBUSY;
+	
+	if (!data) // no data means no image to present
+	{
+		NSLog(@"parsePtpLiveViewImageResponse: no data!");
+		
+		// restart live view if it got turned off after timeout or error
+		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
+		if (!isDeviceBusy)
+		{
+			[self stopLiveView];
+			[self startLiveView];
+		}
+		
+		return;
+	}
+	
+	
+	switch (code)
+	{
+		case PTP_RSP_NIKON_NOTLIVEVIEW:
+		{
+			NSLog(@"camera not in liveview, no image.");
+			//			[self asyncGetLiveViewImage];
+			return;
+		}
+		case PTP_RSP_OK:
+		{
+			// OK means proceed with image
+			break;
+		}
+		default:
+		{
+			NSLog(@"len = %u type = 0x%X, code = 0x%X, transId = %u", len, type, code, transId);
+			break;
+		}
+			
+	}
+	
+	
+	// D800 LiveView image has a heaer of length 384 with metadata, with the rest being the JPEG image.
+	size_t headerLen = self.liveViewHeaderLength;
+	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
+	
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+//	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+	
+	[self.service camera: self didReceiveLiveViewJpegImage: jpegData withInfo: @{}];
 	
 }
 
@@ -568,7 +711,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	}
 	
-	
+	// after receiving the vendor specific properties, we are ready to roll
+	[self cameraDidBecomeReadyForUse];
 }
 
 - (id) dataToValue: (NSData*) data ofType: (int) dataType
@@ -724,11 +868,22 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		dict[@(property)] = info;
 		self.ptpPropertyInfos = dict;
 	}
+	
+	// finally send off message to UI agent
+	if (agentPort)
+	{
+		NSArray* components = @[
+			[self.cameraId dataUsingEncoding: NSUTF8StringEncoding],
+			[NSKeyedArchiver archivedDataWithRootObject: @(property)],
+			[NSKeyedArchiver archivedDataWithRootObject: info],
+		];
+		NSPortMessage* message = [[NSPortMessage alloc] initWithSendPort: agentPort receivePort: assistantPort components: components];
+		message.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_PROPERTY;
+		[message sendBeforeDate: [NSDate distantFuture]];
 
-	dispatch_async(dispatch_get_main_queue(), ^{
-		[self rebuildStatusItem];
-	});
+	}
 
+	
 }
 
 - (void) parsePtpPropertyValue: (NSData*) data
@@ -791,12 +946,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return array;
 }
 
-- (void) parseMtpObjectPropertiesSupportedResponse: (NSData*) eventData
-{
-	
-}
-
-
 - (void) parsePtpDeviceInfoResponse: (NSData*) eventData
 {
 	NSMutableDictionary* ptpDeviceInfo = [NSMutableDictionary dictionary];
@@ -833,19 +982,19 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	//	NSLog(@"  ops = %@", opsSupported);
 	
 	// check for hard-coded operations and add them to property list
-	if (_ptpNonAdvertisedOperations[@(self.cameraDevice.usbVendorID)])
+	if (_ptpNonAdvertisedOperations[@(self.icCamera.usbVendorID)])
 	{
-		NSDictionary* vendorOpsTable = _ptpNonAdvertisedOperations[@(self.cameraDevice.usbVendorID)];
-		if (vendorOpsTable[@(self.cameraDevice.usbProductID)])
+		NSDictionary* vendorOpsTable = _ptpNonAdvertisedOperations[@(self.icCamera.usbVendorID)];
+		if (vendorOpsTable[@(self.icCamera.usbProductID)])
 		{
-			opsSupported = [opsSupported arrayByAddingObjectsFromArray: vendorOpsTable[@(self.cameraDevice.usbProductID)]];
+			opsSupported = [opsSupported arrayByAddingObjectsFromArray: vendorOpsTable[@(self.icCamera.usbProductID)]];
 		}
 	}
 	
 	ptpDeviceInfo[@"operations"] = opsSupported;
 	
-	for (id prop in opsSupported)
-		NSLog(@"supports operation  0x%04X", [prop intValue]);
+//	for (id prop in opsSupported)
+//		NSLog(@"supports operation  0x%04X", [prop intValue]);
 
 	NSArray* eventsSupported = [self parsePtpUint16Array: moreData remainingData: &moreData];
 	//	NSLog(@"  events = %@", eventsSupported);
@@ -858,8 +1007,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	ptpDeviceInfo[@"properties"] = propsSupported;
 	
-	for (id prop in propsSupported)
-		NSLog(@"supports property  0x%04X", [prop intValue]);
+//	for (id prop in propsSupported)
+//		NSLog(@"supports property  0x%04X", [prop intValue]);
 	
 	NSArray* captureFormats = [self parsePtpUint16Array: moreData remainingData: &moreData];
 	//	NSLog(@"  capture = %@", captureFormats);
@@ -913,7 +1062,14 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 	// The Nikon LiveView properties are not returned as device properties, but are still there
 	if ([self isPtpOperationSupported: PTP_CMD_NIKON_GETVENDORPROPS])
+	{
 		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
+	}
+	else
+	{
+		// if no further information has to be determined, we're ready to talk to the DAL plugin
+		[self cameraDidBecomeReadyForUse];
+	}
 
 //	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
 //	[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
@@ -933,7 +1089,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId]];
 	
-	[self.cameraDevice requestSendPTPCommand: command
+	[self.icCamera requestSendPTPCommand: command
 									 outData: nil
 						 sendCommandDelegate: self
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
@@ -962,215 +1118,185 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 }
 
-- (void) unplugDevice
+- (void) startLiveView
 {
+	PtpLog(@"");
+	[self requestSendPtpCommandWithCode: PTP_CMD_STARTLIVEVIEW];
 	
-	[self.stream unplugDevice];
-
-	[self removeStatusItem];
-
-	[self deleteCmioDevice];
+	BOOL isDeviceReadySupported = [self isPtpOperationSupported: PTP_CMD_NIKON_DEVICEREADY];
 	
-}
-
-- (void) createStatusItem
-{
-	// blacklist some processes from creating status items to weed out the worst offenders
-	if (PtpWebcamIsProcessGuiBlacklisted())
-		return;
-	
-
-	// do not create status item if stream isn't running to avoid duplicates for apps with multiple processes accessing DAL plugins
-
-	if (!statusItem)
-		statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
-
-	// The text that will be shown in the menu bar
-	statusItem.button.title = self.name;
-	
-	// we could set an image, but the text somehow makes more sense
-//	NSBundle *otherBundle = [NSBundle bundleWithIdentifier: @"net.monkeyinthejungle.ptpwebcamdalplugin"];
-//	NSImage *image = [otherBundle imageForResource: @"ptpwebcam-logo-22x22"];
-//	statusItem.button.image = image;
-
-	// The image that will be shown in the menu bar, a 16x16 black png works best
-//	_statusItem.image = [NSImage imageNamed:@"feedbin-logo"];
-
-	// The highlighted image, use a white version of the normal image
-//	_statusItem.alternateImage = [NSImage imageNamed:@"feedbin-logo-alt"];
-
-	// The image gets a blue background when the item is selected
-//	statusItem.highlightMode = YES;
-
-}
-
-- (void) removeStatusItem
-{
-	
-	[[NSStatusBar systemStatusBar] removeStatusItem: statusItem];
-	statusItem = nil;
-	
-}
-
-- (NSString*) formatValue: (id) value ofType: (int) dataType
-{
-	NSString* valueString = [NSString stringWithFormat:@"%@", value];
-	
-	switch (dataType)
+	if (isDeviceReadySupported)
 	{
-		case PTP_PROP_BATTERYLEVEL:
-			valueString = [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
-			break;
-		case PTP_PROP_FNUM:
-			valueString = [NSString stringWithFormat: @"%.1f", 0.01*[value doubleValue]];
-			break;
-		case PTP_PROP_FOCUSDISTANCE:
-			valueString = [NSString stringWithFormat: @"%.0f mm", [value doubleValue]];
-			break;
-		case PTP_PROP_EXPOSUREBIAS:
-			valueString = [NSString stringWithFormat: @"%.3f", 0.001*[value doubleValue]];
-			break;
-		case PTP_PROP_FLEN:
-			valueString = [NSString stringWithFormat: @"%.2f mm", 0.01*[value doubleValue]];
-			break;
-		case PTP_PROP_EXPOSURETIME:
+		// if the deviceReady command is supported, issue it to find out when live view is ready instead of simply waiting
+		[self queryDeviceBusy];
+	}
+	else
+	{
+		// refresh device properties after live view is on, having given the camera little time to switch
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+			[self.service cameraLiveViewReady: self];
+			[self ptpQueryKnownDeviceProperties];
+		});
+	}
+}
+
+- (void) cameraDidBecomeReadyForUse
+{
+	[self launchUserInterfaceAgent];
+	[self.service cameraReady: self];
+
+}
+
+
+- (void) stopLiveView
+{
+	PtpLog(@"");
+	[self requestSendPtpCommandWithCode: PTP_CMD_STOPLIVEVIEW];
+}
+
+- (void) requestLiveViewImage
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_GETLIVEVIEWIMG];
+}
+
+
+
+- (void) launchUserInterfaceAgent
+{
+	NSLog(@"%@", NSStringFromSelector(_cmd));
+	
+	// launch agent
+	NSString* agentPath = @"/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources/PtpWebcamAgent.app";
+	
+	NSBundle* agentBundle = [NSBundle bundleWithPath: agentPath];
+	
+//	int pid = [[NSProcessInfo processInfo] processIdentifier];
+	
+	uiAgent = [[NSTask alloc] init];
+	
+	uiAgent.arguments = @[self.cameraId, agentPortName];
+	
+	uiAgent.terminationHandler = ^(NSTask * agentTask) {
+		self->uiAgent = nil;
+	};
+
+	if (@available(macOS 10.13, *))
+	{
+		uiAgent.executableURL = agentBundle.executableURL;
+		NSError* error;
+		if (![uiAgent launchAndReturnError: &error])
 		{
-			double exposureTime = 0.0001*[value doubleValue];
-			// FIXME: exposure times like 1/10000 vs. 1/8000 cannot be distinguished do to PTP property resolution of 0.0001s
-			if (exposureTime < 1.0)
-			{
-				valueString = [NSString stringWithFormat: @"1/%.0f s", 1.0/exposureTime];
-			}
-			else
-			{
-				valueString = [NSString stringWithFormat: @"%.1f s", exposureTime];
-			}
-			break;
+			NSLog(@"Launching Camera UI Agent Task failed with error: %@", error);
 		}
-		case PTP_PROP_EXPOSUREPM:
+	}
+	else
+	{
+		uiAgent.launchPath = agentBundle.executablePath;
+		[uiAgent launch];
+	}
+	
+	
+	
+	
+}
+
+- (void) terminateUserInterfaceAgent
+{
+	[uiAgent terminate];
+	uiAgent = nil;
+}
+
+// MARK: Port Delegate
+
+- (void) handlePortMessage: (NSPortMessage*) message
+{
+	// we can send to the agent after we received its first message with the correct port
+	if (message.sendPort)
+	{
+		agentPort = message.sendPort;
+	}
+	
+	NSData* cameraIdData = message.components[0];
+
+	switch (message.msgid)
+	{
+		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_INFO:
 		{
-			NSString* name = [_ptpProgramModeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			BOOL canAutofocus = [self isPtpOperationSupported: PTP_CMD_NIKON_AFDRIVE];
+			NSDictionary* cameraInfo = @{
+				@"canAutofocus" : @(canAutofocus),
+				@"name" : self.model,
+			};
 			
-			valueString = name;
-			break;
-		}
-		case PTP_PROP_WHITEBALANCE:
-		{
-			NSString* name = [_ptpWhiteBalanceModeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			NSArray* components = @[
+				cameraIdData,
+				[NSKeyedArchiver archivedDataWithRootObject: cameraInfo],
+			];
 			
-			valueString = name;
-			break;
-		}
-		case PTP_PROP_NIKON_LV_IMAGESIZE:
-		{
-			NSString* name = [_ptpLiveViewImageSizeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: components];
+			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_INFO;
 			
-			valueString = name;
+			[response sendBeforeDate: [NSDate distantFuture]];
 			break;
 		}
-		case PTP_PROP_NIKON_LV_STATUS:
-		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
+		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_SUPPORTED_PROPERTIES:
 		{
-			valueString = [value boolValue] ? @"On" : @"Off";
+			NSArray* components = @[
+				cameraIdData,
+				[NSKeyedArchiver archivedDataWithRootObject: self.ptpDeviceInfo[@"properties"]],
+			];
+			
+			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: components];
+			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_SUPPORTED_PROPERTIES;
+			
+			[response sendBeforeDate: [NSDate distantFuture]];
+
+			break;
+		}
+		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_PROPERTIES:
+		{
+//			id cameraId = [[NSString alloc] initWithData: cameraIdData encoding: NSUTF8StringEncoding];
+			
+//			PtpCamera* camera = self.devices[cameraId];
+			
+			NSDictionary* infos = self.ptpPropertyInfos;
+			NSData* infoData = [NSKeyedArchiver archivedDataWithRootObject: infos];
+			
+			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: @[cameraIdData, infoData]];
+			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_PROPERTIES;
+			
+			[response sendBeforeDate: [NSDate distantFuture]];
+			
+			break;
+		}
+		case PTP_WEBCAM_AGENT_MSG_SET_PROPERTY_VALUE:
+		{
+			NSNumber* propertyId = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[1]];
+			id propertyValue = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[2]];
+
+			[self ptpSetProperty: [propertyId unsignedIntValue] toValue: propertyValue];
+
+			[self ptpQueryKnownDeviceProperties];
+
+			break;
+		}
+		case PTP_WEBCAM_AGENT_MSG_QUERY_PROPERTY:
+		{
+			NSNumber* propertyId = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[1]];
+			[self ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+			break;
+		}
+		case PTP_WEBCAM_AGENT_MSG_AUTOFOCUS:
+		{
+			[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
+			break;
+		}
+		default:
+		{
+			PtpLog(@"camera received unknown message with id %d", message.msgid);
 			break;
 		}
 	}
-
-	return valueString;
-}
-
-- (void) rebuildStatusItem
-{
-	if (!statusItem)
-	{
-		[self createStatusItem];
-	}
-	
-	
-	NSMenu* menu = [[NSMenu alloc] init];
-	
-	for (NSNumber* propertyId in [self.ptpPropertyInfos.allKeys sortedArrayUsingSelector: @selector(compare:)])
-	{
-		NSString* name = _ptpPropertyNames[propertyId];
-		NSDictionary* property = self.ptpPropertyInfos[propertyId];
-
-		id value = property[@"value"];
-		NSString* valueString = [self formatValue: value ofType: propertyId.intValue];
-		
-		
-				
-		NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-		[menuItem setTitle: [NSString stringWithFormat: @"%@ (%@)", name, valueString]];
-		
-		// add submenus for writable items
-		if ([property[@"rw"] boolValue])
-		{
-			if ([property[@"range"] isKindOfClass: [NSArray class]])
-			{
-				NSMenu* submenu = [[NSMenu alloc] init];
-				NSArray* values = property[@"range"];
-				
-				for (id enumVal in values)
-				{
-					NSString* valStr = [self formatValue: enumVal ofType: propertyId.intValue];
-
-					NSMenuItem* subItem = [[NSMenuItem alloc] init];
-					subItem.title =  valStr;
-					subItem.target = self;
-					subItem.action =  @selector(changeCameraPropertyAction:);
-					subItem.tag = propertyId.integerValue;
-					subItem.representedObject = enumVal;
-					
-					if ([value isEqual: enumVal])
-						subItem.state = NSControlStateValueOn;
-					
-					[submenu addItem: subItem];
-
-				}
-				
-				menuItem.submenu = submenu;
-
-			}
-
-		}
-
-		
-		[menu addItem: menuItem];
-	}
-	
-	// add autofocus command
-	if ([self.ptpDeviceInfo[@"operations"] containsObject: @(PTP_CMD_NIKON_AFDRIVE)])
-	{
-		[menu addItem: [NSMenuItem separatorItem]];
-		NSMenuItem* item = [[NSMenuItem alloc] init];
-		item.title =  @"Autofocus…";
-		item.target = self;
-		item.action =  @selector(autofocusAction:);
-		[menu addItem: item];
-	}
-	
-	
-	statusItem.menu = menu;
-
-}
-- (IBAction) autofocusAction:(NSMenuItem*)sender
-{
-	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
-}
-
-- (IBAction) changeCameraPropertyAction:(NSMenuItem*)sender
-{
-	uint32_t propertyId = (uint32_t)sender.tag;
-	
-	[self ptpSetProperty: propertyId toValue: sender.representedObject];
-
-	[self ptpQueryKnownDeviceProperties];
 }
 
 @end

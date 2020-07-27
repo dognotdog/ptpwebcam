@@ -8,6 +8,7 @@
 
 #import "PtpWebcamStream.h"
 #import "PtpWebcamDevice.h"
+#import "PtpWebcamAlerts.h"
 
 #import <CoreMediaIO/CMIOSampleBuffer.h>
 
