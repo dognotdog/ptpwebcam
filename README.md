@@ -1,4 +1,4 @@
-#  PTP Webcam DAL Plugin
+#  PTP Webcam – DSLR Live View Video Plugin
 
 Large sensor digital still cameras can provide an exceptionally good image for video conferencing, compared to most built-in web cameras.
 
@@ -52,7 +52,7 @@ If the camera is connected, a status bar item with the camera's model number sho
 #### Nikon D3400
 - exposure preview not available
  
- #### Nikon D5200
+ #### Nikon D5100, Nikon D5200
  - potentially frequent (every few minutes) shutter cycling because of LiveView restarts
   
 
@@ -63,7 +63,7 @@ The following cameras have support in the code, but have not been confirmed to a
   - ~Nikon D90~
   - Nikon D300, Nikon D300S, Nikon D500
   - Nikon D3200, Nikon D3300, Nikon D3500
-  - Nikon D5000, ~Nikon D5100~, Nikon D5300, Nikon D5500, Nikon D5600
+  - Nikon D5000, Nikon D5300, Nikon D5500, Nikon D5600
   - Nikon D7000, Nikon D7100, Nikon D7200, Nikon D7500
   
   - Nikon Df
@@ -82,7 +82,6 @@ Many other cameras can in theory be made to work, but are not yet supported.
 
 - Nikon D3 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
 - Nikon D90 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
-- Nikon D5100 with PTP Webcam v1.0.0-alpha2: crashed QuickTime Player when camera is connected, need report on behavior with newer PTP Webcam versions.
  
 ### Not usable because of hardware limitations
  - Nikon D40, D60, D80, D200 do not support tethered live view.
