@@ -13,6 +13,7 @@
 #import "PtpWebcamAssistantService.h"
 #import "PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/PtpWebcamPtp.h"
+#import "../PtpWebcamDalPlugin/PtpWebcamStream.h"
 
 
 typedef enum {
@@ -32,6 +33,10 @@ typedef enum {
 	NSPort* agentPort;
 	NSString* agentPortName;
 
+	dispatch_queue_t frameQueue;
+	dispatch_source_t frameTimerSource;
+	id videoActivityToken;
+	BOOL inLiveView;
 }
 
 static NSDictionary* _supportedCameras = nil;
@@ -318,7 +323,18 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	assistantPort.delegate = self;
 	[[NSRunLoop currentRunLoop] addPort: assistantPort forMode: NSRunLoopCommonModes];
 
-	
+//	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
+//
+//	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", queueAttributes);
+//
+//	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+//	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1000u*NSEC_PER_SEC);
+//
+//	__weak id weakSelf = self;
+//	dispatch_source_set_event_handler(frameTimerSource, ^{
+//		[weakSelf requestLiveViewImage];
+//	});
+
 	
 	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(camera.usbVendorID)];
 	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(camera.usbProductID)] unsignedIntegerValue];
@@ -337,6 +353,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	return self;
 
+}
+
+- (void) dealloc
+{
+	if (frameTimerSource)
+		dispatch_suspend(frameTimerSource);
 }
 
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)device
@@ -563,6 +585,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_CMD_GETLIVEVIEWIMG:
 		{
 			[self parsePtpLiveViewImageResponse: response data: data];
+//			if (inLiveView)
+//				[self requestLiveViewImage];
+			
 			break;
 		}
 		case PTP_CMD_NIKON_DEVICEREADY:
@@ -578,7 +603,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				case PTP_RSP_OK:
 				{
 					// activate frame timer when device is ready after starting live view to start getting images
-					[self.service cameraLiveViewReady: self];
+					[self cameraDidBecomeReadyForLiveViewStreaming];
 					break;
 				}
 				default:
@@ -1134,10 +1159,25 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	{
 		// refresh device properties after live view is on, having given the camera little time to switch
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
-			[self.service cameraLiveViewReady: self];
-			[self ptpQueryKnownDeviceProperties];
+			[self cameraDidBecomeReadyForLiveViewStreaming];
 		});
 	}
+}
+
+- (void) cameraDidBecomeReadyForLiveViewStreaming
+{
+	videoActivityToken = [[NSProcessInfo processInfo] beginActivityWithOptions: (NSActivityLatencyCritical | NSActivityUserInitiated) reason: @"Live Video"];
+	
+	inLiveView = YES;
+	
+	[self.service cameraLiveViewReady: self];
+	[self ptpQueryKnownDeviceProperties];
+	
+	[self requestLiveViewImage];
+	
+	if (frameTimerSource)
+		dispatch_resume(frameTimerSource);
+
 }
 
 - (void) cameraDidBecomeReadyForUse
@@ -1152,6 +1192,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	PtpLog(@"");
 	[self requestSendPtpCommandWithCode: PTP_CMD_STOPLIVEVIEW];
+	if (frameTimerSource)
+		dispatch_suspend(frameTimerSource);
+	inLiveView = NO;
+	
+	[[NSProcessInfo processInfo] endActivity: videoActivityToken];
+	videoActivityToken = nil;
 }
 
 - (void) requestLiveViewImage

@@ -8,7 +8,6 @@
 
 #import "PtpWebcamAgentAppDelegate.h"
 
-#import "PtpWebcamAgentListenerDelegate.h"
 #import "PtpWebcamAssistantServiceProtocol.h"
 #import "PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/PtpWebcamPtp.h"
