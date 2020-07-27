@@ -7,6 +7,7 @@
 //
 
 #import "PtpWebcamXpcDevice.h"
+#import "PtpWebcamXpcStream.h"
 
 @implementation PtpWebcamXpcDevice
 
@@ -22,6 +23,15 @@
 	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@-%@", self.manufacturer, self.name];
 	
 	return self;
+}
+
+- (void) unplugDevice
+{
+	
+	[self.stream unplugDevice];
+
+	[self deleteCmioDevice];
+	
 }
 
 @end
