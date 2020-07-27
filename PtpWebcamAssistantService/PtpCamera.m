@@ -604,6 +604,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				{
 					// activate frame timer when device is ready after starting live view to start getting images
 					[self cameraDidBecomeReadyForLiveViewStreaming];
+					// update exposure preview property for UI, as it is not automatically queried otherwise
+					if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW])
+						[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
 					break;
 				}
 				default:
@@ -1133,6 +1136,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (BOOL) isPtpOperationSupported: (uint16_t) opId
 {
 	return [self.ptpDeviceInfo[@"operations"] containsObject: @(opId)];
+}
+
+- (BOOL) isPtpPropertySupported: (uint16_t) opId
+{
+	return [self.ptpDeviceInfo[@"properties"] containsObject: @(opId)];
 }
 
 
