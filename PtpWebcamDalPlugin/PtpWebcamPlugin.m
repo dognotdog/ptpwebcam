@@ -263,6 +263,10 @@
 
 - (void) connectToAssistantService
 {
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+
+	
+	
 //	NSString* agentPath = @"/Library/CoreMediaIO/Plug-ins/DAL/PtpWebcamDalPlugin.plugin/Contents/Library/LoginItems/PtpWebcamAgent.app";
 //	OSStatus err =  LSRegisterURL((__bridge CFURLRef)[NSURL fileURLWithPath: agentPath], false);
 //	assert(noErr == err);
@@ -272,7 +276,7 @@
 //	SMLoginItemSetEnabled((__bridge CFStringRef)agentId, true);
 //	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
 	assistantConnection.invalidationHandler = ^{
-		NSLog(@"oops, connection failed: %@", assistantConnection);
+		NSLog(@"oops, connection failed: %@", self->assistantConnection);
 	};
 	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
 	
