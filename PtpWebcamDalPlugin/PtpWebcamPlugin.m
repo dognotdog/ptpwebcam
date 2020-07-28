@@ -82,13 +82,15 @@
 
 - (OSStatus) initialize
 {
+#ifdef XPC_ASSISTANT_ENABLED
 	[self connectToAssistantService];
-	
+#else
 	deviceBrowser = [[ICDeviceBrowser alloc] init];
 	deviceBrowser.delegate = self;
 	deviceBrowser.browsedDeviceTypeMask |= ICDeviceTypeMaskCamera | ICDeviceLocationTypeMaskLocal;
 	
-//	[deviceBrowser start];
+	[deviceBrowser start];
+#endif
 	
 #ifdef DUMMY_DEVICE_ENABLED
 	[self createDummyDeviceAndStream];
@@ -265,16 +267,8 @@
 {
 //	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
 
-	
-	
-//	NSString* agentPath = @"/Library/CoreMediaIO/Plug-ins/DAL/PtpWebcamDalPlugin.plugin/Contents/Library/LoginItems/PtpWebcamAgent.app";
-//	OSStatus err =  LSRegisterURL((__bridge CFURLRef)[NSURL fileURLWithPath: agentPath], false);
-//	assert(noErr == err);
-
 	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
-//	NSString* agentId = @"org.ptpwebcam.PtpWebcamAgent";
-//	SMLoginItemSetEnabled((__bridge CFStringRef)agentId, true);
-//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+
 	assistantConnection.invalidationHandler = ^{
 		NSLog(@"oops, connection failed: %@", self->assistantConnection);
 	};
