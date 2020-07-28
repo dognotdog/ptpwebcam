@@ -41,8 +41,11 @@ If the camera is connected, a status bar item with the camera's model number sho
 
 ### Tested
 
+- Nikon D3500
+- Nikon D5500, Nikon D5600
+- Nikon D7100, Nikon D7500
 - Nikon D750
-- Nikon Z6, Nikon Z7
+- Nikon Z6, Nikon Z7, Nikon Z50
 
 #### Nikon D800 
 
@@ -62,18 +65,16 @@ The following cameras have support in the code, but have not been confirmed to a
   
   - ~Nikon D90~
   - Nikon D300, Nikon D300S, Nikon D500
-  - Nikon D3200, Nikon D3300, Nikon D3500
-  - Nikon D5000, Nikon D5300, Nikon D5500, Nikon D5600
-  - Nikon D7000, Nikon D7100, Nikon D7200, Nikon D7500
+  - Nikon D3200, Nikon D3300
+  - Nikon D5000, Nikon D5300
+  - Nikon D7000, Nikon D7200
   
   - Nikon Df
   - ~Nikon D3~, Nikon D3S, Nikon D3X, Nikon D4, Nikon D4S, Nikon D5, Nikon D6
   - Nikon D600, Nikon D610
   - Nikon D700, Nikon D780
   - Nikon D800E, Nikon D810, Nikon D810A, Nikon D850
-  
-  - Nikon Z50
-  
+    
 Note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
  
 Many other cameras can in theory be made to work, but are not yet supported.
