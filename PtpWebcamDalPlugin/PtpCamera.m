@@ -293,6 +293,26 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	};
 }
 
++ (NSDictionary*) ptpPropertyNames
+{
+	return _ptpPropertyNames;
+}
+
++ (NSDictionary*) ptpProgramModeNames
+{
+	return _ptpProgramModeNames;
+}
+
++ (NSDictionary*) ptpWhiteBalanceModeNames
+{
+	return _ptpWhiteBalanceModeNames;
+}
+
++ (NSDictionary*) ptpLiveViewImageSizeNames
+{
+	return _ptpLiveViewImageSizeNames;
+}
+
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate
 {
 	if (!(self = [super init]))
@@ -325,6 +345,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	self.make = cameraInfo[@"make"];
 	self.model = cameraInfo[@"model"];
 	self.cameraId = [NSString stringWithFormat: @"ptpwebcam-%@-%@-%@", self.make, self.model, camera.serialNumberString];
+	self.ptpPropertyInfos = @{};
 	
 	camera.delegate = self;
 	

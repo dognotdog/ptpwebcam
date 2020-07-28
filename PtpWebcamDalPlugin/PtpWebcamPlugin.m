@@ -41,7 +41,8 @@
 	if (!(self = [super init]))
 		return nil;
 	
-	self.devices = @{};
+	self.cmioDevices = @[];
+	self.cameras = @[];
 	
 	return self;
 }
@@ -112,14 +113,14 @@
 	// Do the full teardown if this is outside of the process being torn down or this is the master process
 	if (![self isDalaSystemInitingOrExiting] || [self isDalaSystemMaster])
 	{
-		for (id device in self.devices.copy)
+		for (id device in self.cmioDevices.copy)
 		{
 			[self deviceRemoved: device];
 		}
 	}
 	else
 	{
-		for (PtpWebcamDevice* device in self.devices.copy)
+		for (PtpWebcamDevice* device in self.cmioDevices.copy)
 		{
 			[device unplugDevice];
 			[device finalizeDevice];
@@ -148,20 +149,16 @@
 	[stream publishCmioStream];
 	
 	@synchronized (self) {
-		NSMutableDictionary* devices = self.devices.mutableCopy;
-		devices[@"dummy"] = device;
-		self.devices = devices;
+		NSMutableArray* devices = self.cmioDevices.mutableCopy;
+		[devices addObject: device];
+		self.cmioDevices = devices;
 	}
 
 }
 
-- (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)camera
+- (void) cameraDidBecomeReadyForUse:(PtpCamera *)camera
 {
-	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", camera);
-	
-	// create and register stream and device
-	
-	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithIcDevice: camera pluginInterface: self.pluginInterfaceRef];
+	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithCamera: camera pluginInterface: self.pluginInterfaceRef];
 	[device createCmioDeviceWithPluginId: self.objectId];
 	[PtpWebcamObject registerObject: device];
 	
@@ -175,16 +172,38 @@
 	[stream publishCmioStream];
 	
 	@synchronized (self) {
-		NSMutableDictionary* devices = self.devices.mutableCopy;
-		devices[device.deviceUid] = device;
-		self.devices = devices;
+		NSMutableArray* devices = self.cmioDevices.mutableCopy;
+		[devices addObject: device];
+		self.cmioDevices = devices;
 	}
+
+}
+
+- (void) receivedCameraProperty:(NSDictionary *)propertyInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
+{
+	// do nothing when receiving camera properties during enumeration
+}
+
+- (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)icCamera
+{
+	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", icCamera);
+	
+	// create and register stream and device
+	
+	PtpCamera* camera = [[PtpCamera alloc] initWithIcCamera: icCamera delegate: self];
+
+	@synchronized (self) {
+		NSMutableArray* cameras = self.cameras.mutableCopy;
+		[cameras addObject: camera];
+		self.cameras = cameras;
+	}
+
 }
 
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
 {
 //	NSLog(@"add device %@", device);
-	NSDictionary* cameraInfo = [PtpWebcamPtpDevice supportsCamera: camera];
+	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: camera];
 	if (cameraInfo)
 	{
 		if (![cameraInfo[@"confirmed"] boolValue])
@@ -202,13 +221,31 @@
 {
 	NSLog(@"remove device %@", icDevice);
 	
-	for(PtpWebcamDevice* device in self.devices)
+	for(PtpWebcamDevice* device in self.cmioDevices.copy)
 	{
-		if([device isKindOfClass: [PtpWebcamPtpDevice class]])
+		if ([device isKindOfClass: [PtpWebcamPtpDevice class]])
 		{
 			PtpWebcamPtpDevice* ptpDevice = (id)device;
-			if ([icDevice isEqual: ptpDevice.cameraDevice])
-				[ptpDevice unplugDevice];
+			if ([icDevice isEqual: ptpDevice.camera.icCamera])
+			{
+//				[ptpDevice unplugDevice];
+				@synchronized (self) {
+					NSMutableArray* devices = self.cmioDevices.mutableCopy;
+					[devices removeObject: device];
+					self.cmioDevices = devices;
+				}
+			}
+		}
+	}
+	for (PtpCamera* camera in self.cameras.copy)
+	{
+		if ([icDevice isEqual: camera.icCamera])
+		{
+			@synchronized (self) {
+				NSMutableArray* cameras = self.cameras.mutableCopy;
+				[cameras removeObject: cameras];
+				self.cameras = cameras;
+			}
 		}
 	}
 }
@@ -263,6 +300,8 @@
 //	<#code#>
 //}
 
+// MARK: Assistant Service
+
 - (void) connectToAssistantService
 {
 //	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
@@ -290,6 +329,20 @@
 
 }
 
+- (nullable id) xpcDeviceWithId: (id) cameraId
+{
+	for (PtpWebcamDevice* device in self.cmioDevices)
+	{
+		if ([device isKindOfClass: [PtpWebcamXpcDevice class]])
+		{
+			PtpWebcamXpcDevice* xpcDevice = (id)device;
+			if ([xpcDevice.cameraId isEqual: cameraId])
+				return xpcDevice;
+		}
+	}
+	return nil;
+}
+
 - (void) cameraConnected: (id) cameraId withInfo: (NSDictionary*) cameraInfo
 {
 //	PtpLog(@"");
@@ -301,13 +354,13 @@
 	// checking and adding to self.devices must happen atomically, hence the @sync block
 	@synchronized (self) {
 		// do nothing if we already know of the camera
-		if (self.devices[cameraId])
+		if ([self xpcDeviceWithId: cameraId])
 			return;
 		
 		// add to devices list
-		NSMutableDictionary* devices = self.devices.mutableCopy;
-		devices[device.cameraId] = device;
-		self.devices = devices;
+		NSMutableArray* devices = self.cmioDevices.mutableCopy;
+		[devices addObject: device];
+		self.cmioDevices = devices;
 	}
 
 	device.xpcConnection = assistantConnection;
@@ -327,18 +380,19 @@
 
 }
 
-- (void)cameraDisconnected:(id)cameraId {
+- (void)cameraDisconnected:(id)cameraId
+{
 	
 	PtpWebcamXpcDevice* device = nil;
 	@synchronized (self) {
 		// do nothing if we didn't know about the camera
-		if (!(device = self.devices[cameraId]))
+		if (!(device = [self xpcDeviceWithId: cameraId]))
 			return;
 		
 		// remove from devices list
-		NSMutableDictionary* devices = self.devices.mutableCopy;
-		[devices removeObjectForKey: device.cameraId];
-		self.devices = devices;
+		NSMutableArray* devices = self.cmioDevices.mutableCopy;
+		[devices removeObject: device];
+		self.cmioDevices = devices;
 	}
 	
 	[device unplugDevice];
@@ -348,7 +402,7 @@
 
 - (void) liveViewReadyforCameraWithId:(id)cameraId
 {
-	PtpWebcamXpcDevice* device = self.devices[cameraId];
+	PtpWebcamXpcDevice* device = [self xpcDeviceWithId: cameraId];
 	PtpWebcamXpcStream* stream = (id)device.stream;
 	[stream liveViewStreamReady];
 
@@ -356,7 +410,7 @@
 
 - (void) receivedLiveViewJpegImageData:(NSData *)jpegData withInfo:(NSDictionary *)info forCameraWithId:(id)cameraId
 {
-	PtpWebcamXpcDevice* device = self.devices[cameraId];
+	PtpWebcamXpcDevice* device = [self xpcDeviceWithId: cameraId];
 	PtpWebcamXpcStream* stream = (id)device.stream;
 	[stream receivedLiveViewJpegImageData: jpegData withInfo: info];
 }

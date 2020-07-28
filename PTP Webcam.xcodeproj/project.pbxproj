@@ -42,6 +42,7 @@
 		DAAACCCD24CF651400E0B44C /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCCC24CF651400E0B44C /* main.m */; };
 		DAAACCD624CFD2E000E0B44C /* PtpCameraMachAssistant.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD524CFD2E000E0B44C /* PtpCameraMachAssistant.m */; };
 		DAAACCD924CFDEA700E0B44C /* PtpCamera.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD824CFDEA600E0B44C /* PtpCamera.m */; };
+		DAAACCDA24D0643800E0B44C /* PtpCamera.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD824CFDEA600E0B44C /* PtpCamera.m */; };
 		DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */; };
 		DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A380248C85D70029D4FB /* PtpWebcamDummyStream.m */; };
 		DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A383248C86090029D4FB /* PtpWebcamPtpDevice.m */; };
@@ -562,6 +563,7 @@
 				DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */,
 				DAAACCB624CD402800E0B44C /* PtpWebcamXpcDevice.m in Sources */,
 				DA26811D24822FEF00FF75EF /* PtpWebcamDevice.m in Sources */,
+				DAAACCDA24D0643800E0B44C /* PtpCamera.m in Sources */,
 				DA26811A24821E2A00FF75EF /* PtpWebcamPlugin.m in Sources */,
 				DAD0A387248C8D550029D4FB /* PtpWebcamPtpStream.m in Sources */,
 				DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */,
@@ -671,6 +673,10 @@
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"XPC_ASSISTANT_DISABLED=1",
+					"$(inherited)",
+				);
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
 				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
@@ -694,6 +700,10 @@
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"XPC_ASSISTANT_DISABLED=1",
+					"$(inherited)",
+				);
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
 				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;

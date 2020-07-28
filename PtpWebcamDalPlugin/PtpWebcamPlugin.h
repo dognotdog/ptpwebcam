@@ -13,10 +13,11 @@
 
 #import "PtpWebcamObject.h"
 #import "PtpWebcamAssistantServiceProtocol.h"
+#import "PtpCamera.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PtpWebcamPlugin : PtpWebcamObject <ICDeviceBrowserDelegate, ICDeviceDelegate, PtpWebcamAssistantDelegateProtocol>
+@interface PtpWebcamPlugin : PtpWebcamObject <ICDeviceBrowserDelegate, ICDeviceDelegate, PtpWebcamAssistantDelegateProtocol, PtpCameraDelegate>
 {
 	CMIOHardwarePlugInInterface* _pluginInterface;
 	dispatch_source_t deviceEventDispatchSource;
@@ -24,7 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property CMIOHardwarePlugInInterface* pluginInterface;
 
-@property NSDictionary* devices;
+// CMIO devies and PtpCameras
+@property NSArray* cmioDevices;
+@property NSArray* cameras;
 
 - (OSStatus) initialize;
 - (OSStatus) teardown;

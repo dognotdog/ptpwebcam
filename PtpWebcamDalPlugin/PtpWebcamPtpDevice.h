@@ -11,29 +11,30 @@
 #import "PtpWebcamPlugin.h"
 
 #import <CoreMediaIo/CMIOHardwarePlugIn.h>
-#import <ImageCaptureCore/ImageCaptureCore.h>
+#import "PtpCamera.h"
 
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PtpWebcamPtpDevice : PtpWebcamDevice <ICCameraDeviceDelegate>
 
-@property ICCameraDevice* cameraDevice;
-@property NSDictionary* ptpDeviceInfo;
-@property NSDictionary* ptpPropertyInfos;
+@interface PtpWebcamPtpDevice : PtpWebcamDevice <PtpCameraDelegate>
 
-@property size_t liveViewHeaderLength;
+@property PtpCamera* camera;
+//@property NSDictionary* ptpDeviceInfo;
+//@property NSDictionary* ptpPropertyInfos;
 
-- (uint32_t) nextTransactionId;
+//@property size_t liveViewHeaderLength;
 
-- (instancetype) initWithIcDevice: (ICCameraDevice*) device pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
+//- (uint32_t) nextTransactionId;
 
-- (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
-- (void) ptpQueryKnownDeviceProperties;
+- (instancetype) initWithCamera: (PtpCamera*) camera pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
 
-+ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera;
-
-- (BOOL) isPtpOperationSupported: (uint16_t) opId;
+//- (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
+//- (void) ptpQueryKnownDeviceProperties;
+//
+//+ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera;
+//
+//- (BOOL) isPtpOperationSupported: (uint16_t) opId;
 
 @end
 

@@ -16,6 +16,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(weak) PtpWebcamPtpDevice* ptpDevice;
 
+- (void) cameraDidBecomeReadyForLiveViewStreaming;
+- (void) receivedLiveViewJpegImageData: (NSData*) jpegData withInfo: (NSDictionary*) info;
+
 @end
 
 NS_ASSUME_NONNULL_END
