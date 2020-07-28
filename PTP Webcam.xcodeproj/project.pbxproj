@@ -37,6 +37,12 @@
 		DAAACCB124CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
 		DAAACCB624CD402800E0B44C /* PtpWebcamXpcDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCB524CD402800E0B44C /* PtpWebcamXpcDevice.m */; };
 		DAAACCB924CD40BC00E0B44C /* PtpWebcamXpcStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCB824CD40BC00E0B44C /* PtpWebcamXpcStream.m */; };
+		DAAACCC524CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCC424CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m */; };
+		DAAACCC724CF651400E0B44C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DAAACCC624CF651400E0B44C /* Assets.xcassets */; };
+		DAAACCCA24CF651400E0B44C /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DAAACCC824CF651400E0B44C /* MainMenu.xib */; };
+		DAAACCCD24CF651400E0B44C /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCCC24CF651400E0B44C /* main.m */; };
+		DAAACCD324CF6C6500E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = DAAACCBB24CF5F3100E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist */; };
+		DAAACCD624CFD2E000E0B44C /* PtpCameraMachAssistant.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD524CFD2E000E0B44C /* PtpCameraMachAssistant.m */; };
 		DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */; };
 		DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A380248C85D70029D4FB /* PtpWebcamDummyStream.m */; };
 		DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A383248C86090029D4FB /* PtpWebcamPtpDevice.m */; };
@@ -88,6 +94,16 @@
 				DAAACCAA24CAAA3000E0B44C /* PtpWebcamAssistantService.xpc in Copy XPC Services */,
 			);
 			name = "Copy XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DAAACCD224CF6C2E00E0B44C /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(USER_LIBRARY_DIR)/LaunchAgents";
+			dstSubfolderSpec = 0;
+			files = (
+				DAAACCD324CF6C6500E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist in CopyFiles */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -146,6 +162,17 @@
 		DAAACCB724CD40BC00E0B44C /* PtpWebcamXpcStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamXpcStream.h; sourceTree = "<group>"; };
 		DAAACCB824CD40BC00E0B44C /* PtpWebcamXpcStream.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamXpcStream.m; sourceTree = "<group>"; };
 		DAAACCBA24CE9B5A00E0B44C /* PtpWebcamPtp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamPtp.h; sourceTree = "<group>"; };
+		DAAACCBB24CF5F3100E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = org.ptpwebcam.PtpWebcamAssistant.plist; sourceTree = "<group>"; };
+		DAAACCC124CF651200E0B44C /* PtpWebcamAssistant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PtpWebcamAssistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DAAACCC324CF651200E0B44C /* PtpWebcamAssistantAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamAssistantAppDelegate.h; sourceTree = "<group>"; };
+		DAAACCC424CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamAssistantAppDelegate.m; sourceTree = "<group>"; };
+		DAAACCC624CF651400E0B44C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DAAACCC924CF651400E0B44C /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+		DAAACCCB24CF651400E0B44C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DAAACCCC24CF651400E0B44C /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		DAAACCCE24CF651400E0B44C /* PtpWebcamAssistant.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PtpWebcamAssistant.entitlements; sourceTree = "<group>"; };
+		DAAACCD424CFD2E000E0B44C /* PtpCameraMachAssistant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraMachAssistant.h; sourceTree = "<group>"; };
+		DAAACCD524CFD2E000E0B44C /* PtpCameraMachAssistant.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraMachAssistant.m; sourceTree = "<group>"; };
 		DAD0A37C248C85AB0029D4FB /* PtpWebcamDummyDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyDevice.h; sourceTree = "<group>"; };
 		DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamDummyDevice.m; sourceTree = "<group>"; };
 		DAD0A37F248C85D70029D4FB /* PtpWebcamDummyStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyStream.h; sourceTree = "<group>"; };
@@ -193,6 +220,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DAAACCBE24CF651200E0B44C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -226,6 +260,7 @@
 				DAAACCB724CD40BC00E0B44C /* PtpWebcamXpcStream.h */,
 				DAAACCB824CD40BC00E0B44C /* PtpWebcamXpcStream.m */,
 				DAAACCBA24CE9B5A00E0B44C /* PtpWebcamPtp.h */,
+				DAAACCBB24CF5F3100E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist */,
 			);
 			path = PtpWebcamDalPlugin;
 			sourceTree = "<group>";
@@ -239,6 +274,7 @@
 				DA2681042481BB2100FF75EF /* PtpWebcamDalPlugin */,
 				DAAACC7124C918C500E0B44C /* PtpWebcamAssistantService */,
 				DAAACC8E24C9FDF500E0B44C /* PtpWebcamAgent */,
+				DAAACCC224CF651200E0B44C /* PtpWebcamAssistant */,
 				DA2922D7247EDA5B00794577 /* Products */,
 				DA292328247EF96800794577 /* Frameworks */,
 			);
@@ -251,6 +287,7 @@
 				DA2681032481BB2100FF75EF /* PTPWebcamDALPlugin.plugin */,
 				DAAACC7024C918C500E0B44C /* PtpWebcamAssistantService.xpc */,
 				DAAACC8D24C9FDF500E0B44C /* PtpWebcamAgent.app */,
+				DAAACCC124CF651200E0B44C /* PtpWebcamAssistant.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -295,6 +332,8 @@
 				DAAACCAB24CCE3E600E0B44C /* PtpCamera.h */,
 				DAAACCAC24CCE3E600E0B44C /* PtpCamera.m */,
 				DAAACCB324CD215500E0B44C /* PtpCameraProtocol.h */,
+				DAAACCD424CFD2E000E0B44C /* PtpCameraMachAssistant.h */,
+				DAAACCD524CFD2E000E0B44C /* PtpCameraMachAssistant.m */,
 			);
 			path = PtpWebcamAssistantService;
 			sourceTree = "<group>";
@@ -311,6 +350,20 @@
 				DAAACC9A24C9FDF700E0B44C /* PtpWebcamAgent.entitlements */,
 			);
 			path = PtpWebcamAgent;
+			sourceTree = "<group>";
+		};
+		DAAACCC224CF651200E0B44C /* PtpWebcamAssistant */ = {
+			isa = PBXGroup;
+			children = (
+				DAAACCC324CF651200E0B44C /* PtpWebcamAssistantAppDelegate.h */,
+				DAAACCC424CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m */,
+				DAAACCC624CF651400E0B44C /* Assets.xcassets */,
+				DAAACCC824CF651400E0B44C /* MainMenu.xib */,
+				DAAACCCB24CF651400E0B44C /* Info.plist */,
+				DAAACCCC24CF651400E0B44C /* main.m */,
+				DAAACCCE24CF651400E0B44C /* PtpWebcamAssistant.entitlements */,
+			);
+			path = PtpWebcamAssistant;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -389,6 +442,24 @@
 			productReference = DAAACC8D24C9FDF500E0B44C /* PtpWebcamAgent.app */;
 			productType = "com.apple.product-type.application";
 		};
+		DAAACCC024CF651200E0B44C /* PtpWebcamAssistant */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DAAACCCF24CF651400E0B44C /* Build configuration list for PBXNativeTarget "PtpWebcamAssistant" */;
+			buildPhases = (
+				DAAACCBD24CF651200E0B44C /* Sources */,
+				DAAACCBE24CF651200E0B44C /* Frameworks */,
+				DAAACCBF24CF651200E0B44C /* Resources */,
+				DAAACCD224CF6C2E00E0B44C /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PtpWebcamAssistant;
+			productName = PtpWebcamAssistant;
+			productReference = DAAACCC124CF651200E0B44C /* PtpWebcamAssistant.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -410,6 +481,9 @@
 					DAAACC8C24C9FDF500E0B44C = {
 						CreatedOnToolsVersion = 11.3.1;
 					};
+					DAAACCC024CF651200E0B44C = {
+						CreatedOnToolsVersion = 11.3.1;
+					};
 				};
 			};
 			buildConfigurationList = DA2922D1247EDA5B00794577 /* Build configuration list for PBXProject "PTP Webcam" */;
@@ -429,6 +503,7 @@
 				DA2681022481BB2100FF75EF /* PTPWebcamDALPlugin */,
 				DAAACC6F24C918C500E0B44C /* PtpWebcamAssistantService */,
 				DAAACC8C24C9FDF500E0B44C /* PtpWebcamAgent */,
+				DAAACCC024CF651200E0B44C /* PtpWebcamAssistant */,
 			);
 		};
 /* End PBXProject section */
@@ -464,6 +539,15 @@
 			files = (
 				DAAACC9324C9FDF700E0B44C /* Assets.xcassets in Resources */,
 				DAAACC9624C9FDF700E0B44C /* MainMenu.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DAAACCBF24CF651200E0B44C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DAAACCC724CF651400E0B44C /* Assets.xcassets in Resources */,
+				DAAACCCA24CF651400E0B44C /* MainMenu.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -506,6 +590,7 @@
 				DAAACC7524C918C600E0B44C /* PtpWebcamAssistantService.m in Sources */,
 				DAAACCB024CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */,
 				DAAACCAD24CCE3E600E0B44C /* PtpCamera.m in Sources */,
+				DAAACCD624CFD2E000E0B44C /* PtpCameraMachAssistant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -516,6 +601,15 @@
 				DAAACC9924C9FDF700E0B44C /* main.m in Sources */,
 				DAAACC9124C9FDF500E0B44C /* PtpWebcamAgentAppDelegate.m in Sources */,
 				DAAACCB124CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DAAACCBD24CF651200E0B44C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DAAACCCD24CF651400E0B44C /* main.m in Sources */,
+				DAAACCC524CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -552,6 +646,14 @@
 			isa = PBXVariantGroup;
 			children = (
 				DAAACC9524C9FDF700E0B44C /* Base */,
+			);
+			name = MainMenu.xib;
+			sourceTree = "<group>";
+		};
+		DAAACCC824CF651400E0B44C /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				DAAACCC924CF651400E0B44C /* Base */,
 			);
 			name = MainMenu.xib;
 			sourceTree = "<group>";
@@ -864,6 +966,46 @@
 			};
 			name = Release;
 		};
+		DAAACCD024CF651400E0B44C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistant/PtpWebcamAssistant.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		DAAACCD124CF651400E0B44C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistant/PtpWebcamAssistant.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -908,6 +1050,15 @@
 			buildConfigurations = (
 				DAAACC9C24C9FDF700E0B44C /* Debug */,
 				DAAACC9D24C9FDF700E0B44C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DAAACCCF24CF651400E0B44C /* Build configuration list for PBXNativeTarget "PtpWebcamAssistant" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DAAACCD024CF651400E0B44C /* Debug */,
+				DAAACCD124CF651400E0B44C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
