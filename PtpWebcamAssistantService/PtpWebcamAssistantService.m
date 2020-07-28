@@ -190,12 +190,18 @@
     // Next, set the object that the connection exports. All messages sent on the connection to this service will be sent to the exported object to handle. The connection retains the exported object.
     newConnection.exportedObject = self;
     
+	// remove connection from list when it becomes invalidated
+	__weak NSXPCConnection* weakConnection = newConnection;
 	newConnection.invalidationHandler = ^{
 		PtpLog(@"connection died");
-		@synchronized (self) {
-			NSMutableArray* connections = self.connections.mutableCopy;
-			[connections removeObject: newConnection];
-			self.connections = connections;
+		NSXPCConnection* connection = weakConnection;
+		if (connection)
+		{
+			@synchronized (self) {
+				NSMutableArray* connections = self.connections.mutableCopy;
+				[connections removeObject: connection];
+				self.connections = connections;
+			}
 		}
 	};
 

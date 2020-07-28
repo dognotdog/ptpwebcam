@@ -43,6 +43,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (CMSimpleQueueRef) copyBufferQueueWithAlteredProc: (CMIODeviceStreamQueueAlteredProc) queueAlteredProc refCon: (void*) refCon;
 
 - (CMVideoFormatDescriptionRef) createFormatDescription;
+- (CVPixelBufferRef) createPixelBufferWithNSImage: (NSImage*) image;
 
 - (void) unplugDevice;
 

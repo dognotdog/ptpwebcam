@@ -308,8 +308,9 @@
 
 	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
 
+	__weak NSXPCConnection* weakConnection = assistantConnection;
 	assistantConnection.invalidationHandler = ^{
-		NSLog(@"oops, connection failed: %@", self->assistantConnection);
+		NSLog(@"oops, connection failed: %@", weakConnection);
 	};
 	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
 	

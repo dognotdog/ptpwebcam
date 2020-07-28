@@ -191,27 +191,4 @@
 	return format;
 }
 
-
-
-- (CVPixelBufferRef) createPixelBufferWithNSImage:(NSImage*)image
-{
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
-    NSDictionary* pixelBufferProperties = @{(id)kCVPixelBufferCGImageCompatibilityKey:@YES, (id)kCVPixelBufferCGBitmapContextCompatibilityKey:@YES};
-    CVPixelBufferRef pixelBuffer = NULL;
-    CVPixelBufferCreate(kCFAllocatorDefault, [image size].width, [image size].height, k32ARGBPixelFormat, (__bridge CFDictionaryRef)pixelBufferProperties, &pixelBuffer);
-    CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-    void* baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
-    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-    CGContextRef context = CGBitmapContextCreate(baseAddress, [image size].width, [image size].height, 8, bytesPerRow, colorSpace, kCGImageAlphaNoneSkipFirst);
-    NSGraphicsContext* imageContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
-    [NSGraphicsContext saveGraphicsState];
-    [NSGraphicsContext setCurrentContext:imageContext];
-    [image compositeToPoint:NSMakePoint(0.0, 0.0) operation:NSCompositingOperationCopy];
-    [NSGraphicsContext restoreGraphicsState];
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-    CFRelease(context);
-    CGColorSpaceRelease(colorSpace);
-    return pixelBuffer;
-}
-
 @end
