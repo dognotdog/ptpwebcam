@@ -28,10 +28,6 @@ typedef enum {
 	
 	ptpWebcamCameraMechanism_t mechanism;
 	
-	NSTask* uiAgent;
-	NSPort* assistantPort;
-	NSPort* agentPort;
-	NSString* agentPortName;
 
 	dispatch_queue_t frameQueue;
 	dispatch_source_t frameTimerSource;
@@ -297,7 +293,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	};
 }
 
-- (instancetype) initWithIcCamera: (ICCameraDevice*) camera service: (PtpWebcamAssistantService*) service
+- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate
 {
 	if (!(self = [super init]))
 		return nil;
@@ -307,21 +303,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	if (!cameraInfo)
 		return nil;
 	
-	// setup UI agent plumbing
-	// for naming see https://mattrajca.com/2016/09/12/designing-shared-services-for-the-mac-app-sandbox.html
-	
-	agentPortName = [NSString stringWithFormat: @"ZYF8X9Z6M2.org.ptpwebcam.%@", [[NSUUID UUID] UUIDString]];
-
-	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: agentPortName];
-
-	if (!assistantPort)
-	{
-		PtpWebcamShowCatastrophicAlert(@"Assistant Service Could not create UI agent Mach port with name %@.", agentPortName);
-		return nil;
-	}
-	
-	assistantPort.delegate = self;
-	[[NSRunLoop currentRunLoop] addPort: assistantPort forMode: NSRunLoopCommonModes];
 
 //	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
 //
@@ -339,7 +320,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(camera.usbVendorID)];
 	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(camera.usbProductID)] unsignedIntegerValue];
 
-	self.service = service;
+	self.delegate = delegate;
 	self.icCamera = camera;
 	self.make = cameraInfo[@"make"];
 	self.model = cameraInfo[@"model"];
@@ -446,7 +427,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) didRemoveDevice:(nonnull ICDevice *)device
 {
 	NSLog(@"%@", NSStringFromSelector(_cmd));
-	[self terminateUserInterfaceAgent];
+	[self.delegate cameraWasRemoved: self];
 }
 
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (NSData*) paramData
@@ -698,7 +679,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
 //	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
 	
-	[self.service camera: self didReceiveLiveViewJpegImage: jpegData withInfo: @{}];
+	[self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
 	
 }
 
@@ -897,19 +878,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		self.ptpPropertyInfos = dict;
 	}
 	
-	// finally send off message to UI agent
-	if (agentPort)
-	{
-		NSArray* components = @[
-			[self.cameraId dataUsingEncoding: NSUTF8StringEncoding],
-			[NSKeyedArchiver archivedDataWithRootObject: @(property)],
-			[NSKeyedArchiver archivedDataWithRootObject: info],
-		];
-		NSPortMessage* message = [[NSPortMessage alloc] initWithSendPort: agentPort receivePort: assistantPort components: components];
-		message.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_PROPERTY;
-		[message sendBeforeDate: [NSDate distantFuture]];
-
-	}
+	[self.delegate receivedCameraProperty: info withId: @(property) fromCamera: self];
 
 	
 }
@@ -1178,7 +1147,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	inLiveView = YES;
 	
-	[self.service cameraLiveViewReady: self];
+	[self.delegate cameraDidBecomeReadyForLiveViewStreaming: self];
 	[self ptpQueryKnownDeviceProperties];
 	
 	[self requestLiveViewImage];
@@ -1190,8 +1159,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) cameraDidBecomeReadyForUse
 {
-	[self launchUserInterfaceAgent];
-	[self.service cameraReady: self];
+	[self.delegate cameraDidBecomeReadyForUse: self];
 
 }
 
@@ -1212,145 +1180,4 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_GETLIVEVIEWIMG];
 }
-
-
-
-- (void) launchUserInterfaceAgent
-{
-	NSLog(@"%@", NSStringFromSelector(_cmd));
-	
-	// launch agent
-	NSString* agentPath = @"/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources/PtpWebcamAgent.app";
-	
-	NSBundle* agentBundle = [NSBundle bundleWithPath: agentPath];
-	
-//	int pid = [[NSProcessInfo processInfo] processIdentifier];
-	
-	uiAgent = [[NSTask alloc] init];
-	
-	uiAgent.arguments = @[self.cameraId, agentPortName];
-	
-	uiAgent.terminationHandler = ^(NSTask * agentTask) {
-		self->uiAgent = nil;
-	};
-
-	if (@available(macOS 10.13, *))
-	{
-		uiAgent.executableURL = agentBundle.executableURL;
-		NSError* error;
-		if (![uiAgent launchAndReturnError: &error])
-		{
-			NSLog(@"Launching Camera UI Agent Task failed with error: %@", error);
-		}
-	}
-	else
-	{
-		uiAgent.launchPath = agentBundle.executablePath;
-		[uiAgent launch];
-	}
-	
-	
-	
-	
-}
-
-- (void) terminateUserInterfaceAgent
-{
-	[uiAgent terminate];
-	uiAgent = nil;
-}
-
-// MARK: Port Delegate
-
-- (void) handlePortMessage: (NSPortMessage*) message
-{
-	// we can send to the agent after we received its first message with the correct port
-	if (message.sendPort)
-	{
-		agentPort = message.sendPort;
-	}
-	
-	NSData* cameraIdData = message.components[0];
-
-	switch (message.msgid)
-	{
-		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_INFO:
-		{
-			BOOL canAutofocus = [self isPtpOperationSupported: PTP_CMD_NIKON_AFDRIVE];
-			NSDictionary* cameraInfo = @{
-				@"canAutofocus" : @(canAutofocus),
-				@"name" : self.model,
-			};
-			
-			NSArray* components = @[
-				cameraIdData,
-				[NSKeyedArchiver archivedDataWithRootObject: cameraInfo],
-			];
-			
-			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: components];
-			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_INFO;
-			
-			[response sendBeforeDate: [NSDate distantFuture]];
-			break;
-		}
-		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_SUPPORTED_PROPERTIES:
-		{
-			NSArray* components = @[
-				cameraIdData,
-				[NSKeyedArchiver archivedDataWithRootObject: self.ptpDeviceInfo[@"properties"]],
-			];
-			
-			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: components];
-			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_SUPPORTED_PROPERTIES;
-			
-			[response sendBeforeDate: [NSDate distantFuture]];
-
-			break;
-		}
-		case PTP_WEBCAM_AGENT_MSG_GET_CAMERA_PROPERTIES:
-		{
-//			id cameraId = [[NSString alloc] initWithData: cameraIdData encoding: NSUTF8StringEncoding];
-			
-//			PtpCamera* camera = self.devices[cameraId];
-			
-			NSDictionary* infos = self.ptpPropertyInfos;
-			NSData* infoData = [NSKeyedArchiver archivedDataWithRootObject: infos];
-			
-			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: assistantPort components: @[cameraIdData, infoData]];
-			response.msgid = PTP_WEBCAM_AGENT_MSG_CAMERA_PROPERTIES;
-			
-			[response sendBeforeDate: [NSDate distantFuture]];
-			
-			break;
-		}
-		case PTP_WEBCAM_AGENT_MSG_SET_PROPERTY_VALUE:
-		{
-			NSNumber* propertyId = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[1]];
-			id propertyValue = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[2]];
-
-			[self ptpSetProperty: [propertyId unsignedIntValue] toValue: propertyValue];
-
-			[self ptpQueryKnownDeviceProperties];
-
-			break;
-		}
-		case PTP_WEBCAM_AGENT_MSG_QUERY_PROPERTY:
-		{
-			NSNumber* propertyId = [NSKeyedUnarchiver unarchiveObjectWithData: message.components[1]];
-			[self ptpGetPropertyDescription: [propertyId unsignedIntValue]];
-			break;
-		}
-		case PTP_WEBCAM_AGENT_MSG_AUTOFOCUS:
-		{
-			[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
-			break;
-		}
-		default:
-		{
-			PtpLog(@"camera received unknown message with id %d", message.msgid);
-			break;
-		}
-	}
-}
-
 @end

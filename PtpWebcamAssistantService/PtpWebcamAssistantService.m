@@ -9,6 +9,7 @@
 #import "PtpWebcamAssistantService.h"
 #import "PtpCameraProtocol.h"
 #import "PtpCamera.h"
+#import "PtpCameraMachAssistant.h"
 #import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 
 #import <AppKit/AppKit.h>
@@ -34,7 +35,7 @@
 	deviceBrowser = [[ICDeviceBrowser alloc] init];
 	deviceBrowser.delegate = self;
 	deviceBrowser.browsedDeviceTypeMask |= ICDeviceTypeMaskCamera | ICDeviceLocationTypeMaskLocal;
-	
+
 
 	[deviceBrowser start];
 	
@@ -48,7 +49,11 @@
 	
 	// create and register stream and device
 	
-	PtpCamera* device = [[PtpCamera alloc] initWithIcCamera: icCamera service: self];
+	PtpCameraMachAssistant* cameraDelegate = [[PtpCameraMachAssistant alloc] init];
+	cameraDelegate.service = self;
+	
+	PtpCamera* device = [[PtpCamera alloc] initWithIcCamera: icCamera delegate: cameraDelegate];
+	cameraDelegate.camera = device;
 	
 	if (!device)
 	{
@@ -58,7 +63,7 @@
 	
 	@synchronized (self) {
 		NSMutableDictionary* devices = self.devices.mutableCopy;
-		devices[device.cameraId] = device;
+		devices[device.cameraId] = cameraDelegate;
 		self.devices = devices;
 	}
 }
@@ -87,7 +92,7 @@
 	for(id cameraId in self.devices.copy)
 	{
 		
-		PtpCamera* camera = self.devices[cameraId];
+		PtpCamera* camera = [self.devices[cameraId] camera];
 		
 		if ([icDevice isEqual: camera.icCamera])
 		{
@@ -215,28 +220,29 @@
 	
 	// after the initial ping, also inform the client of already connected devices
 	NSXPCConnection* connection = [NSXPCConnection currentConnection];
-	for (PtpCamera* camera in self.devices)
+	for (PtpCameraMachAssistant* cameraDelegate in self.devices.allValues)
 	{
+		PtpCamera* camera = cameraDelegate.camera;
 		[[connection remoteObjectProxy] cameraConnected: camera.cameraId withInfo: [self cameraConnectionInfo: camera]];
 	}
 }
 
 - (void) startLiveViewForCamera:(id)cameraId
 {
-	PtpCamera* camera = self.devices[cameraId];
+	PtpCamera* camera = [self.devices[cameraId] camera];
 	[camera startLiveView];
 }
 
 - (void) stopLiveViewForCamera:(id)cameraId
 {
-	PtpCamera* camera = self.devices[cameraId];
+	PtpCamera* camera = [self.devices[cameraId] camera];
 	[camera stopLiveView];
 }
 
 
 - (void) requestLiveViewImageForCamera:(id)cameraId
 {
-	PtpCamera* camera = self.devices[cameraId];
+	PtpCamera* camera = [self.devices[cameraId] camera];
 	
 	[camera requestLiveViewImage];
 	
