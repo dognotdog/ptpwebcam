@@ -97,7 +97,7 @@
 
 - (void) queryAllCameraProperties
 {
-	for (id propertyId in [PtpCamera ptpPropertyNames])
+	for (id propertyId in [self.camera ptpPropertyNames])
 	{
 		if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
 			[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
@@ -182,7 +182,7 @@
 		}
 		case PTP_PROP_EXPOSUREPM:
 		{
-			NSDictionary* programModeNames = [PtpCamera ptpProgramModeNames];
+			NSDictionary* programModeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_EXPOSUREPM)];
 			NSString* name = [programModeNames objectForKey: value];
 			if (!name)
 				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
@@ -192,7 +192,7 @@
 		}
 		case PTP_PROP_WHITEBALANCE:
 		{
-			NSDictionary* whiteBalanceModeNames = [PtpCamera ptpWhiteBalanceModeNames];
+			NSDictionary* whiteBalanceModeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_WHITEBALANCE)];
 			NSString* name = [whiteBalanceModeNames objectForKey: value];
 			if (!name)
 				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
@@ -202,7 +202,7 @@
 		}
 		case PTP_PROP_NIKON_LV_IMAGESIZE:
 		{
-			NSDictionary* liveViewImageSizeNames = [PtpCamera ptpLiveViewImageSizeNames];
+			NSDictionary* liveViewImageSizeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
 			NSString* name = [liveViewImageSizeNames objectForKey: value];
 			if (!name)
 				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
@@ -230,7 +230,7 @@
 	
 	
 	NSMenu* menu = [[NSMenu alloc] init];
-	NSDictionary* ptpPropertyNames = [PtpCamera ptpPropertyNames];
+	NSDictionary* ptpPropertyNames = [self.camera ptpPropertyNames];
 	
 	for (NSNumber* propertyId in [self.camera.ptpPropertyInfos.allKeys sortedArrayUsingSelector: @selector(compare:)])
 	{

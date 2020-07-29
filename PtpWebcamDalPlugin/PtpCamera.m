@@ -8,6 +8,7 @@
 
 #import "PtpCamera.h"
 #import "PtpCameraNikon.h"
+#import "PtpCameraCanon.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
@@ -40,9 +41,8 @@ static NSDictionary* _supportedCameras = nil;
 static NSDictionary* _confirmedCameras = nil;
 
 static NSDictionary* _ptpPropertyNames = nil;
-static NSDictionary* _ptpProgramModeNames = nil;
-static NSDictionary* _ptpWhiteBalanceModeNames = nil;
-static NSDictionary* _ptpLiveViewImageSizeNames = nil;
+static NSDictionary* _ptpPropertyValueNames = nil;
+
 static NSDictionary* _ptpNonAdvertisedOperations = nil;
 
 static NSDictionary* _liveViewJpegDataOffsets = nil;
@@ -51,56 +51,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	if (self == [PtpCamera self])
 	{
-		_supportedCameras = @{
-			// Nikon
-			@(0x04B0) : @{
-//				@(0x0410) : @[@"Nikon", @"D200", [PtpCameraNikon class]],
-				@(0x041A) : @[@"Nikon", @"D300", [PtpCameraNikon class]],
-				@(0x041C) : @[@"Nikon", @"D3", [PtpCameraNikon class]],
-				@(0x0420) : @[@"Nikon", @"D3X", [PtpCameraNikon class]],
-				@(0x0421) : @[@"Nikon", @"D90", [PtpCameraNikon class]],
-				@(0x0422) : @[@"Nikon", @"D700", [PtpCameraNikon class]],
-				@(0x0423) : @[@"Nikon", @"D5000", [PtpCameraNikon class]],
-//				@(0x0424) : @[@"Nikon", @"D3000", [PtpCameraNikon class]],
-				@(0x0425) : @[@"Nikon", @"D300S", [PtpCameraNikon class]],
-				@(0x0426) : @[@"Nikon", @"D3S", [PtpCameraNikon class]],
-				@(0x0428) : @[@"Nikon", @"D7000", [PtpCameraNikon class]],
-				@(0x0429) : @[@"Nikon", @"D5100", [PtpCameraNikon class]],
-				@(0x042A) : @[@"Nikon", @"D800", [PtpCameraNikon class]],
-				@(0x042B) : @[@"Nikon", @"D4", [PtpCameraNikon class]],
-				@(0x042C) : @[@"Nikon", @"D3200", [PtpCameraNikon class]],
-				@(0x042D) : @[@"Nikon", @"D600", [PtpCameraNikon class]],
-				@(0x042E) : @[@"Nikon", @"D800E", [PtpCameraNikon class]],
-				@(0x042F) : @[@"Nikon", @"D5200", [PtpCameraNikon class]],
-				@(0x0430) : @[@"Nikon", @"D7100", [PtpCameraNikon class]],
-				@(0x0431) : @[@"Nikon", @"D5300", [PtpCameraNikon class]],
-				@(0x0432) : @[@"Nikon", @"Df", [PtpCameraNikon class]],
-				@(0x0433) : @[@"Nikon", @"D3300", [PtpCameraNikon class]],
-				@(0x0434) : @[@"Nikon", @"D610", [PtpCameraNikon class]],
-				@(0x0435) : @[@"Nikon", @"D4S", [PtpCameraNikon class]],
-				@(0x0436) : @[@"Nikon", @"D810", [PtpCameraNikon class]],
-				@(0x0437) : @[@"Nikon", @"D750", [PtpCameraNikon class]],
-				@(0x0438) : @[@"Nikon", @"D5500", [PtpCameraNikon class]],
-				@(0x0439) : @[@"Nikon", @"D7200", [PtpCameraNikon class]],
-				@(0x043A) : @[@"Nikon", @"D5", [PtpCameraNikon class]],
-				@(0x043B) : @[@"Nikon", @"D810A", [PtpCameraNikon class]],
-				@(0x043C) : @[@"Nikon", @"D500", [PtpCameraNikon class]],
-				@(0x043D) : @[@"Nikon", @"D3400", [PtpCameraNikon class]],
-				@(0x043F) : @[@"Nikon", @"D5600", [PtpCameraNikon class]],
-				@(0x0440) : @[@"Nikon", @"D7500", [PtpCameraNikon class]],
-				@(0x0441) : @[@"Nikon", @"D850", [PtpCameraNikon class]],
-				@(0x0442) : @[@"Nikon", @"Z7", [PtpCameraNikon class]],
-				@(0x0443) : @[@"Nikon", @"Z6", [PtpCameraNikon class]],
-				@(0x0444) : @[@"Nikon", @"Z50", [PtpCameraNikon class]],
-				@(0x0445) : @[@"Nikon", @"D3500", [PtpCameraNikon class]],
-				@(0x0446) : @[@"Nikon", @"D780", [PtpCameraNikon class]],
-				@(0x0447) : @[@"Nikon", @"D6", [PtpCameraNikon class]],
-			},
-			// Canon
-			@(0x049A) : @{
-//				@(0x3294) : @[@"Canon", @"80D", [PtpCameraCanon class]],
-			},
-		};
+		// just send a message to the class to trigger its initialization, and with it registering its supported vendorId/productId combos
+		[PtpCameraNikon class];
+		[PtpCameraCanon class];
+
 		_confirmedCameras = @{
 			// Nikon
 			@(0x04B0) : @{
@@ -146,67 +100,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0446) : @[@"Nikon", @"D780"],
 //				@(0x0447) : @[@"Nikon", @"D6"],
 			},
-		};
-
-		_ptpPropertyNames = @{
-			@(PTP_PROP_BATTERYLEVEL) : @"Battery Level",
-			@(PTP_PROP_WHITEBALANCE) : @"White Balance",
-			@(PTP_PROP_FNUM) : @"Aperture",
-			@(PTP_PROP_FOCUSDISTANCE) : @"Focus Distance",
-			@(PTP_PROP_EXPOSUREPM) : @"Exposure Program Mode",
-			@(PTP_PROP_EXPOSUREISO) : @"ISO",
-			@(PTP_PROP_EXPOSUREBIAS) : @"Exposure Correction",
-			@(PTP_PROP_FLEN) : @"Focal Length",
-			@(PTP_PROP_EXPOSURETIME) : @"Exposure Time",
-			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
-			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
-		};
-		_ptpProgramModeNames = @{
-			@(0x0000) : @"Undefined",
-			@(0x0001) : @"Manual",
-			@(0x0002) : @"Automatic",
-			@(0x0003) : @"Aperture Priority",
-			@(0x0004) : @"Shutter Priority",
-			@(0x0005) : @"Creative",
-			@(0x0006) : @"Action",
-			@(0x0007) : @"Portrait",
-			// Nikon specific
-			@(0x8010) : @"Auto",
-			@(0x8011) : @"Portrait",
-			@(0x8012) : @"Landscape",
-			@(0x8013) : @"Close-up",
-			@(0x8014) : @"Sports",
-			@(0x8015) : @"Night Portrait",
-			@(0x8016) : @"Flash Off Auto",
-			@(0x8018) : @"SCENE",
-			@(0x8019) : @"EFFECTS",
-			@(0x8050) : @"U1",
-			@(0x8051) : @"U2",
-			@(0x8052) : @"U3",
-		};
-		_ptpWhiteBalanceModeNames = @{
-			@(0x0000) : @"Undefined",
-			@(0x0001) : @"Manual",
-			@(0x0002) : @"Automatic",
-			@(0x0003) : @"One-Push Automatic",
-			@(0x0004) : @"Daylight",
-			@(0x0005) : @"Flourescent",
-			@(0x0006) : @"Tungsten",
-			@(0x0007) : @"Flash",
-			// Nikon specific
-			@(0x8010) : @"Cloudy",
-			@(0x8011) : @"Shade",
-			@(0x8012) : @"Color Temperature",
-			@(0x8013) : @"Preset",
-			@(0x8014) : @"Off",
-			@(0x8016) : @"Natural Light Auto",
-		};
-
-		_ptpLiveViewImageSizeNames = @{
-			@(0x0000) : @"Undefined",
-			@(0x0001) : @"QVGA",	// 320x240
-			@(0x0002) : @"VGA",		// 640x480
-			@(0x0003) : @"XGA",		// 1024x768
 		};
 
 		_ptpNonAdvertisedOperations = @{
@@ -267,12 +160,39 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 }
 
++ (void) registerSupportedCameras: (NSDictionary*) supportedCamerasIn byClass: (Class) aClass
+{
+	NSMutableDictionary* supportedCameras = [NSMutableDictionary dictionaryWithCapacity: supportedCamerasIn.count];
+	for (id vendorId in supportedCamerasIn)
+	{
+		NSDictionary* vendorDictIn = supportedCamerasIn[vendorId];
+		NSMutableDictionary* vendorDict = [NSMutableDictionary dictionaryWithCapacity: vendorDictIn.count];
+		
+		for (id productId in vendorDictIn)
+		{
+			NSArray* productInfoIn = vendorDictIn[productId];
+			NSDictionary* productInfo = @{
+				@"make" : productInfoIn[0],
+				@"model" : productInfoIn[1],
+				@"Class" : aClass,
+			};
+			vendorDict[productId] = productInfo;
+		}
+		supportedCameras[vendorId] = vendorDict;
+	}
+
+	
+	@synchronized (self)
+	{
+		if (!_supportedCameras)
+			_supportedCameras = @{};
+		
+		_supportedCameras = [self mergePropertyValueDictionary: _supportedCameras withDictionary: supportedCameras];
+	}
+}
 
 + (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device
 {
-	static dispatch_once_t onceToken;
-	dispatch_once(&onceToken, ^{
-	});
 	
 	uint16_t vendorId = device.usbVendorID;
 	uint16_t productId = device.usbProductID;
@@ -280,39 +200,106 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSDictionary* modelDict = _supportedCameras[@(vendorId)];
 	if (!modelDict)
 		return nil;
-	NSArray* cameraInfo = modelDict[@(productId)];
+	NSMutableDictionary* cameraInfo = [modelDict[@(productId)] mutableCopy];
 	if (!cameraInfo)
 		return nil;
 	
 	NSDictionary* confirmedModelDict = _confirmedCameras[@(vendorId)];
 	NSNumber* confirmedCameraInfo = confirmedModelDict[@(productId)];
 
-	return @{
-		@"make" : cameraInfo[0],
-		@"model" : cameraInfo[1],
-		@"confirmed" : @([confirmedCameraInfo boolValue]),
-		@"Class" : cameraInfo[2],
-	};
+	cameraInfo[@"confirmed"] = @([confirmedCameraInfo boolValue]);
+	
+	return cameraInfo;
 }
 
-+ (NSDictionary*) ptpPropertyNames
++ (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1
 {
+	NSSet* keys0 = [NSSet setWithArray: dict0.allKeys];
+	NSSet* keys1 = [NSSet setWithArray: dict1.allKeys];
+	NSSet* keys = [keys0 setByAddingObjectsFromSet: keys1];
+	NSMutableDictionary* dict = [NSMutableDictionary dictionaryWithCapacity: keys.count];
+	for (id key in keys)
+	{
+		NSDictionary* prop0 = dict0[key];
+		NSDictionary* prop1 = dict1[key];
+		
+		if (prop0 && prop1)
+		{
+			NSMutableDictionary* combinedProp = prop0.mutableCopy;
+			[combinedProp addEntriesFromDictionary: prop1];
+			dict[key] = combinedProp;
+		}
+		else if (prop0)
+		{
+			dict[key] = prop0;
+		}
+		else
+		{
+			dict[key] = prop1;
+		}
+	}
+	return dict;
+}
+
+
++ (NSDictionary*) ptpStandardPropertyValueNames
+{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		_ptpPropertyValueNames = @{
+			@(PTP_PROP_EXPOSUREPM) : @{
+				@(0x0000) : @"Undefined",
+				@(0x0001) : @"Manual",
+				@(0x0002) : @"Automatic",
+				@(0x0003) : @"Aperture Priority",
+				@(0x0004) : @"Shutter Priority",
+				@(0x0005) : @"Creative",
+				@(0x0006) : @"Action",
+				@(0x0007) : @"Portrait",
+			},
+			@(PTP_PROP_WHITEBALANCE) :  @{
+				@(0x0000) : @"Undefined",
+				@(0x0001) : @"Manual",
+				@(0x0002) : @"Automatic",
+				@(0x0003) : @"One-Push Automatic",
+				@(0x0004) : @"Daylight",
+				@(0x0005) : @"Flourescent",
+				@(0x0006) : @"Tungsten",
+				@(0x0007) : @"Flash",
+			},
+		};
+	});
+	return _ptpPropertyValueNames;
+}
+
+
++ (NSDictionary*) ptpStandardPropertyNames
+{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		_ptpPropertyNames = @{
+			@(PTP_PROP_BATTERYLEVEL) : @"Battery Level",
+			@(PTP_PROP_WHITEBALANCE) : @"White Balance",
+			@(PTP_PROP_FNUM) : @"Aperture",
+			@(PTP_PROP_FOCUSDISTANCE) : @"Focus Distance",
+			@(PTP_PROP_EXPOSUREPM) : @"Exposure Program Mode",
+			@(PTP_PROP_EXPOSUREISO) : @"ISO",
+			@(PTP_PROP_EXPOSUREBIAS) : @"Exposure Correction",
+			@(PTP_PROP_FLEN) : @"Focal Length",
+			@(PTP_PROP_EXPOSURETIME) : @"Exposure Time",
+		};
+	});
 	return _ptpPropertyNames;
 }
 
-+ (NSDictionary*) ptpProgramModeNames
+- (NSDictionary*) ptpPropertyNames
 {
-	return _ptpProgramModeNames;
+	return [PtpCamera ptpStandardPropertyNames];
 }
 
-+ (NSDictionary*) ptpWhiteBalanceModeNames
+- (NSDictionary*) ptpPropertyValueNames
 {
-	return _ptpWhiteBalanceModeNames;
-}
-
-+ (NSDictionary*) ptpLiveViewImageSizeNames
-{
-	return _ptpLiveViewImageSizeNames;
+	return [PtpCamera ptpStandardPropertyValueNames];
 }
 
 + (instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate
@@ -324,7 +311,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	Class cameraClass = cameraInfo[@"Class"];
 	
-	return [cameraClass initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo];
+	return [[cameraClass alloc] initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo];
 	
 }
 

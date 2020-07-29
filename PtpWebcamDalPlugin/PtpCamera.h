@@ -29,11 +29,22 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property size_t liveViewHeaderLength;
 
++ (void) registerSupportedCameras: (NSDictionary*) supportedCameras byClass: (Class) aClass;
+
 + (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device;
-+ (NSDictionary*) ptpProgramModeNames;
-+ (NSDictionary*) ptpWhiteBalanceModeNames;
-+ (NSDictionary*) ptpLiveViewImageSizeNames;
-+ (NSDictionary*) ptpPropertyNames;
+
+//+ (NSDictionary*) ptpStandardProgramModeNames;
+//+ (NSDictionary*) ptpStandardWhiteBalanceModeNames;
++ (NSDictionary*) ptpStandardPropertyValueNames;
++ (NSDictionary*) ptpStandardPropertyNames;
+
+//- (NSDictionary*) ptpProgramModeNames;
+//- (NSDictionary*) ptpWhiteBalanceModeNames;
+//- (NSDictionary*) ptpLiveViewImageSizeNames;
+- (NSDictionary*) ptpPropertyValueNames;
+- (NSDictionary*) ptpPropertyNames;
+
++ (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1;
 
 
 + (instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
