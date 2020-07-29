@@ -211,10 +211,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		_ptpNonAdvertisedOperations = @{
 			@(0x04B0) : @{
 				// TODO: it looks as though the D3200 and newer in the series not advertise everything they can do, confirm that this is actually the case
-				@(0x042C) : @[@(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3200
-				@(0x0433) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3300
-				@(0x043D) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3400
-				@(0x0445) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_STARTLIVEVIEW), @(PTP_CMD_STOPLIVEVIEW), @(PTP_CMD_GETLIVEVIEWIMG)], // D3500
+				@(0x042C) : @[@(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3200
+				@(0x0433) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3300
+				@(0x043D) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3400
+				@(0x0445) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3500
 			},
 		};
 
@@ -584,7 +584,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_CMD_NIKON_GETVENDORPROPS:
 			[self parseNikonPropertiesResponse: data];
 			break;
-		case PTP_CMD_GETLIVEVIEWIMG:
+		case PTP_CMD_NIKON_GETLIVEVIEWIMG:
 		{
 			[self parsePtpLiveViewImageResponse: response data: data];
 //			if (inLiveView)
@@ -1144,7 +1144,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) startLiveView
 {
 	PtpLog(@"");
-	[self requestSendPtpCommandWithCode: PTP_CMD_STARTLIVEVIEW];
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STARTLIVEVIEW];
 	
 	BOOL isDeviceReadySupported = [self isPtpOperationSupported: PTP_CMD_NIKON_DEVICEREADY];
 	
@@ -1188,7 +1188,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) stopLiveView
 {
 	PtpLog(@"");
-	[self requestSendPtpCommandWithCode: PTP_CMD_STOPLIVEVIEW];
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
 	if (frameTimerSource)
 		dispatch_suspend(frameTimerSource);
 	inLiveView = NO;
@@ -1199,6 +1199,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) requestLiveViewImage
 {
-	[self requestSendPtpCommandWithCode: PTP_CMD_GETLIVEVIEWIMG];
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETLIVEVIEWIMG];
 }
 @end
