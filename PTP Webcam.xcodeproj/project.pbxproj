@@ -45,6 +45,9 @@
 		DAAACCDA24D0643800E0B44C /* PtpCamera.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD824CFDEA600E0B44C /* PtpCamera.m */; };
 		DAAACCDB24D08E2300E0B44C /* ImageCaptureCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2680FD2480CC2600FF75EF /* ImageCaptureCore.framework */; };
 		DAAACCDC24D08E3800E0B44C /* ImageCaptureCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2680FD2480CC2600FF75EF /* ImageCaptureCore.framework */; };
+		DAAE16BF24D1166800DE2B9F /* PtpCameraNikon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */; };
+		DAAE16C124D11C6600DE2B9F /* PtpCameraNikon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */; };
+		DAAE16C224D11C6700DE2B9F /* PtpCameraNikon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */; };
 		DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */; };
 		DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A380248C85D70029D4FB /* PtpWebcamDummyStream.m */; };
 		DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A383248C86090029D4FB /* PtpWebcamPtpDevice.m */; };
@@ -175,6 +178,8 @@
 		DAAACCD524CFD2E000E0B44C /* PtpCameraMachAssistant.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraMachAssistant.m; sourceTree = "<group>"; };
 		DAAACCD724CFDE8300E0B44C /* PtpCamera.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PtpCamera.h; sourceTree = "<group>"; };
 		DAAACCD824CFDEA600E0B44C /* PtpCamera.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PtpCamera.m; sourceTree = "<group>"; };
+		DAAE16BD24D1166800DE2B9F /* PtpCameraNikon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraNikon.h; sourceTree = "<group>"; };
+		DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraNikon.m; sourceTree = "<group>"; };
 		DAD0A37C248C85AB0029D4FB /* PtpWebcamDummyDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyDevice.h; sourceTree = "<group>"; };
 		DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamDummyDevice.m; sourceTree = "<group>"; };
 		DAD0A37F248C85D70029D4FB /* PtpWebcamDummyStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyStream.h; sourceTree = "<group>"; };
@@ -239,6 +244,8 @@
 			children = (
 				DAAACCD724CFDE8300E0B44C /* PtpCamera.h */,
 				DAAACCD824CFDEA600E0B44C /* PtpCamera.m */,
+				DAAE16BD24D1166800DE2B9F /* PtpCameraNikon.h */,
+				DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */,
 				DAF3AAE724BFB2B00081F9FA /* ptpwebcam-logo-22x22.png */,
 				DA2681052481BB2100FF75EF /* Info.plist */,
 				DA2681162481C4E300FF75EF /* PtpWebcamPluginInterface.m */,
@@ -573,6 +580,7 @@
 				DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */,
 				DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */,
 				DAAACCB924CD40BC00E0B44C /* PtpWebcamXpcStream.m in Sources */,
+				DAAE16BF24D1166800DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACCAF24CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */,
 				DA26812324893DB700FF75EF /* PtpWebcamObject.m in Sources */,
 			);
@@ -592,6 +600,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DAAACC7724C918C600E0B44C /* main.m in Sources */,
+				DAAE16C124D11C6600DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACC7524C918C600E0B44C /* PtpWebcamAssistantService.m in Sources */,
 				DAAACCB024CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */,
 				DAAACCD624CFD2E000E0B44C /* PtpCameraMachAssistant.m in Sources */,
@@ -614,6 +623,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DAAACCCD24CF651400E0B44C /* main.m in Sources */,
+				DAAE16C224D11C6700DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACCC524CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

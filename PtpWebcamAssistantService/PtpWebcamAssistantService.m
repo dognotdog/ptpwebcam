@@ -52,7 +52,7 @@
 	PtpCameraMachAssistant* cameraDelegate = [[PtpCameraMachAssistant alloc] init];
 	cameraDelegate.service = self;
 	
-	PtpCamera* device = [[PtpCamera alloc] initWithIcCamera: icCamera delegate: cameraDelegate];
+	PtpCamera* device = [PtpCamera cameraWithIcCamera: icCamera delegate: cameraDelegate];
 	cameraDelegate.camera = device;
 	
 	if (!device)

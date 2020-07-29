@@ -190,7 +190,7 @@
 	
 	// create and register stream and device
 	
-	PtpCamera* camera = [[PtpCamera alloc] initWithIcCamera: icCamera delegate: self];
+	PtpCamera* camera = [PtpCamera cameraWithIcCamera: icCamera delegate: self];
 
 	@synchronized (self) {
 		NSMutableArray* cameras = self.cameras.mutableCopy;

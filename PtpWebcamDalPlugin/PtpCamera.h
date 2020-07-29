@@ -35,10 +35,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary*) ptpLiveViewImageSizeNames;
 + (NSDictionary*) ptpPropertyNames;
 
-- (uint32_t) nextTransactionId;
 
-- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
++ (instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
 
+//- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
 
 - (BOOL) isPtpOperationSupported: (uint16_t) opId;
 - (void) ptpGetPropertyDescription: (uint32_t) property;
@@ -49,6 +49,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) startLiveView;
 - (void) stopLiveView;
 - (void) requestLiveViewImage;
+
+- (uint32_t) nextTransactionId;
 
 @end
 
