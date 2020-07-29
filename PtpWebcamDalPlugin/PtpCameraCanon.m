@@ -20,7 +20,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	{
 		NSDictionary* supportedCameras = @{
 			@(0x049A) : @{
-//				@(0x3294) : @[@"Canon", @"80D", [PtpCameraCanon class]],
+				@(0x3294) : @[@"Canon", @"80D", [PtpCameraCanon class]],
 			},
 		};
 		
