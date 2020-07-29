@@ -40,6 +40,7 @@ typedef enum {
 static NSDictionary* _supportedCameras = nil;
 static NSDictionary* _confirmedCameras = nil;
 
+static NSDictionary* _ptpOperationNames = nil;
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpPropertyValueNames = nil;
 
@@ -272,6 +273,21 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return _ptpPropertyValueNames;
 }
 
++ (NSDictionary*) ptpStandardOperationNames
+{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		_ptpPropertyNames = @{
+			@(PTP_CMD_GETDEVICEINFO) : @"Get Device Info",
+			@(PTP_CMD_GETNUMOBJECTS) : @"Get Number of Objects",
+			@(PTP_CMD_GETPROPDESC) : @"Get Property Description",
+			@(PTP_CMD_GETPROPVAL) : @"Get Property Value",
+			@(PTP_CMD_SETPROPVAL) : @"Set Property Value",
+		};
+	});
+	return _ptpPropertyNames;
+}
+
 
 + (NSDictionary*) ptpStandardPropertyNames
 {
@@ -290,6 +306,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		};
 	});
 	return _ptpPropertyNames;
+}
+
+- (NSDictionary*) ptpOperationNames
+{
+	return [PtpCamera ptpStandardOperationNames];
 }
 
 - (NSDictionary*) ptpPropertyNames
@@ -599,6 +620,13 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			value = @(val);
 			break;
 		}
+		case PTP_DATATYPE_SINT8_RAW:
+		{
+			int8_t val = 0;
+			[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+			value = @(val);
+			break;
+		}
 		case PTP_DATATYPE_UINT16_RAW:
 		{
 			uint16_t val = 0;
@@ -620,54 +648,23 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			value = @(val);
 			break;
 		}
+		case PTP_DATATYPE_SINT32_RAW:
+		{
+			int32_t val = 0;
+			[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+			value = @(val);
+			break;
+		}
 	}
 	return value;
 }
 
-- (int) getPtpPropertyType: (uint32_t) propertyId
-{
-	switch(propertyId)
-	{
-		case PTP_PROP_BATTERYLEVEL:
-			return PTP_DATATYPE_UINT8_RAW;
-		case PTP_PROP_WHITEBALANCE:
-		case PTP_PROP_FNUM:
-		case PTP_PROP_FOCUSDISTANCE:
-		case PTP_PROP_EXPOSUREPM:
-		case PTP_PROP_EXPOSUREISO:
-			return PTP_DATATYPE_UINT16_RAW;
-		case PTP_PROP_EXPOSUREBIAS:
-			return PTP_DATATYPE_SINT16_RAW;
-		case PTP_PROP_FLEN:
-		case PTP_PROP_EXPOSURETIME:
-			return PTP_DATATYPE_UINT32_RAW;
-		default:
-//			NSLog(@"Unknown Property 0x%04X, cannot determine type.", property);
-			return 0;
-	}
 
-}
-
-- (size_t) getPtpPropertyDataTypeSize: (int) dataType
-{
-	switch (dataType)
-	{
-		case PTP_DATATYPE_UINT8_RAW:
-			return 1;
-		case PTP_DATATYPE_UINT16_RAW:
-		case PTP_DATATYPE_SINT16_RAW:
-			return 2;
-		case PTP_DATATYPE_UINT32_RAW:
-			return 4;
-		default:
-			return 0;
-	}
-}
 
 - (void) parsePtpPropertyDescription: (NSData*) data
 {
 	// 16b property id
-	// 16b 0x0002 -> container of type data
+	// 16b data type code
 	// 8b get/set (0 ro, 1 rw)
 	// default value
 	// current value
@@ -682,43 +679,45 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	uint16_t property = 0;
 	[data getBytes: &property range: NSMakeRange(0, sizeof(property))];
+	uint16_t dataType = 0;
+	[data getBytes: &dataType range: NSMakeRange(2, sizeof(dataType))];
 	uint8_t rw = 0;
 	[data getBytes: &rw range: NSMakeRange(4, sizeof(rw))];
 
-	int dataType = [self getPtpPropertyType: property];
+	assert((dataType < PTP_DATATYPE_ARRAY_MASK) || (dataType == PTP_DATATYPE_STRING));
+
+	NSData* valuesData = [data subdataWithRange: NSMakeRange( 5, data.length - 5)];
+	
+	id defaultValue = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+	id value = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+	NSNumber* formFlag = [self parsePtpUint8: valuesData remainingData: &valuesData];
+
 	
 	if (PTP_DATATYPE_INVALID == dataType)
 		return;
 	
-	size_t valueLength = [self getPtpPropertyDataTypeSize: dataType];
-
-	id value = [self dataToValue: [data subdataWithRange: NSMakeRange(5+valueLength, valueLength)] ofType: dataType];
-		
-	uint8_t formType = 0;
-	[data getBytes: &formType range: NSMakeRange(5+2*valueLength, sizeof(formType))];
 	
 	id form = @[];
 	
-	switch(formType)
+	switch(formFlag.unsignedIntValue)
 	{
 		case 0x01: // range
 		{
-			id rmin = [self dataToValue: [data subdataWithRange: NSMakeRange(5+2*valueLength+1, valueLength)] ofType: dataType];
-			id rmax = [self dataToValue: [data subdataWithRange: NSMakeRange(5+3*valueLength+1, valueLength)] ofType: dataType];
-			id rstep = [self dataToValue: [data subdataWithRange: NSMakeRange(5+4*valueLength+1, valueLength)] ofType: dataType];
+			id rmin = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+			id rmax = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+			id rstep = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
 			
 			form = @{@"min" : rmin, @"max" : rmax, @"step" : rstep};
 			break;
 		}
 		case 0x02: // enum
 		{
-			uint16_t enumCount = 0;
-			[data getBytes: &enumCount range: NSMakeRange(5+2*valueLength+1, sizeof(enumCount))];
-
+			uint16_t enumCount = [self parsePtpUint16: valuesData remainingData: &valuesData].unsignedShortValue;
+			
 			NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
 			for (size_t i = 0; i < enumCount; ++i)
 			{
-				[enumValues addObject: [self dataToValue: [data subdataWithRange: NSMakeRange(5+2*valueLength+3+i*valueLength, valueLength)] ofType: dataType]];
+				[enumValues addObject: [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData]];
 			}
 			form = enumValues;
 			break;
@@ -727,7 +726,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 //	NSLog(@"0x%04X is %@ in %@", property, value, form);
 	
-	NSDictionary* info = @{@"value" : value, @"range" : form, @"rw": @(rw)};
+	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : form, @"rw": @(rw)};
 	
 	@synchronized (self) {
 		NSMutableDictionary* dict = self.ptpPropertyInfos.mutableCopy;
@@ -775,6 +774,135 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return string;
 }
 
+- (NSNumber*) parsePtpUint8: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	uint8_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpSint8: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	int8_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpUint16: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	uint16_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpSint16: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	int16_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpUint32: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	uint32_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpSint32: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	int32_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpUint64: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	uint64_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parsePtpSint64: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 1)
+		return nil;
+	
+	int64_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( sizeof(val), data.length - sizeof(val))];
+	}
+	
+	return @(val);
+}
+
+
 - (NSArray*) parsePtpUint16Array: (NSData*) data remainingData: (NSData** _Nullable) remData
 {
 	if (data.length < 4)
@@ -798,6 +926,54 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 	
 	return array;
+}
+
+- (id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData** _Nullable) remData
+{
+	switch (dataType)
+	{
+		case PTP_DATATYPE_SINT8_RAW:
+		{
+			return [self parsePtpSint8: data remainingData: remData];
+		}
+		case PTP_DATATYPE_UINT8_RAW:
+		{
+			return [self parsePtpUint8: data remainingData: remData];
+		}
+		case PTP_DATATYPE_SINT16_RAW:
+		{
+			return [self parsePtpSint16: data remainingData: remData];
+		}
+		case PTP_DATATYPE_UINT16_RAW:
+		{
+			return [self parsePtpUint16: data remainingData: remData];
+		}
+		case PTP_DATATYPE_SINT32_RAW:
+		{
+			return [self parsePtpSint32: data remainingData: remData];
+		}
+		case PTP_DATATYPE_UINT32_RAW:
+		{
+			return [self parsePtpUint32: data remainingData: remData];
+		}
+		case PTP_DATATYPE_SINT64_RAW:
+		{
+			return [self parsePtpSint64: data remainingData: remData];
+		}
+		case PTP_DATATYPE_UINT64_RAW:
+		{
+			return [self parsePtpUint64: data remainingData: remData];
+		}
+		case PTP_DATATYPE_STRING:
+		{
+			return [self parsePtpString: data remainingData: remData];
+		}
+		default:
+		{
+			assert(0);
+			return nil;
+		}
+	}
 }
 
 - (void) parsePtpDeviceInfoResponse: (NSData*) eventData

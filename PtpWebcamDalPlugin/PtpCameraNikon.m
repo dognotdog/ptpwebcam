@@ -12,6 +12,7 @@
 
 @implementation PtpCameraNikon
 
+static NSDictionary* _ptpOperationNames = nil;
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpPropertyValueNames = nil;
 
@@ -69,6 +70,18 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		
 		[PtpCamera registerSupportedCameras: supportedCameras byClass: [PtpCameraNikon class]];
 
+		NSMutableDictionary* operationNames = [super ptpStandardOperationNames].mutableCopy;
+		[operationNames addEntriesFromDictionary: @{
+			@(PTP_CMD_NIKON_STARTLIVEVIEW) : @"Nikon Start LiveView",
+			@(PTP_CMD_NIKON_STOPLIVEVIEW) : @"Nikon Stop LiveView",
+			@(PTP_CMD_NIKON_GETLIVEVIEWIMG) : @"Nikon Get LiveView Image",
+			@(PTP_CMD_NIKON_AFDRIVE) : @"Nikon Autofocus",
+			@(PTP_CMD_NIKON_DEVICEREADY) : @"Nikon Get DeviceReady",
+			@(PTP_CMD_NIKON_GETVENDORPROPS) : @"Nikon Get Vendor Properties",
+			@(PTP_CMD_NIKON_MFDRIVE) : @"Nikon Manual Focus",
+		}];
+		_ptpOperationNames = operationNames;
+				
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
@@ -112,6 +125,11 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	}
 }
 
+
+- (NSDictionary*) ptpOperationNames
+{
+	return _ptpOperationNames;
+}
 
 - (NSDictionary*) ptpPropertyNames
 {

@@ -16,7 +16,7 @@
 {
 	uint32_t transactionId;
 	NSStatusItem* statusItem;
-
+	BOOL isPropertyExplorerEnabled;
 }
 @end
 
@@ -37,6 +37,8 @@
 	self.elementCategoryName = @"DSLR Webcam";
 	self.deviceUid = camera.cameraId;
 	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@", camera.model];
+
+	isPropertyExplorerEnabled = [[NSProcessInfo processInfo].environment[@"PTPWebcamPropertyExplorerEnabled"] isEqualToString: @"YES"];
 
 	// camera has been ready for use at this point
 	[self queryAllCameraProperties];
@@ -97,10 +99,21 @@
 
 - (void) queryAllCameraProperties
 {
-	for (id propertyId in [self.camera ptpPropertyNames])
+	// if property explorer is enabled, query all properties, else only query properties with known names
+	if (isPropertyExplorerEnabled)
 	{
-		if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
+		for (id propertyId in self.camera.ptpDeviceInfo[@"properties"])
+		{
 			[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+		}
+	}
+	else
+	{
+		for (id propertyId in [self.camera ptpPropertyNames])
+		{
+			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
+				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+		}
 	}
 
 }
@@ -221,13 +234,59 @@
 	return valueString;
 }
 
+- (NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
+{
+	NSMenu* submenu = [[NSMenu alloc] init];
+	id value = property[@"value"];
+	if ([property[@"range"] isKindOfClass: [NSArray class]])
+	{
+		NSArray* values = property[@"range"];
+		
+		for (id enumVal in values)
+		{
+			NSString* valStr = [self formatValue: enumVal ofType: propertyId.intValue];
+
+			NSMenuItem* subItem = [[NSMenuItem alloc] init];
+			subItem.title =  valStr;
+			if (isInteractive)
+			{
+				subItem.target = self;
+				subItem.action =  @selector(changeCameraPropertyAction:);
+				subItem.tag = propertyId.integerValue;
+				subItem.representedObject = enumVal;
+			}
+			
+			if ([value isEqual: enumVal])
+				subItem.state = NSControlStateValueOn;
+			
+			[submenu addItem: subItem];
+
+		}
+	}
+	else if (property[@"range"])
+	{
+		NSMenuItem* subItem = [[NSMenuItem alloc] init];
+		subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
+		[submenu addItem: subItem];
+
+	}
+	else
+	{
+		NSMenuItem* subItem = [[NSMenuItem alloc] init];
+		subItem.title =  @"(Property has available no range)";
+		[submenu addItem: subItem];
+
+	}
+	return submenu;
+}
+
 - (void) rebuildStatusItem
 {
 	if (!statusItem)
 	{
 		[self createStatusItem];
 	}
-	
+		
 	
 	NSMenu* menu = [[NSMenu alloc] init];
 	NSDictionary* ptpPropertyNames = [self.camera ptpPropertyNames];
@@ -235,6 +294,8 @@
 	for (NSNumber* propertyId in [self.camera.ptpPropertyInfos.allKeys sortedArrayUsingSelector: @selector(compare:)])
 	{
 		NSString* name = ptpPropertyNames[propertyId];
+		if (!name)
+			continue;
 		NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
 
 		id value = property[@"value"];
@@ -250,26 +311,7 @@
 		{
 			if ([property[@"range"] isKindOfClass: [NSArray class]])
 			{
-				NSMenu* submenu = [[NSMenu alloc] init];
-				NSArray* values = property[@"range"];
-				
-				for (id enumVal in values)
-				{
-					NSString* valStr = [self formatValue: enumVal ofType: propertyId.intValue];
-
-					NSMenuItem* subItem = [[NSMenuItem alloc] init];
-					subItem.title =  valStr;
-					subItem.target = self;
-					subItem.action =  @selector(changeCameraPropertyAction:);
-					subItem.tag = propertyId.integerValue;
-					subItem.representedObject = enumVal;
-					
-					if ([value isEqual: enumVal])
-						subItem.state = NSControlStateValueOn;
-					
-					[submenu addItem: subItem];
-
-				}
+				NSMenu* submenu = [self buildSubMenuForPropertyInfo: property withId: propertyId interactive: YES];
 				
 				menuItem.submenu = submenu;
 
@@ -292,7 +334,79 @@
 		[menu addItem: item];
 	}
 	
-	
+	// camera properties
+	if (isPropertyExplorerEnabled)
+	{
+		[menu addItem: [NSMenuItem separatorItem]];
+		NSMenuItem* item = [[NSMenuItem alloc] init];
+		item.title =  @"PTP Properties";
+
+		NSMenu* submenu = [[NSMenu alloc] init];
+		NSArray* properties = self.camera.ptpDeviceInfo[@"properties"];
+		
+		NSDictionary* propertyNames = self.camera.ptpPropertyNames;
+		NSDictionary* propertyInfos = self.camera.ptpPropertyInfos;
+		
+		for (NSNumber* propertyId in properties)
+		{
+			
+			NSDictionary* propertyInfo = propertyInfos[propertyId];
+			
+			NSString* name = propertyNames[propertyId];
+			NSString* valStr = nil;
+			if (name)
+				valStr = [NSString stringWithFormat: @"0x%04X %@ = %@ (%@)", propertyId.unsignedIntValue, name, propertyInfo[@"defaultValue"], propertyInfo[@"value"]];
+			else
+				valStr = [NSString stringWithFormat: @"0x%04X = %@ (%@)", propertyId.unsignedIntValue, propertyInfo[@"defaultValue"], propertyInfo[@"value"]];
+
+			NSMenuItem* subItem = [[NSMenuItem alloc] init];
+			subItem.title =  valStr;
+			
+			NSMenu* subsubmenu = [self buildSubMenuForPropertyInfo: propertyInfo withId: propertyId interactive: NO];
+			
+			subItem.submenu = subsubmenu;
+
+			[submenu addItem: subItem];
+
+		}
+		
+		item.submenu = submenu;
+
+
+
+		[menu addItem: item];
+
+	}
+	// operations
+	if (isPropertyExplorerEnabled)
+	{
+		NSMenuItem* item = [[NSMenuItem alloc] init];
+		item.title =  @"PTP Operations";
+
+		NSMenu* submenu = [[NSMenu alloc] init];
+		NSArray* operations = self.camera.ptpDeviceInfo[@"operations"];
+		NSDictionary* operationNames = self.camera.ptpOperationNames;
+		
+		for (NSNumber* operationId in operations)
+		{
+			
+			NSString* valStr = [NSString stringWithFormat: @"0x%04X %@", operationId.unsignedIntValue, operationNames[operationId]];
+
+			NSMenuItem* subItem = [[NSMenuItem alloc] init];
+			subItem.title =  valStr;
+			
+			[submenu addItem: subItem];
+
+		}
+		
+		item.submenu = submenu;
+
+
+
+		[menu addItem: item];
+
+	}
+
 	statusItem.menu = menu;
 
 }

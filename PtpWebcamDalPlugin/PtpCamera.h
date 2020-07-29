@@ -37,12 +37,14 @@ NS_ASSUME_NONNULL_BEGIN
 //+ (NSDictionary*) ptpStandardWhiteBalanceModeNames;
 + (NSDictionary*) ptpStandardPropertyValueNames;
 + (NSDictionary*) ptpStandardPropertyNames;
++ (NSDictionary*) ptpStandardOperationNames;
 
 //- (NSDictionary*) ptpProgramModeNames;
 //- (NSDictionary*) ptpWhiteBalanceModeNames;
 //- (NSDictionary*) ptpLiveViewImageSizeNames;
 - (NSDictionary*) ptpPropertyValueNames;
 - (NSDictionary*) ptpPropertyNames;
+- (NSDictionary*) ptpOperationNames;
 
 + (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1;
 
