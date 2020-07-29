@@ -8,6 +8,7 @@
 
 #import "PtpCameraNikon.h"
 #import "PtpWebcamPtp.h"
+#import "PtpWebcamAlerts.h"
 
 @implementation PtpCameraNikon
 
@@ -120,6 +121,226 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 - (NSDictionary*) ptpPropertyValueNames
 {
 	return _ptpPropertyValueNames;
+}
+
+- (int) getPtpPropertyType: (uint32_t) propertyId
+{
+	switch(propertyId)
+	{
+		case PTP_PROP_NIKON_LV_STATUS:
+		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
+			return PTP_DATATYPE_UINT8_RAW;
+//		case PTP_PROP_NIKON_LV_WHITEBALANCE:
+//			assert(0);
+//			return 0;
+		default:
+//			NSLog(@"Unknown Property 0x%04X, cannot determine type.", property);
+			return [super getPtpPropertyType: (uint32_t) propertyId];
+	}
+
+}
+
+- (void) queryDeviceBusy
+{
+	[self requestSendPtpCommandWithCode:PTP_CMD_NIKON_DEVICEREADY];
+}
+
+- (void) parsePtpLiveViewImageResponse: (NSData*) response data: (NSData*) data
+{
+	// response structure
+	// 32bit length
+	// 16bit 0x0003 type = response
+	// 16bit response code
+	// 32bit transaction id
+	// 32bit response parameter
+		
+	uint32_t len = 0;
+	[response getBytes: &len range: NSMakeRange(0, 4)];
+	uint16_t type = 0;
+	[response getBytes: &type range: NSMakeRange(4, 2)];
+	uint16_t code = 0;
+	[response getBytes: &code range: NSMakeRange(6, 2)];
+	uint32_t transId = 0;
+	[response getBytes: &transId range: NSMakeRange(8, 4)];
+
+	bool isDeviceBusy = code == PTP_RSP_DEVICEBUSY;
+	
+	if (!data) // no data means no image to present
+	{
+		NSLog(@"parsePtpLiveViewImageResponse: no data!");
+		
+		// restart live view if it got turned off after timeout or error
+		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
+		if (!isDeviceBusy)
+		{
+			[self stopLiveView];
+			[self startLiveView];
+		}
+		
+		return;
+	}
+	
+	
+	switch (code)
+	{
+		case PTP_RSP_NIKON_NOTLIVEVIEW:
+		{
+			NSLog(@"camera not in liveview, no image.");
+			//			[self asyncGetLiveViewImage];
+			return;
+		}
+		case PTP_RSP_OK:
+		{
+			// OK means proceed with image
+			break;
+		}
+		default:
+		{
+			NSLog(@"len = %u type = 0x%X, code = 0x%X, transId = %u", len, type, code, transId);
+			break;
+		}
+			
+	}
+	
+	
+	// D800 LiveView image has a heaer of length 384 with metadata, with the rest being the JPEG image.
+	size_t headerLen = self.liveViewHeaderLength;
+	NSData* jpegData = [data subdataWithRange:NSMakeRange( headerLen, data.length - headerLen)];
+	
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+//	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+	
+	[self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
+	
+}
+
+- (void) parseNikonPropertiesResponse: (NSData*) data
+{
+	uint32_t len = 0;
+	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+	// some cameras, return a longer data buffer than necessary (eg. D7000 with 386 vs. 380 bytes), why is that?
+	// TODO: investigate if the length header is wrong, eg. there are really 3 more entries than there should be, or if it the last 6 bytes are just garbage
+	if (len*2+4 > data.length) // length is how many items we have following the header
+	{
+		PtpWebcamShowCatastrophicAlert(@"-parseNikonPropertiesResponse: expected response data length (%u) exceeds buffer size (%zu).", len*2+4, data.length);
+		return;
+	}
+	
+	
+	NSMutableArray* properties = [NSMutableArray arrayWithCapacity: len];
+	for (size_t i = 0; i < len; ++i)
+	{
+		uint16_t propertyId = 0;
+		[data getBytes: &propertyId range: NSMakeRange(4+2*i, sizeof(propertyId))];
+		[properties addObject: @(propertyId)];
+	}
+	
+//	NSLog(@"Nikon Vendor Properties: %@", properties);
+	
+	for (NSNumber* prop in properties)
+	{
+		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
+	}
+
+	@synchronized (self) {
+		NSMutableDictionary* ptpDeviceInfo = self.ptpDeviceInfo.mutableCopy;
+		NSArray* deviceProperties = [ptpDeviceInfo[@"properties"] arrayByAddingObjectsFromArray: properties];
+		
+		ptpDeviceInfo[@"properties"] = deviceProperties;
+		self.ptpDeviceInfo = ptpDeviceInfo;
+
+	}
+	
+	// after receiving the vendor specific properties, we are ready to roll
+	[self cameraDidBecomeReadyForUse];
+}
+
+- (void)didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo
+{
+	uint16_t cmd = 0;
+	[command getBytes: &cmd range: NSMakeRange(6, 2)];
+
+	switch (cmd)
+	{
+		case PTP_CMD_NIKON_GETVENDORPROPS:
+			[self parseNikonPropertiesResponse: data];
+			break;
+		case PTP_CMD_NIKON_GETLIVEVIEWIMG:
+		{
+			[self parsePtpLiveViewImageResponse: response data: data];
+//			if (inLiveView)
+//				[self requestLiveViewImage];
+			
+			break;
+		}
+		case PTP_CMD_NIKON_DEVICEREADY:
+		{
+			uint16_t code = 0;
+			[response getBytes: &code range: NSMakeRange(6, 2)];
+			
+			switch (code)
+			{
+				case PTP_RSP_DEVICEBUSY:
+					[self queryDeviceBusy];
+					break;
+				case PTP_RSP_OK:
+				{
+					// activate frame timer when device is ready after starting live view to start getting images
+					[self cameraDidBecomeReadyForLiveViewStreaming];
+					// update exposure preview property for UI, as it is not automatically queried otherwise
+					if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW])
+						[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
+					break;
+				}
+				default:
+				{
+					// some error occured
+					NSLog(@"didSendPTPCommand  DeviceReady returned error 0x%04X", code);
+					[self stopLiveView];
+					break;
+				}
+			}
+
+			break;
+		}
+		default:
+			[super didSendPTPCommand: command inData: data response: response error: error contextInfo: contextInfo];
+			
+			break;
+	}
+
+}
+
+- (void) startLiveView
+{
+	PtpLog(@"");
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STARTLIVEVIEW];
+	
+	BOOL isDeviceReadySupported = [self isPtpOperationSupported: PTP_CMD_NIKON_DEVICEREADY];
+	
+	if (isDeviceReadySupported)
+	{
+		// if the deviceReady command is supported, issue it to find out when live view is ready instead of simply waiting
+		[self queryDeviceBusy];
+	}
+	else
+	{
+		// refresh device properties after live view is on, having given the camera little time to switch
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+			[self cameraDidBecomeReadyForLiveViewStreaming];
+		});
+	}
+}
+
+- (void) stopLiveView
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
+	[super stopLiveView];
+}
+
+- (void) requestLiveViewImage
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETLIVEVIEWIMG];
 }
 
 @end

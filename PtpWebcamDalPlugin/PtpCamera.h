@@ -52,14 +52,22 @@ NS_ASSUME_NONNULL_BEGIN
 //- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
 
 - (BOOL) isPtpOperationSupported: (uint16_t) opId;
+- (BOOL) isPtpPropertySupported: (uint16_t) opId;
 - (void) ptpGetPropertyDescription: (uint32_t) property;
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
+- (int) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
+
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
+- (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
 
 - (void) startLiveView;
 - (void) stopLiveView;
 - (void) requestLiveViewImage;
+
+- (void) cameraDidBecomeReadyForUse; // call from subclasses only
+- (void) cameraDidBecomeReadyForLiveViewStreaming; // call from subclasses only
+
 
 - (uint32_t) nextTransactionId;
 
