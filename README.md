@@ -36,6 +36,9 @@ If the camera is connected, a status bar item with the camera's model number sho
 
 <img src="docs/screenshot-cam-menu.png" width=400px> <img src="docs/screenshot-cam-select.png" width=400px>
 
+### Uninstalling
+
+Delete `/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin` to uninstall the plugin.
 
 ## Supported Cameras over USB
 
