@@ -659,7 +659,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return value;
 }
 
-
+- (int) getPtpPropertyType:(uint32_t)propertyId
+{
+	NSDictionary* propertyInfo = self.ptpPropertyInfos[@(propertyId)];
+	return [propertyInfo[@"dataType"] intValue];
+}
 
 - (void) parsePtpPropertyDescription: (NSData*) data
 {
@@ -726,7 +730,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 //	NSLog(@"0x%04X is %@ in %@", property, value, form);
 	
-	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : form, @"rw": @(rw)};
+	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : form, @"rw": @(rw), @"dataType" : @(dataType)};
 	
 	@synchronized (self) {
 		NSMutableDictionary* dict = self.ptpPropertyInfos.mutableCopy;

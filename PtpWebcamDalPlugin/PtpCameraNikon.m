@@ -141,23 +141,6 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	return _ptpPropertyValueNames;
 }
 
-- (int) getPtpPropertyType: (uint32_t) propertyId
-{
-	switch(propertyId)
-	{
-		case PTP_PROP_NIKON_LV_STATUS:
-		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
-			return PTP_DATATYPE_UINT8_RAW;
-//		case PTP_PROP_NIKON_LV_WHITEBALANCE:
-//			assert(0);
-//			return 0;
-		default:
-//			NSLog(@"Unknown Property 0x%04X, cannot determine type.", property);
-			return [super getPtpPropertyType: (uint32_t) propertyId];
-	}
-
-}
-
 - (void) queryDeviceBusy
 {
 	[self requestSendPtpCommandWithCode:PTP_CMD_NIKON_DEVICEREADY];
