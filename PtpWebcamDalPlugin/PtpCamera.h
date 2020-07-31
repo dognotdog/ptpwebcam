@@ -65,10 +65,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
+- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
 
 - (void) startLiveView;
 - (void) stopLiveView;
 - (void) requestLiveViewImage;
+- (NSSize) currenLiveViewImageSize;
+- (NSArray*) liveViewImageSizes;
+
 
 - (void) cameraDidBecomeReadyForUse; // call from subclasses only
 - (void) cameraDidBecomeReadyForLiveViewStreaming; // call from subclasses only

@@ -1075,9 +1075,14 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		self.ptpPropertyInfos = dict;
 	}
 	
-	[self.delegate receivedCameraProperty: info withId: @(property) fromCamera: self];
+	[self receivedProperty: info withId: @(property)];
 
 	
+}
+
+- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId
+{
+	[self.delegate receivedCameraProperty: propertyInfo withId: propertyId fromCamera: self];
 }
 
 - (void) parsePtpPropertyValue: (NSData*) data
@@ -1536,4 +1541,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	// override in subclass
 	[self doesNotRecognizeSelector: _cmd];
 }
+- (NSSize) currenLiveViewImageSize
+{
+	// override in subclass
+	[self doesNotRecognizeSelector: _cmd];
+	return NSZeroSize;
+}
+- (NSArray*) liveViewImageSizes
+{
+	// override in subclass
+	[self doesNotRecognizeSelector: _cmd];
+	return nil;
+}
+
 @end

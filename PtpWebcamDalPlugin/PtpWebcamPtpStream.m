@@ -182,6 +182,92 @@
 }
 
 
+- (NSData* __nullable) getPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData*) qualifierData
+{
+//	NSLog(@"stream getPropertyDataForAddress: '%@",
+//		  [PtpWebcamObject cmioPropertyIdToString: address.mSelector]);
+
+	switch (address.mSelector)
+	{
+		case kCMIOStreamPropertyFormatDescriptions:
+		{
+			NSArray* formatDescriptions = [self createFormatDescriptions];
+			CFArrayRef arrayRef = (__bridge_retained CFArrayRef)formatDescriptions;
+			return [NSData dataWithBytes: &arrayRef length: sizeof(arrayRef)];
+		}
+		default:
+		{
+			return [super getPropertyDataForAddress: address qualifierData: qualifierData];
+		}
+	}
+}
+
+- (OSStatus) setPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData* __nullable) qualifierData data: (NSData*) data
+{
+	switch(address.mSelector)
+	{
+		case kCMIOStreamPropertyFormatDescription:
+		{
+			CMVideoFormatDescriptionRef formatRef = nil;
+			[data getBytes: &formatRef length: sizeof(formatRef)];
+			CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(formatRef);
+			NSNumber* imageSizeNumber = nil;
+
+			if (dimensions.width == 320 && dimensions.height == 240)
+			{
+				imageSizeNumber = @(1);
+			}
+			else if (dimensions.width == 640 && dimensions.height == 480)
+			{
+				imageSizeNumber = @(2);
+			}
+			else if (dimensions.width == 1024 && dimensions.height == 768)
+			{
+				imageSizeNumber = @(2);
+			}
+
+			if (!imageSizeNumber)
+				return kCMIOHardwareBadObjectError;
+			
+			[self.ptpDevice.camera ptpSetProperty: PTP_PROP_NIKON_LV_IMAGESIZE toValue: imageSizeNumber];
+			return kCMIOHardwareNoError;
+		}
+		default:
+			return [super setPropertyDataForAddress: address qualifierData: qualifierData data: data];
+	}
+}
+
+- (BOOL) isPropertySettable: (CMIOObjectPropertyAddress) address
+{
+	switch (address.mSelector)
+	{
+		case kCMIOStreamPropertyFormatDescription:
+			return self.ptpDevice.camera.liveViewImageSizes.count > 1;
+		default:
+			return [super isPropertySettable: address];
+	}
+}
+
+
+- (NSArray*) createFormatDescriptions
+{
+	NSArray* liveViewSizes = self.ptpDevice.camera.liveViewImageSizes;
+	NSMutableArray* formats = [NSMutableArray arrayWithCapacity: liveViewSizes.count];
+	for (NSValue* imageSize in liveViewSizes)
+	{
+		CMVideoFormatDescriptionRef format = [self createFormatDescriptionWithSize: imageSize.sizeValue];
+		[formats addObject: (__bridge_transfer id)format];
+	}
+	
+	return formats;
+}
+
+- (CMVideoFormatDescriptionRef) createFormatDescriptionWithSize: (NSSize) size
+{
+	CMVideoFormatDescriptionRef format = NULL;
+	CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCMVideoCodecType_422YpCbCr8, size.width, size.height, NULL, &format);
+	return format;
+}
 
 - (CMVideoFormatDescriptionRef) createFormatDescription
 {

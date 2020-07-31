@@ -11,6 +11,9 @@
 #import "PtpWebcamAlerts.h"
 
 @implementation PtpCameraNikon
+{
+	NSMutableSet* requiredPropertiesForReadiness; // properties required have been queried to declare the camera to the DAL plugin
+}
 
 static NSDictionary* _ptpOperationNames = nil;
 static NSDictionary* _ptpPropertyNames = nil;
@@ -174,6 +177,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_NIKON_LV_AF),
 		@(PTP_PROP_NIKON_LV_ZOOM),
 		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW),
+		@(PTP_PROP_NIKON_LV_IMAGESIZE),
 	];
 
 	return self;
@@ -305,8 +309,24 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 
 	}
 	
-	// after receiving the vendor specific properties, we are ready to roll
-	[self cameraDidBecomeReadyForUse];
+	// after receiving the vendor specific property list, we need to query some properties
+	requiredPropertiesForReadiness = [NSMutableSet set];
+	
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_IMAGESIZE])
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_IMAGESIZE)];
+	
+	// if there are no properties we need to check, we're ready
+	if (!requiredPropertiesForReadiness.count)
+	{
+		[self cameraDidBecomeReadyForUse];
+	}
+	else
+	{
+		for (NSNumber* propertyId in requiredPropertiesForReadiness.copy)
+		{
+			[self ptpGetPropertyDescription: propertyId.unsignedIntValue];
+		}
+	}
 }
 
 - (void)didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo
@@ -365,6 +385,23 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 
 }
 
+- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId
+{
+	if (requiredPropertiesForReadiness.count)
+	{
+		if ([requiredPropertiesForReadiness containsObject: propertyId])
+		{
+			[requiredPropertiesForReadiness removeObject: propertyId];
+			if (requiredPropertiesForReadiness.count == 0)
+			{
+				[self cameraDidBecomeReadyForUse];
+			}
+		}
+	}
+	
+	[super receivedProperty: propertyInfo withId: propertyId];
+}
+
 - (void) startLiveView
 {
 	PtpLog(@"");
@@ -395,6 +432,53 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 - (void) requestLiveViewImage
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETLIVEVIEWIMG];
+}
+- (NSSize) currenLiveViewImageSize
+{
+	NSDictionary* liveViewSizeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
+	NSNumber* liveViewImageSize = liveViewSizeInfo[@"value"];
+	if (!liveViewSizeInfo || !liveViewImageSize)
+		return NSMakeSize(640, 480);
+	
+	switch(liveViewImageSize.intValue)
+	{
+		case 1:
+			return NSMakeSize(320, 240);
+		case 2:
+			return NSMakeSize(640, 480);
+		case 3:
+			return NSMakeSize(1024, 768);
+		default:
+			return NSZeroSize;
+	}
+}
+
+- (NSArray*) liveViewImageSizes
+{
+	NSDictionary* liveViewSizeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
+	if (!liveViewSizeInfo)
+		return @[[NSValue valueWithSize: NSMakeSize(640, 480)]];
+	NSArray* range = liveViewSizeInfo[@"range"];
+	NSMutableArray* sizes = [NSMutableArray arrayWithCapacity: range.count];
+	for (NSNumber* sizeNum in range)
+	{
+		NSSize size = NSZeroSize;
+		switch(sizeNum.intValue)
+		{
+			case 1:
+				size = NSMakeSize(320, 240);
+				break;
+			case 2:
+				size = NSMakeSize(640, 480);
+				break;
+			case 3:
+				size = NSMakeSize(1024, 768);
+				break;
+		}
+		[sizes addObject: [NSValue valueWithSize: size]];
+	}
+
+	return sizes;
 }
 
 @end
