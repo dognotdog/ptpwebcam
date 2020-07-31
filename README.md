@@ -111,11 +111,14 @@ https://stackoverflow.com/a/62456259/4296447
  
 #### Zoom workaround
  
+ Zoom version 5.1.1 and newer no longer has library validation issues. For older versions that do not show the plugin codesigning can be disabled:
 `codesign --remove-signature /Applications/zoom.us.app`
  
 #### Skype workaround
+
+Skype version 8.62.0.85 and newer no longer has library validation issues, and work out of the box.
  
-Skype has several helper apps inside its application bundle that might need code signing disabled. 
+Older versions of Skype have several helper apps inside its application bundle that might need code signing disabled. 
 
 ```
 codesign --remove-signature /Applications/Skype.app
@@ -125,7 +128,7 @@ codesign --remove-signature Skype\ Helper\ \(Renderer\).app
 ```
 Additional helpers might be named differently in different Skype versions.
 
-#### Chrome workaround
+#### Google Chrome workaround
 
 ```
 codesign --remove-signature /Applications/Google\ Chrome.app
