@@ -258,6 +258,19 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0006) : @"Action",
 				@(0x0007) : @"Portrait",
 			},
+			@(PTP_PROP_FOCUSMODE) : @{
+				@(0x0000) : @"Undefined",
+				@(0x0001) : @"Manual",
+				@(0x0002) : @"Auto",
+				@(0x0003) : @"Auto Macro",
+			},
+			@(PTP_PROP_EXPOSUREMETERING) : @{
+				@(0x0000) : @"Undefined",
+				@(0x0001) : @"Average",
+				@(0x0002) : @"Center-weighted",
+				@(0x0003) : @"Multi-spot",
+				@(0x0004) : @"Center-spot",
+			},
 			@(PTP_PROP_WHITEBALANCE) :  @{
 				@(0x0000) : @"Undefined",
 				@(0x0001) : @"Manual",
@@ -354,6 +367,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //		[weakSelf requestLiveViewImage];
 //	});
 
+	self.uiPtpProperties = @[
+		@(PTP_PROP_BATTERYLEVEL),
+		@(PTP_PROP_FOCUSDISTANCE),
+		@(PTP_PROP_FLEN),
+		@(PTP_PROP_EXPOSUREPM),
+		@(PTP_PROP_FNUM),
+		@(PTP_PROP_EXPOSUREISO),
+		@(PTP_PROP_EXPOSURETIME),
+		@(PTP_PROP_WHITEBALANCE),
+		@(PTP_PROP_EXPOSUREBIAS),
+	];
 	
 	NSDictionary* liveViewJpegOffsetsMake = _liveViewJpegDataOffsets[@(camera.usbVendorID)];
 	self.liveViewHeaderLength = [liveViewJpegOffsetsMake[@(camera.usbProductID)] unsignedIntegerValue];
@@ -507,24 +531,120 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	[self sendPtpCommand: command];
 }
 
+- (NSData*) ptpdataFromArray: (NSArray*) values ofType: (int) dataType
+{
+	NSMutableData* data = [NSMutableData data];
+	size_t count = values.count;
+	if (count > UINT32_MAX)
+	{
+		PtpWebcamShowCatastrophicAlert(@"Attempted to set property to an array with length %lu, but max is %u.", count, UINT32_MAX);
+		return nil;
+	}
+	uint32_t len = (uint32_t) count;
+	[data appendBytes: &len length: sizeof(len)];
+
+	switch(dataType)
+	{
+		case PTP_DATATYPE_SINT8_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				int8_t val = [num charValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_UINT8_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				uint8_t val = [num unsignedCharValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_SINT16_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				int16_t val = [num shortValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_UINT16_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				uint16_t val = [num unsignedShortValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_SINT32_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				int32_t val = [num intValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_UINT32_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				uint32_t val = [num unsignedIntValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_SINT64_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				int64_t val = [num longLongValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+		case PTP_DATATYPE_UINT64_ARRAY:
+		{
+			for (NSNumber* num in values)
+			{
+				uint64_t val = [num unsignedLongLongValue];
+				[data appendBytes: &val length: sizeof(val)];
+			}
+			break;
+		}
+	}
+	
+	return data;
+}
+
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value
 {
 	NSMutableData* paramData = [NSMutableData data];
 	[paramData appendBytes: &property length: sizeof(property)];
 
 	NSMutableData* data = [NSMutableData data];
-	int dataType = [self getPtpPropertyType: property];
+	ptpDataType_t dataType = [self getPtpPropertyType: property];
 	switch(dataType)
 	{
-		case PTP_DATATYPE_UINT8_RAW:
+		case PTP_DATATYPE_INVALID:
 		{
-			uint8_t val = [value unsignedCharValue];
+			PtpWebcamShowCatastrophicAlert(@"Attempted to set property 0x%04X, but data type is not known.", property);
+			return;
+		}
+		case PTP_DATATYPE_SINT8_RAW:
+		{
+			int8_t val = [value charValue];
 			[data appendBytes: &val length: sizeof(val)];
 			break;
 		}
-		case PTP_DATATYPE_UINT16_RAW:
+		case PTP_DATATYPE_UINT8_RAW:
 		{
-			uint16_t val = [value unsignedShortValue];
+			uint8_t val = [value unsignedCharValue];
 			[data appendBytes: &val length: sizeof(val)];
 			break;
 		}
@@ -534,13 +654,82 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			[data appendBytes: &val length: sizeof(val)];
 			break;
 		}
+		case PTP_DATATYPE_UINT16_RAW:
+		{
+			uint16_t val = [value unsignedShortValue];
+			[data appendBytes: &val length: sizeof(val)];
+			break;
+		}
+		case PTP_DATATYPE_SINT32_RAW:
+		{
+			int32_t val = [value intValue];
+			[data appendBytes: &val length: sizeof(val)];
+			break;
+		}
 		case PTP_DATATYPE_UINT32_RAW:
 		{
 			uint32_t val = [value unsignedIntValue];
 			[data appendBytes: &val length: sizeof(val)];
 			break;
 		}
+		case PTP_DATATYPE_SINT64_RAW:
+		{
+			int64_t val = [value longLongValue];
+			[data appendBytes: &val length: sizeof(val)];
+			break;
+		}
+		case PTP_DATATYPE_UINT64_RAW:
+		{
+			uint64_t val = [value unsignedLongLongValue];
+			[data appendBytes: &val length: sizeof(val)];
+			break;
+		}
+		case PTP_DATATYPE_SINT8_ARRAY:
+		case PTP_DATATYPE_UINT8_ARRAY:
+		case PTP_DATATYPE_SINT16_ARRAY:
+		case PTP_DATATYPE_UINT16_ARRAY:
+		case PTP_DATATYPE_SINT32_ARRAY:
+		case PTP_DATATYPE_UINT32_ARRAY:
+		case PTP_DATATYPE_SINT64_ARRAY:
+		case PTP_DATATYPE_UINT64_ARRAY:
+		{
+			NSData* arrayData = [self ptpdataFromArray: value ofType: dataType];
+			if (!data)
+			{
+				PtpWebcamShowCatastrophicAlert(@"Attempted to set property 0x%04X, to an array failed.", property);
+				return;
+			}
+			
+			[data appendData: arrayData];
 
+			break;
+		}
+		case PTP_DATATYPE_STRING:
+		{
+			NSString* str = value;
+			NSData* stringData = [str dataUsingEncoding:NSUTF16StringEncoding];
+			size_t numStringBytes = stringData.length;
+			
+			if (numStringBytes % 2 != 0)
+			{
+				PtpWebcamShowCatastrophicAlert(@"Attempted to set property 0x%04X, but resulting encoded string data resulted in an uneven number of bytes, which for a UTF16 string should be impossible.", property);
+				return;
+			}
+			if (numStringBytes/2 > 0xFF)
+			{
+				PtpWebcamShowCatastrophicAlert(@"Attempted to set property 0x%04X to string with length %lu, but max is 255.", property, numStringBytes/2);
+				return;
+			}
+			uint8_t len = (uint8_t)(numStringBytes/2);
+			[data appendBytes: &len length: sizeof(len)];
+			[data appendData: stringData];
+			break;
+		}
+		default:
+		{
+			PtpWebcamShowCatastrophicAlert(@"Attempted to set property 0x%04X, but data type (%d) unsupported", property, dataType);
+			return;
+		}
 	}
 
 	
@@ -607,6 +796,133 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 }
 
+- (NSArray*) dataArrayToValue: (NSData*) data ofType: (int) dataType
+{
+	if (data.length < 4)
+		return nil;
+	
+	uint32_t len = 0;
+	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+		
+	switch (dataType)
+	{
+		case PTP_DATATYPE_SINT8_ARRAY:
+		{
+			if (data.length < 4 + len*1)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				int8_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_UINT8_ARRAY:
+		{
+			if (data.length < 4 + len*1)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				uint8_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_SINT16_ARRAY:
+		{
+			if (data.length < 4 + len*2)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				int16_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_UINT16_ARRAY:
+		{
+			if (data.length < 4 + len*2)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				uint16_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_SINT32_ARRAY:
+		{
+			if (data.length < 4 + len*4)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				int32_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_UINT32_ARRAY:
+		{
+			if (data.length < 4 + len*4)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				uint32_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_SINT64_ARRAY:
+		{
+			if (data.length < 4 + len*8)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				int64_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+		case PTP_DATATYPE_UINT64_ARRAY:
+		{
+			if (data.length < 4 + len*8)
+				return nil;
+
+			NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+			for (size_t i = 0; i < len; ++i)
+			{
+				uint64_t val = 0;
+				[data getBytes: &val range: NSMakeRange(4 + i*sizeof(val), sizeof(val))];
+				[values addObject: @(val)];
+			}
+			return values;
+		}
+	}
+	
+	return nil;
+}
+
 - (id) dataToValue: (NSData*) data ofType: (int) dataType
 {
 	id value = nil;
@@ -655,11 +971,32 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			value = @(val);
 			break;
 		}
+		case PTP_DATATYPE_SINT8_ARRAY:
+		case PTP_DATATYPE_UINT8_ARRAY:
+		case PTP_DATATYPE_SINT16_ARRAY:
+		case PTP_DATATYPE_UINT16_ARRAY:
+		case PTP_DATATYPE_SINT32_ARRAY:
+		case PTP_DATATYPE_UINT32_ARRAY:
+		case PTP_DATATYPE_SINT64_ARRAY:
+		case PTP_DATATYPE_UINT64_ARRAY:
+		{
+			value = [self dataArrayToValue: data ofType: dataType];
+			break;
+		}
+		case PTP_DATATYPE_STRING:
+		{
+			uint8_t len = 0;
+			[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+			
+			value = [[NSString alloc] initWithData: [data subdataWithRange: NSMakeRange(1, len*2)] encoding: NSUTF16StringEncoding];
+			
+			break;
+		}
 	}
 	return value;
 }
 
-- (int) getPtpPropertyType:(uint32_t)propertyId
+- (ptpDataType_t) getPtpPropertyType:(uint32_t)propertyId
 {
 	NSDictionary* propertyInfo = self.ptpPropertyInfos[@(propertyId)];
 	return [propertyInfo[@"dataType"] intValue];

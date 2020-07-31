@@ -99,7 +99,7 @@
 
 - (void) queryAllCameraProperties
 {
-	// if property explorer is enabled, query all properties, else only query properties with known names
+	// if property explorer is enabled, query all properties, else only query properties that are supposed to show up in the UI
 	if (isPropertyExplorerEnabled)
 	{
 		for (id propertyId in self.camera.ptpDeviceInfo[@"properties"])
@@ -109,7 +109,7 @@
 	}
 	else
 	{
-		for (id propertyId in [self.camera ptpPropertyNames])
+		for (id propertyId in self.camera.uiPtpProperties)
 		{
 			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
 				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
@@ -158,11 +158,11 @@
 	
 }
 
-- (NSString*) formatValue: (id) value ofType: (int) dataType
+- (NSString*) formatValue: (id) value ofType: (int) propertyId
 {
 	NSString* valueString = [NSString stringWithFormat:@"%@", value];
 	
-	switch (dataType)
+	switch (propertyId)
 	{
 		case PTP_PROP_BATTERYLEVEL:
 			valueString = [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
@@ -193,40 +193,55 @@
 			}
 			break;
 		}
-		case PTP_PROP_EXPOSUREPM:
-		{
-			NSDictionary* programModeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_EXPOSUREPM)];
-			NSString* name = [programModeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
-			
-			valueString = name;
-			break;
-		}
-		case PTP_PROP_WHITEBALANCE:
-		{
-			NSDictionary* whiteBalanceModeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_WHITEBALANCE)];
-			NSString* name = [whiteBalanceModeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
-			
-			valueString = name;
-			break;
-		}
-		case PTP_PROP_NIKON_LV_IMAGESIZE:
-		{
-			NSDictionary* liveViewImageSizeNames = self.camera.ptpPropertyValueNames[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
-			NSString* name = [liveViewImageSizeNames objectForKey: value];
-			if (!name)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
-			
-			valueString = name;
-			break;
-		}
 		case PTP_PROP_NIKON_LV_STATUS:
 		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
 		{
 			valueString = [value boolValue] ? @"On" : @"Off";
+			break;
+		}
+		case PTP_PROP_NIKON_SHUTTERSPEED:
+		{
+			uint32_t val = [value unsignedIntValue];
+			uint16_t nom = val >> 16;
+			uint16_t den = val & 0x0000FFFF;
+			if (val == 0xFFFFFFFF)
+			{
+				valueString = @"Bulb";
+			}
+			else if (val == 0xFFFFFFFE)
+			{
+				valueString = @"Flash";
+			}
+			else if ((den == 10) && (nom != 1))
+			{
+				valueString = [NSString stringWithFormat:@"%.1f s", 0.1*nom];
+			}
+			else if ((nom == 10) && (den != 1))
+			{
+				valueString = [NSString stringWithFormat:@"1/%.1f s", 0.1*den];
+			}
+			else if (den > 1)
+			{
+				valueString = [NSString stringWithFormat:@"%u/%u s", nom, den];
+			}
+			else
+			{
+				valueString = [NSString stringWithFormat:@"%u s", nom];
+			}
+			break;
+		}
+		default:
+		{
+			NSDictionary* valueNames = self.camera.ptpPropertyValueNames[@(propertyId)];
+			NSString* name = [valueNames objectForKey: value];
+			
+			// if we have names for the property, but not this special value, show hex code
+			if (!name && valueNames)
+				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			
+			if (name)
+				valueString = name;
+
 			break;
 		}
 	}
@@ -263,12 +278,42 @@
 
 		}
 	}
-	else if (property[@"range"])
+	else if (property[@"range"]) // Range is a range (min, max, step)
 	{
-		NSMenuItem* subItem = [[NSMenuItem alloc] init];
-		subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
-		[submenu addItem: subItem];
+		NSDictionary* rangeInfo = property[@"range"];
+		long long rmin = [rangeInfo[@"min"] intValue];
+		long long rmax = [rangeInfo[@"max"] intValue];
+		long long step = [rangeInfo[@"step"] intValue];
+		size_t count = (rmax-rmin+1)/step;
+		if (count <= 50)
+		{
+			for (long long i = rmin; i <= rmax; ++i)
+			{
+				NSMenuItem* subItem = [[NSMenuItem alloc] init];
+				NSString* valStr = [self formatValue: @(i) ofType: propertyId.intValue];
+				subItem.title = valStr;
+				
+				if ([value isEqual: @(i)])
+					subItem.state = NSControlStateValueOn;
+				
+				if (isInteractive)
+				{
+					subItem.target = self;
+					subItem.action =  @selector(changeCameraPropertyAction:);
+					subItem.tag = propertyId.integerValue;
+					subItem.representedObject = @(i);
 
+				}
+				[submenu addItem: subItem];
+			}
+		}
+		else
+		{
+			NSMenuItem* subItem = [[NSMenuItem alloc] init];
+			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
+			[submenu addItem: subItem];
+
+		}
 	}
 	else
 	{
@@ -290,37 +335,58 @@
 	
 	NSMenu* menu = [[NSMenu alloc] init];
 	NSDictionary* ptpPropertyNames = [self.camera ptpPropertyNames];
-	
-	for (NSNumber* propertyId in [self.camera.ptpPropertyInfos.allKeys sortedArrayUsingSelector: @selector(compare:)])
+
+//	if (isPropertyExplorerEnabled)
 	{
-		NSString* name = ptpPropertyNames[propertyId];
-		if (!name)
-			continue;
-		NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
+		NSString *processName = [[NSProcessInfo processInfo] processName];
+		
+		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"controlled from \"%@\"", processName] action: NULL keyEquivalent: @""];
+		menuItem.target = self;
+		menuItem.action =  @selector(nopAction:);
 
-		id value = property[@"value"];
-		NSString* valueString = [self formatValue: value ofType: propertyId.intValue];
+		[menu addItem: menuItem];
+		[menu addItem: [NSMenuItem separatorItem]];
+	}
+
+	for (id propertyId in self.camera.uiPtpProperties)
+	{
 		
-		
-				
-		NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-		[menuItem setTitle: [NSString stringWithFormat: @"%@ (%@)", name, valueString]];
-		
-		// add submenus for writable items
-		if ([property[@"rw"] boolValue])
+		if ([propertyId isEqual: @"-"])
 		{
-			if ([property[@"range"] isKindOfClass: [NSArray class]])
-			{
-				NSMenu* submenu = [self buildSubMenuForPropertyInfo: property withId: propertyId interactive: YES];
-				
-				menuItem.submenu = submenu;
+			[menu addItem: [NSMenuItem separatorItem]];
+		}
+		else
+		{
+			NSString* name = ptpPropertyNames[propertyId];
+			if (!name)
+				continue;
+			NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
 
+			id value = property[@"value"];
+			NSString* valueString = [self formatValue: value ofType: [propertyId intValue]];
+			
+			NSMenuItem* menuItem = [[NSMenuItem alloc] init];
+			[menuItem setTitle: [NSString stringWithFormat: @"%@ (%@)", name, valueString]];
+			
+			// add submenus for writable items
+			if ([property[@"rw"] boolValue])
+			{
+				if (property[@"range"])
+				{
+					NSMenu* submenu = [self buildSubMenuForPropertyInfo: property withId: propertyId interactive: YES];
+					
+					menuItem.submenu = submenu;
+				}
+			}
+			else
+			{
+				// assign dummy action so items aren't grayed out
+				menuItem.target = self;
+				menuItem.action =  @selector(nopAction:);
 			}
 
+			[menu addItem: menuItem];
 		}
-
-		
-		[menu addItem: menuItem];
 	}
 	
 	// add autofocus command
@@ -423,5 +489,11 @@
 
 	[self.camera ptpQueryKnownDeviceProperties];
 }
+
+- (IBAction) nopAction:(NSMenuItem*)sender
+{
+	// do nothing, this only exists so that menu items aren't grayed out
+}
+
 
 @end

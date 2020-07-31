@@ -85,8 +85,12 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
+			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
-//			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
+			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
+			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
+			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
+			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -113,6 +117,30 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x8014) : @"Off",
 				@(0x8016) : @"Natural Light Auto",
 			},
+			@(PTP_PROP_FOCUSMODE) : @{
+				@(0x8010) : @"[S] Single",
+				@(0x8011) : @"[C] Continuous",
+				@(0x8012) : @"[A] Automatic",
+				@(0x8012) : @"[F] Constant",
+			},
+			@(PTP_PROP_FOCUSMETERING) : @{
+				@(0x8010) : @"Single Point",
+				@(0x8011) : @"Auto Area",
+				@(0x8012) : @"3D Tracking",
+			},
+			@(PTP_PROP_NIKON_LV_AF) : @{
+				@(0x0000) : @"Face Detect",
+				@(0x0001) : @"Wide Area",
+				@(0x0002) : @"Normal Area",
+				@(0x0003) : @"Target Tracking",
+			},
+			@(PTP_PROP_NIKON_LV_AFMODE) : @{
+				@(0x0000) : @"[S] Single",
+				@(0x0001) : @"[F] Constant",
+				@(0x0002) : @"[C] Continuous",
+				@(0x0003) : @"Manual Lens",
+				@(0x0004) : @"Manual",
+			},
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @{
 				@(0x0000) : @"Undefined",
 				@(0x0001) : @"QVGA 320x240",	// 320x240
@@ -125,6 +153,31 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	}
 }
 
+- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo
+{
+	if (!(self = [super initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo]))
+		return nil;
+	
+	self.uiPtpProperties = @[
+		@(PTP_PROP_BATTERYLEVEL),
+		@(PTP_PROP_FOCUSDISTANCE),
+		@(PTP_PROP_FLEN),
+		@(PTP_PROP_NIKON_LV_STATUS),
+		@"-",
+		@(PTP_PROP_EXPOSUREPM),
+		@(PTP_PROP_FNUM),
+		@(PTP_PROP_EXPOSUREISO),
+		@(PTP_PROP_NIKON_SHUTTERSPEED), // show shutter speed instead of exposure time (more accurate)
+		@(PTP_PROP_WHITEBALANCE),
+		@(PTP_PROP_EXPOSUREBIAS),
+		@(PTP_PROP_NIKON_LV_AFMODE),
+		@(PTP_PROP_NIKON_LV_AF),
+		@(PTP_PROP_NIKON_LV_ZOOM),
+		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW),
+	];
+
+	return self;
+}
 
 - (NSDictionary*) ptpOperationNames
 {

@@ -10,6 +10,8 @@
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
+#import "PtpWebcamPtp.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @protocol PtpCameraDelegate;
@@ -26,6 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property NSDictionary* ptpDeviceInfo;
 @property NSDictionary* ptpPropertyInfos;
+@property NSArray* uiPtpProperties; // which properties to show in the UI
 
 @property size_t liveViewHeaderLength;
 
@@ -51,13 +54,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
 
-//- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
+- (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo; // override in subclasses only, use +cameraWithIcCamera... instead to instantiate camera
 
 - (BOOL) isPtpOperationSupported: (uint16_t) opId;
 - (BOOL) isPtpPropertySupported: (uint16_t) opId;
 - (void) ptpGetPropertyDescription: (uint32_t) property;
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
-- (int) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
+- (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
 
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;

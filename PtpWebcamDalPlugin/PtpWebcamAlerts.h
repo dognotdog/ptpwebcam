@@ -26,6 +26,6 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,
 	}									\
 }
 
-#define PtpLog(format, ...) NSLog(@"PTPW -%@ %@", NSStringFromSelector(_cmd), [NSString stringWithFormat: format, ## __VA_ARGS__])
+#define PtpLog(format, ...) NSLog(@"PTPW %@ %@", NSStringFromSelector(_cmd), [NSString stringWithFormat: format, ## __VA_ARGS__])
 
 #endif /* PtpWebcamAlerts_h */
