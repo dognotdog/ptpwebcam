@@ -17,10 +17,13 @@ NSArray* PtpWebcamGuiBlacklistedProcesses(void)
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		blacklistedProcesses = @[
+			@"Google Chrome Helper (Renderer)",
+			@"Google Chrome Helper (Plugin)",
+//			@"Google Chrome",
 			@"Skype Helper (Renderer)",
 	//		@"Skype Helper",
 	//		@"Skype",
-			@"caphost",
+			@"caphost", // zoom's video capture process
 	//		@"zoom.us",
 		];
 	});
@@ -31,7 +34,12 @@ bool PtpWebcamIsProcessGuiBlacklisted(void)
 {
 	NSString *processName = [[NSProcessInfo processInfo] processName];
 	NSArray* blacklistedProcesses = PtpWebcamGuiBlacklistedProcesses();
-	return ([blacklistedProcesses containsObject: processName]);
+	bool processIsBlacklisted =  ([blacklistedProcesses containsObject: processName]);
+	
+//	if (!processIsBlacklisted)
+//		NSLog(@"PTPWEBCAM Process Name: %@", processName);
+	
+	return processIsBlacklisted;
 }
 
 void PtpWebcamShowCatastrophicAlert(NSString* format, ...)
