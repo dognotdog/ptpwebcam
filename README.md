@@ -45,8 +45,8 @@ Delete `/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin` to uninstal
 ### Tested
 
 - Nikon D3500
-- Nikon D5500, Nikon D5600
-- Nikon D7100, Nikon D7500
+- Nikon D5100, Nikon D5500, Nikon D5600
+- Nikon D7000, Nikon D7100, Nikon D7500
 - Nikon D750
 - Nikon Z6, Nikon Z7, Nikon Z50
 
