@@ -285,7 +285,7 @@
     NSGraphicsContext* imageContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
     [NSGraphicsContext saveGraphicsState];
     [NSGraphicsContext setCurrentContext:imageContext];
-    [image compositeToPoint:NSMakePoint(0.0, 0.0) operation:NSCompositingOperationCopy];
+	[image drawInRect: NSMakeRect(0.0, 0.0, image.size.width, image.size.height)];
     [NSGraphicsContext restoreGraphicsState];
     CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
     CFRelease(context);
