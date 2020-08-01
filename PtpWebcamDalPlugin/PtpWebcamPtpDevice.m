@@ -17,7 +17,7 @@
 	uint32_t transactionId;
 	NSStatusItem* statusItem;
 	BOOL isPropertyExplorerEnabled;
-	NSMutableDictionary* menuItemLookupTable;
+	NSMutableDictionary* menuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
 }
 @end
 
@@ -177,100 +177,6 @@
 	
 }
 
-- (NSString*) formatValue: (id) value ofType: (int) propertyId
-{
-	NSString* valueString = [NSString stringWithFormat:@"%@", value];
-	
-	switch (propertyId)
-	{
-		case PTP_PROP_BATTERYLEVEL:
-			valueString = [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
-			break;
-		case PTP_PROP_FNUM:
-			valueString = [NSString stringWithFormat: @"%.1f", 0.01*[value doubleValue]];
-			break;
-		case PTP_PROP_FOCUSDISTANCE:
-			valueString = [NSString stringWithFormat: @"%.0f mm", [value doubleValue]];
-			break;
-		case PTP_PROP_EXPOSUREBIAS:
-			valueString = [NSString stringWithFormat: @"%.3f", 0.001*[value doubleValue]];
-			break;
-		case PTP_PROP_FLEN:
-			valueString = [NSString stringWithFormat: @"%.2f mm", 0.01*[value doubleValue]];
-			break;
-		case PTP_PROP_NIKON_WB_COLORTEMP:
-			valueString = [NSString stringWithFormat: @"%.0f K", [value doubleValue]];
-			break;
-		case PTP_PROP_EXPOSURETIME:
-		{
-			double exposureTime = 0.0001*[value doubleValue];
-			// FIXME: exposure times like 1/10000 vs. 1/8000 cannot be distinguished do to PTP property resolution of 0.0001s
-			if (exposureTime < 1.0)
-			{
-				valueString = [NSString stringWithFormat: @"1/%.0f s", 1.0/exposureTime];
-			}
-			else
-			{
-				valueString = [NSString stringWithFormat: @"%.1f s", exposureTime];
-			}
-			break;
-		}
-		case PTP_PROP_NIKON_LV_STATUS:
-		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
-		{
-			valueString = [value boolValue] ? @"On" : @"Off";
-			break;
-		}
-		case PTP_PROP_NIKON_SHUTTERSPEED:
-		{
-			uint32_t val = [value unsignedIntValue];
-			uint16_t nom = val >> 16;
-			uint16_t den = val & 0x0000FFFF;
-			if (val == 0xFFFFFFFF)
-			{
-				valueString = @"Bulb";
-			}
-			else if (val == 0xFFFFFFFE)
-			{
-				valueString = @"Flash";
-			}
-			else if ((den == 10) && (nom != 1))
-			{
-				valueString = [NSString stringWithFormat:@"%.1f s", 0.1*nom];
-			}
-			else if ((nom == 10) && (den != 1))
-			{
-				valueString = [NSString stringWithFormat:@"1/%.1f s", 0.1*den];
-			}
-			else if (den > 1)
-			{
-				valueString = [NSString stringWithFormat:@"%u/%u s", nom, den];
-			}
-			else
-			{
-				valueString = [NSString stringWithFormat:@"%u s", nom];
-			}
-			break;
-		}
-		default:
-		{
-			NSDictionary* valueNames = self.camera.ptpPropertyValueNames[@(propertyId)];
-			NSString* name = [valueNames objectForKey: value];
-			
-			// if we have names for the property, but not this special value, show hex code
-			if (!name && valueNames)
-				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
-			
-			if (name)
-				valueString = name;
-
-			break;
-		}
-	}
-
-	return valueString;
-}
-
 - (NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
 {
 	NSMenu* submenu = [[NSMenu alloc] init];
@@ -282,7 +188,7 @@
 		
 		for (id enumVal in values)
 		{
-			NSString* valStr = [self formatValue: enumVal ofType: propertyId.intValue];
+			NSString* valStr = [self.camera formatPtpPropertyValue: enumVal ofProperty: propertyId.intValue withDefaultValue: defaultValue];
 			if ([defaultValue isEqual: enumVal])
 			{
 				valStr = [NSString stringWithFormat: @"%@ (default)", valStr];
@@ -307,7 +213,15 @@
 						NSDictionary* subInfo = self.camera.ptpPropertyInfos[subPropertyId];
 						if (subInfo[@"range"])
 						{
-							NSString* subValStr = [self formatValue: subInfo[@"value"] ofType: [subPropertyId intValue]];
+							id subValue = subInfo[@"value"];
+							id subDefaultValue = subInfo[@"defaultValue"];
+							NSString* subValStr = [self.camera formatPtpPropertyValue: subValue ofProperty: [subPropertyId intValue] withDefaultValue: subDefaultValue];
+							
+							if ([subDefaultValue isEqual: subValue])
+							{
+								subValStr = [NSString stringWithFormat: @"%@ (default)", subValStr];
+							}
+							
 							NSMenu* subsub = [self buildSubMenuForPropertyInfo: subInfo withId: subPropertyId interactive: isInteractive];
 							NSMenuItem* subsubItem = [[NSMenuItem alloc] init];
 							subsubItem.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[subPropertyId], subValStr];
@@ -340,7 +254,7 @@
 			for (long long i = rmin; i <= rmax; i += step)
 			{
 				NSMenuItem* subItem = [[NSMenuItem alloc] init];
-				NSString* valStr = [self formatValue: @(i) ofType: propertyId.intValue];
+				NSString* valStr = [self.camera formatPtpPropertyValue: @(i) ofProperty: propertyId.intValue withDefaultValue: defaultValue];
 				subItem.title = valStr;
 				
 				if ([value isEqual: @(i)])
@@ -427,7 +341,7 @@
 			NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
 
 			id value = property[@"value"];
-			NSString* valueString = [self formatValue: value ofType: [propertyId intValue]];
+			NSString* valueString = [self.camera formatPtpPropertyValue: value ofProperty: [propertyId intValue] withDefaultValue: property[@"defaultValue"]];
 			
 			NSMenuItem* menuItem = [[NSMenuItem alloc] init];
 			[menuItem setTitle: [NSString stringWithFormat: @"%@ (%@)", name, valueString]];
@@ -569,7 +483,7 @@
 
 	long value = rmin + floor((sender.doubleValue - rmin)/step)*step;
 
-	NSString* valStr = [self formatValue: @(value) ofType: propertyId];
+	NSString* valStr = [self.camera formatPtpPropertyValue: @(value) ofProperty: propertyId withDefaultValue: propertyInfo[@"defaultValue"]];
 
 	NSMenuItem* item = menuItemLookupTable[@(propertyId)];
 	item.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[@(propertyId)], valStr];

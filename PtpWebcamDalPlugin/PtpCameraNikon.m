@@ -88,16 +88,25 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
+			@(PTP_PROP_NIKON_WBTUNE_AUTO) : @"WB Auto Tune",
+			@(PTP_PROP_NIKON_WBTUNE_INCADESCENT) : @"WB Incadescent Tune",
+			@(PTP_PROP_NIKON_WBTUNE_FLOURESCENT) : @"WB Flourescent Tune",
+			@(PTP_PROP_NIKON_WBTUNE_SUNNY) : @"WB Sunny Tune",
+			@(PTP_PROP_NIKON_WBTUNE_FLASH) : @"WB Flash Tune",
+			@(PTP_PROP_NIKON_WBTUNE_CLOUDY) : @"WB Cloudy Tune",
+			@(PTP_PROP_NIKON_WBTUNE_SHADE) : @"WB Shade Tune",
+			@(PTP_PROP_NIKON_WB_COLORTEMP) : @"Color Temperature",
+			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
+			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
+			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
+			@(PTP_PROP_NIKON_WBTUNE_AUTOTYPE) : @"WB Auto Type",
+			@(PTP_PROP_NIKON_WBTUNE_FLTYPE) : @"WB Flourescent Type",
+			@(PTP_PROP_NIKON_WBTUNE_COLORTEMP) : @"Color Temp Tune",
 			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @"Auto ISO",
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
-			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
-			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
-			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
-			@(PTP_PROP_NIKON_WB_COLORTEMP) : @"Color Temperature",
-			@(PTP_PROP_NIKON_WB_TUNECOLORTEMP) : @"Color Temp Tune",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -128,7 +137,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x8010) : @"[S] Single",
 				@(0x8011) : @"[C] Continuous",
 				@(0x8012) : @"[A] Automatic",
-				@(0x8012) : @"[F] Constant",
+				@(0x8013) : @"[F] Constant",
 			},
 			@(PTP_PROP_FOCUSMETERING) : @{
 				@(0x8010) : @"Single Point",
@@ -151,6 +160,19 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x0002) : @"[C] Continuous",
 				@(0x0003) : @"Manual Lens",
 				@(0x0004) : @"Manual",
+			},
+			@(PTP_PROP_NIKON_WBTUNE_AUTOTYPE) : @{
+				@(0x0000) : @"Standard",
+				@(0x0001) : @"Incadescent",
+			},
+			@(PTP_PROP_NIKON_WBTUNE_FLTYPE) : @{
+				@(0x0000) : @"Sodium Mixed",
+				@(0x0001) : @"Cool White FL",
+				@(0x0002) : @"Warm White FL",
+				@(0x0003) : @"White FL",
+				@(0x0004) : @"Day White FL",
+				@(0x0005) : @"Daylight FL",
+				@(0x0006) : @"High Color Temp Mercury",
 			},
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @{
 				@(0x0000) : @"Undefined",
@@ -191,7 +213,14 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	
 	self.uiPtpSubProperties = @{
 		@(PTP_PROP_WHITEBALANCE) : @{
-				@(0x8012) : @[@(PTP_PROP_NIKON_WB_COLORTEMP), @(PTP_PROP_NIKON_WB_TUNECOLORTEMP)],
+			@(0x0002) : @[@(PTP_PROP_NIKON_WBTUNE_AUTO), @(PTP_PROP_NIKON_WBTUNE_AUTOTYPE)],
+			@(0x0004) : @[@(PTP_PROP_NIKON_WBTUNE_SUNNY)],
+			@(0x0005) : @[@(PTP_PROP_NIKON_WBTUNE_FLOURESCENT), @(PTP_PROP_NIKON_WBTUNE_FLTYPE)],
+			@(0x0006) : @[@(PTP_PROP_NIKON_WBTUNE_INCADESCENT)],
+			@(0x0007) : @[@(PTP_PROP_NIKON_WBTUNE_FLASH)],
+			@(0x8010) : @[@(PTP_PROP_NIKON_WBTUNE_CLOUDY)],
+			@(0x8011) : @[@(PTP_PROP_NIKON_WBTUNE_SHADE)],
+			@(0x8012) : @[@(PTP_PROP_NIKON_WB_COLORTEMP), @(PTP_PROP_NIKON_WBTUNE_COLORTEMP)],
 		},
 	};
 
@@ -211,6 +240,63 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 - (NSDictionary*) ptpPropertyValueNames
 {
 	return _ptpPropertyValueNames;
+}
+
+- (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue
+{
+	switch (propertyId)
+	{
+		case PTP_PROP_NIKON_WB_COLORTEMP:
+			return [NSString stringWithFormat: @"%.0f K", [value doubleValue]];
+		case PTP_PROP_NIKON_SHUTTERSPEED:
+		{
+			uint32_t val = [value unsignedIntValue];
+			uint16_t nom = val >> 16;
+			uint16_t den = val & 0x0000FFFF;
+			if (val == 0xFFFFFFFF)
+			{
+				return @"Bulb";
+			}
+			else if (val == 0xFFFFFFFE)
+			{
+				return @"Flash";
+			}
+			else if ((den == 10) && (nom != 1))
+			{
+				return [NSString stringWithFormat:@"%.1f s", 0.1*nom];
+			}
+			else if ((nom == 10) && (den != 1))
+			{
+				return [NSString stringWithFormat:@"1/%.1f s", 0.1*den];
+			}
+			else if (den > 1)
+			{
+				return [NSString stringWithFormat:@"%u/%u s", nom, den];
+			}
+			else
+			{
+				return [NSString stringWithFormat:@"%u s", nom];
+			}
+		}
+		case PTP_PROP_NIKON_WBTUNE_AUTO:
+		case PTP_PROP_NIKON_WBTUNE_INCADESCENT:
+		case PTP_PROP_NIKON_WBTUNE_FLOURESCENT:
+		case PTP_PROP_NIKON_WBTUNE_SUNNY:
+		case PTP_PROP_NIKON_WBTUNE_FLASH:
+		case PTP_PROP_NIKON_WBTUNE_CLOUDY:
+		case PTP_PROP_NIKON_WBTUNE_SHADE:
+		case PTP_PROP_NIKON_WBTUNE_COLORTEMP:
+			return [NSString stringWithFormat: @"%.0f", [value doubleValue] - [defaultValue doubleValue]];
+		case PTP_PROP_NIKON_LV_STATUS:
+		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
+		{
+			return [value boolValue] ? @"On" : @"Off";
+		}
+		default:
+		{
+			return [super formatPtpPropertyValue: value ofProperty: propertyId withDefaultValue: defaultValue];
+		}
+	}
 }
 
 - (void) queryDeviceBusy

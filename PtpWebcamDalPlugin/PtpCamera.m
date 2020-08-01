@@ -1488,6 +1488,60 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return [self.ptpDeviceInfo[@"properties"] containsObject: @(opId)];
 }
 
+- (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue
+{
+	NSString* valueString = [NSString stringWithFormat:@"%@", value];
+	
+	switch (propertyId)
+	{
+		case PTP_PROP_BATTERYLEVEL:
+			valueString = [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
+			break;
+		case PTP_PROP_FNUM:
+			valueString = [NSString stringWithFormat: @"%.1f", 0.01*[value doubleValue]];
+			break;
+		case PTP_PROP_FOCUSDISTANCE:
+			valueString = [NSString stringWithFormat: @"%.0f mm", [value doubleValue]];
+			break;
+		case PTP_PROP_EXPOSUREBIAS:
+			valueString = [NSString stringWithFormat: @"%.3f", 0.001*[value doubleValue]];
+			break;
+		case PTP_PROP_FLEN:
+			valueString = [NSString stringWithFormat: @"%.2f mm", 0.01*[value doubleValue]];
+			break;
+		case PTP_PROP_EXPOSURETIME:
+		{
+			double exposureTime = 0.0001*[value doubleValue];
+			// FIXME: exposure times like 1/10000 vs. 1/8000 cannot be distinguished do to PTP property resolution of 0.0001s
+			if (exposureTime < 1.0)
+			{
+				valueString = [NSString stringWithFormat: @"1/%.0f s", 1.0/exposureTime];
+			}
+			else
+			{
+				valueString = [NSString stringWithFormat: @"%.1f s", exposureTime];
+			}
+			break;
+		}
+		default:
+		{
+			NSDictionary* valueNames = self.ptpPropertyValueNames[@(propertyId)];
+			NSString* name = [valueNames objectForKey: value];
+			
+			// if we have names for the property, but not this special value, show hex code
+			if (!name && valueNames)
+				name =  [NSString stringWithFormat:@"0x%04X", [value unsignedIntValue]];
+			
+			if (name)
+				valueString = name;
+
+			break;
+		}
+	}
+
+	return valueString;
+}
+
 
 - (uint32_t) nextTransactionId
 {

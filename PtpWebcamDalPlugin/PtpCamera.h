@@ -68,6 +68,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
 - (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
 
+- (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue;
+
 - (void) startLiveView;
 - (void) stopLiveView;
 - (void) requestLiveViewImage;
