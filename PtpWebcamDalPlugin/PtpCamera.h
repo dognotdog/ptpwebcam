@@ -29,6 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSDictionary* ptpDeviceInfo;
 @property NSDictionary* ptpPropertyInfos;
 @property NSArray* uiPtpProperties; // which properties to show in the UI
+@property NSDictionary* uiPtpSubProperties; // UI submenu
 
 @property size_t liveViewHeaderLength;
 

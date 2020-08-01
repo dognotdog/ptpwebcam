@@ -17,6 +17,7 @@
 	uint32_t transactionId;
 	NSStatusItem* statusItem;
 	BOOL isPropertyExplorerEnabled;
+	NSMutableDictionary* menuItemLookupTable;
 }
 @end
 
@@ -39,6 +40,7 @@
 	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@", camera.model];
 
 	isPropertyExplorerEnabled = [[NSProcessInfo processInfo].environment[@"PTPWebcamPropertyExplorerEnabled"] isEqualToString: @"YES"];
+	menuItemLookupTable = [NSMutableDictionary dictionary];
 
 	// camera has been ready for use at this point
 	[self queryAllCameraProperties];
@@ -114,6 +116,23 @@
 			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
 				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
 		}
+		
+		NSMutableSet* subProperties = [NSMutableSet set];
+		for (id parentId in self.camera.uiPtpSubProperties)
+		{
+			NSDictionary* values = self.camera.uiPtpSubProperties[parentId];
+			for (id value in values)
+			{
+				NSArray* subPropertyIds = values[value];
+				[subProperties addObjectsFromArray: subPropertyIds];
+			}
+			
+		}
+		for (id propertyId in subProperties)
+		{
+			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
+				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+		}
 	}
 
 }
@@ -178,6 +197,9 @@
 			break;
 		case PTP_PROP_FLEN:
 			valueString = [NSString stringWithFormat: @"%.2f mm", 0.01*[value doubleValue]];
+			break;
+		case PTP_PROP_NIKON_WB_COLORTEMP:
+			valueString = [NSString stringWithFormat: @"%.0f K", [value doubleValue]];
 			break;
 		case PTP_PROP_EXPOSURETIME:
 		{
@@ -253,6 +275,7 @@
 {
 	NSMenu* submenu = [[NSMenu alloc] init];
 	id value = property[@"value"];
+	id defaultValue = property[@"defaultValue"];
 	if ([property[@"range"] isKindOfClass: [NSArray class]])
 	{
 		NSArray* values = property[@"range"];
@@ -260,6 +283,10 @@
 		for (id enumVal in values)
 		{
 			NSString* valStr = [self formatValue: enumVal ofType: propertyId.intValue];
+			if ([defaultValue isEqual: enumVal])
+			{
+				valStr = [NSString stringWithFormat: @"%@ (default)", valStr];
+			}
 
 			NSMenuItem* subItem = [[NSMenuItem alloc] init];
 			subItem.title =  valStr;
@@ -269,6 +296,29 @@
 				subItem.action =  @selector(changeCameraPropertyAction:);
 				subItem.tag = propertyId.integerValue;
 				subItem.representedObject = enumVal;
+				
+				NSArray* subProperties = [self.camera.uiPtpSubProperties[propertyId] objectForKey: enumVal];
+				if (subProperties)
+				{
+					NSMenu* subPropertyMenu = [[NSMenu alloc] init];
+
+					for (id subPropertyId in subProperties)
+					{
+						NSDictionary* subInfo = self.camera.ptpPropertyInfos[subPropertyId];
+						if (subInfo[@"range"])
+						{
+							NSString* subValStr = [self formatValue: subInfo[@"value"] ofType: [subPropertyId intValue]];
+							NSMenu* subsub = [self buildSubMenuForPropertyInfo: subInfo withId: subPropertyId interactive: isInteractive];
+							NSMenuItem* subsubItem = [[NSMenuItem alloc] init];
+							subsubItem.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[subPropertyId], subValStr];
+							menuItemLookupTable[subPropertyId] = subsubItem;
+							subsubItem.submenu = subsub;
+							[subPropertyMenu addItem: subsubItem];
+						}
+						
+					}
+					subItem.submenu = subPropertyMenu;
+				}
 			}
 			
 			if ([value isEqual: enumVal])
@@ -281,13 +331,13 @@
 	else if (property[@"range"]) // Range is a range (min, max, step)
 	{
 		NSDictionary* rangeInfo = property[@"range"];
-		long long rmin = [rangeInfo[@"min"] intValue];
-		long long rmax = [rangeInfo[@"max"] intValue];
-		long long step = [rangeInfo[@"step"] intValue];
+		long long rmin = [rangeInfo[@"min"] longLongValue];
+		long long rmax = [rangeInfo[@"max"] longLongValue];
+		long long step = [rangeInfo[@"step"] longLongValue];
 		size_t count = (rmax-rmin+1)/step;
-		if (count <= 50)
+		if (count <= 30)
 		{
-			for (long long i = rmin; i <= rmax; ++i)
+			for (long long i = rmin; i <= rmax; i += step)
 			{
 				NSMenuItem* subItem = [[NSMenuItem alloc] init];
 				NSString* valStr = [self formatValue: @(i) ofType: propertyId.intValue];
@@ -309,8 +359,20 @@
 		}
 		else
 		{
+			// add a slider for a range with more items
+			NSSlider* slider = [[NSSlider alloc] initWithFrame: NSMakeRect(0, 0, 160, 16)];
+			slider.minValue = rmin;
+			slider.maxValue = rmax;
+			slider.doubleValue = [value doubleValue];
+			slider.tag = propertyId.intValue;
+			slider.target = self;
+			slider.action = @selector(propertySliderAction:);
+			slider.continuous = YES;
+			
 			NSMenuItem* subItem = [[NSMenuItem alloc] init];
-			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
+//			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
+			subItem.view = slider;
+//			subItem.enabled = NO;
 			[submenu addItem: subItem];
 
 		}
@@ -331,6 +393,8 @@
 	{
 		[self createStatusItem];
 	}
+	
+	[menuItemLookupTable removeAllObjects];
 		
 	
 	NSMenu* menu = [[NSMenu alloc] init];
@@ -386,6 +450,7 @@
 			}
 
 			[menu addItem: menuItem];
+			menuItemLookupTable[propertyId] = menuItem;
 		}
 	}
 	
@@ -489,6 +554,32 @@
 
 	[self.camera ptpQueryKnownDeviceProperties];
 }
+
+- (IBAction) propertySliderAction: (NSSlider*) sender
+{
+	uint32_t propertyId = (uint32_t)sender.tag;
+	NSDictionary* propertyInfo = self.camera.ptpPropertyInfos[@(propertyId)];
+	
+	NSDictionary* rangeInfo = propertyInfo[@"range"];
+	
+	
+	long long rmin = [rangeInfo[@"min"] longLongValue];
+//	long long rmax = [rangeInfo[@"max"] longLongValue];
+	long long step = [rangeInfo[@"step"] longLongValue];
+
+	long value = rmin + floor((sender.doubleValue - rmin)/step)*step;
+
+	NSString* valStr = [self formatValue: @(value) ofType: propertyId];
+
+	NSMenuItem* item = menuItemLookupTable[@(propertyId)];
+	item.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[@(propertyId)], valStr];
+
+
+	[self.camera ptpSetProperty: propertyId toValue: @((long)value)];
+
+//	[self.camera ptpQueryKnownDeviceProperties];
+}
+
 
 - (IBAction) nopAction:(NSMenuItem*)sender
 {

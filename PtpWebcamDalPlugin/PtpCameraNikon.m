@@ -10,6 +10,7 @@
 #import "PtpWebcamPtp.h"
 #import "PtpWebcamAlerts.h"
 
+
 @implementation PtpCameraNikon
 {
 	NSMutableSet* requiredPropertiesForReadiness; // properties required have been queried to declare the camera to the DAL plugin
@@ -87,6 +88,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
+			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @"Auto ISO",
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
@@ -94,6 +96,8 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
 			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
 			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
+			@(PTP_PROP_NIKON_WB_COLORTEMP) : @"Color Temperature",
+			@(PTP_PROP_NIKON_WB_TUNECOLORTEMP) : @"Color Temp Tune",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -130,6 +134,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x8010) : @"Single Point",
 				@(0x8011) : @"Auto Area",
 				@(0x8012) : @"3D Tracking",
+			},
+			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @{
+				@(0) : @"Off",
+				@(1) : @"On",
 			},
 			@(PTP_PROP_NIKON_LV_AF) : @{
 				@(0x0000) : @"Face Detect",
@@ -170,6 +178,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_EXPOSUREPM),
 		@(PTP_PROP_FNUM),
 		@(PTP_PROP_EXPOSUREISO),
+		@(PTP_PROP_NIKON_ISOAUTOCONTROL),
 		@(PTP_PROP_NIKON_SHUTTERSPEED), // show shutter speed instead of exposure time (more accurate)
 		@(PTP_PROP_WHITEBALANCE),
 		@(PTP_PROP_EXPOSUREBIAS),
@@ -179,6 +188,12 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW),
 		@(PTP_PROP_NIKON_LV_IMAGESIZE),
 	];
+	
+	self.uiPtpSubProperties = @{
+		@(PTP_PROP_WHITEBALANCE) : @{
+				@(0x8012) : @[@(PTP_PROP_NIKON_WB_COLORTEMP), @(PTP_PROP_NIKON_WB_TUNECOLORTEMP)],
+		},
+	};
 
 	return self;
 }
@@ -318,7 +333,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	// if there are no properties we need to check, we're ready
 	if (!requiredPropertiesForReadiness.count)
 	{
-		[self cameraDidBecomeReadyForUse];
+		[self initialPtpPropertiesDiscoveryComplete];
 	}
 	else
 	{
@@ -327,6 +342,11 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			[self ptpGetPropertyDescription: propertyId.unsignedIntValue];
 		}
 	}
+}
+
+- (void) initialPtpPropertiesDiscoveryComplete
+{
+	[self cameraDidBecomeReadyForUse];
 }
 
 - (void)didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo
@@ -394,7 +414,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			[requiredPropertiesForReadiness removeObject: propertyId];
 			if (requiredPropertiesForReadiness.count == 0)
 			{
-				[self cameraDidBecomeReadyForUse];
+				[self initialPtpPropertiesDiscoveryComplete];
 			}
 		}
 	}
