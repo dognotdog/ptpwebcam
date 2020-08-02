@@ -466,11 +466,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 }
 
-- (void) cameraDevice:(ICCameraDevice *)camera didReceiveThumbnailForItem:(ICCameraItem *)item
+- (void) cameraDevice:(ICCameraDevice *)camera didReceiveThumbnail:(CGImageRef _Nullable)thumbnail forItem:(nonnull ICCameraItem *)item error:(NSError * _Nullable)error
 {
 	
 }
-- (void) cameraDevice:(ICCameraDevice *)camera didReceiveMetadataForItem:(ICCameraItem *)item
+- (void) cameraDevice:(ICCameraDevice *)camera didReceiveMetadata:(NSDictionary * _Nullable)metadata forItem:(nonnull ICCameraItem *)item error:(NSError * _Nullable)error
 {
 	
 }
@@ -1069,20 +1069,21 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : form, @"rw": @(rw), @"dataType" : @(dataType)};
 	
+	NSDictionary* oldInfo = self.ptpPropertyInfos[@(property)];
 	@synchronized (self) {
 		NSMutableDictionary* dict = self.ptpPropertyInfos.mutableCopy;
 		dict[@(property)] = info;
 		self.ptpPropertyInfos = dict;
 	}
 	
-	[self receivedProperty: info withId: @(property)];
+	[self receivedProperty: info oldProperty: oldInfo withId: @(property)];
 
 	
 }
 
-- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId
+- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId
 {
-	[self.delegate receivedCameraProperty: propertyInfo withId: propertyId fromCamera: self];
+	[self.delegate receivedCameraProperty: propertyInfo oldProperty: oldInfo withId: propertyId fromCamera: self];
 }
 
 - (void) parsePtpPropertyValue: (NSData*) data
@@ -1550,10 +1551,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 }
 
-- (void) startLiveView
+- (BOOL) startLiveView
 {
 	// a subclass needs to implement this
 	[self doesNotRecognizeSelector: _cmd];
+	return NO;
 }
 
 - (void) cameraDidBecomeReadyForLiveViewStreaming

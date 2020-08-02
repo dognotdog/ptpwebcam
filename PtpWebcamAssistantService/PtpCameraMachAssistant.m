@@ -45,7 +45,7 @@
 	return self;
 }
 
-- (void) receivedCameraProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId fromCamera: (PtpCamera*) camera
+- (void) receivedCameraProperty:(NSDictionary *)propertyInfo oldProperty: (NSDictionary*) oldInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
 {
 	// finally send off message to UI agent
 	if (agentPort)

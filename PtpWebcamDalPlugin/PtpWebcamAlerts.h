@@ -15,6 +15,7 @@ bool PtpWebcamIsProcessGuiBlacklisted(void);
 void PTPWebcamShowCameraIssueBlockingAlert(NSString* make, NSString* model);
 
 void PtpWebcamShowCatastrophicAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
+void PtpWebcamShowDeviceAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
 
 #define PtpWebcamShowCatastrophicAlertOnce(format, ...) \
 { 										\

@@ -10,15 +10,23 @@
 #import "PtpWebcamPtp.h"
 #import "PtpWebcamAlerts.h"
 
+typedef enum {
+	LV_STATUS_OFF,
+	LV_STATUS_WAITING,
+	LV_STATUS_ON,
+	LV_STATUS_ERROR
+} liveViewStatus_t;
 
 @implementation PtpCameraNikon
 {
 	NSMutableSet* requiredPropertiesForReadiness; // properties required have been queried to declare the camera to the DAL plugin
+	liveViewStatus_t liveViewStatus;
 }
 
 static NSDictionary* _ptpOperationNames = nil;
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpPropertyValueNames = nil;
+
 
 + (void) initialize
 {
@@ -105,6 +113,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @"Auto ISO",
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
+			@(PTP_PROP_NIKON_LV_PROHIBIT) : @"LiveView Prohibit Condition",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
 		}];
@@ -332,6 +341,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
 		if (!isDeviceBusy)
 		{
+			PtpLog(@"error code 0x%04X", code);
 			[self stopLiveView];
 			[self startLiveView];
 		}
@@ -415,7 +425,9 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	
 	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_IMAGESIZE])
 		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_IMAGESIZE)];
-	
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_PROHIBIT])
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_PROHIBIT)];
+
 	// if there are no properties we need to check, we're ready
 	if (!requiredPropertiesForReadiness.count)
 	{
@@ -466,7 +478,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				case PTP_RSP_OK:
 				{
 					// activate frame timer when device is ready after starting live view to start getting images
-					[self cameraDidBecomeReadyForLiveViewStreaming];
+					if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_STATUS])
+						[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
+					else
+						[self cameraDidBecomeReadyForLiveViewStreaming];
 					// update exposure preview property for UI, as it is not automatically queried otherwise
 					if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW])
 						[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW];
@@ -491,7 +506,99 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 
 }
 
-- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId
+- (NSArray*) prohibitErrorNames: (NSNumber*) prohibitValue
+{
+//	NSDictionary* lvProhibitInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_PROHIBIT)];
+//
+//	NSNumber* prohibitValue = lvProhibitInfo[@"value"];
+	
+	uint32_t prohibitCondition = prohibitValue.unsignedIntValue;
+	
+	if (prohibitCondition != 0)
+	{
+		NSMutableArray* prohibitConditions = [NSMutableArray array];
+		for (size_t i = 0; i < 32; ++i)
+		{
+			bool bitSet = 0 != (prohibitCondition & (1 << i));
+			if (!bitSet)
+				continue;
+			NSString* errorName = nil;
+			switch(i)
+			{
+				case 2:
+					errorName =  @"Sequence error";
+					break;
+				case 4:
+					errorName =  @"Fully depressed shutter button";
+					break;
+				case 5:
+					errorName =  @"Aperture value set by lens aperture ring";
+					break;
+				case 6:
+					errorName =  @"Bulb warning";
+					break;
+				case 7:
+					errorName =  @"Mirror-up in progress";
+					break;
+				case 8:
+					errorName =  @"Battery low";
+					break;
+				case 9:
+					errorName =  @"TTL error";
+					break;
+				case 11:
+					errorName =  @"CPU lens not mounted and mode is not M";
+					break;
+				case 12:
+					errorName =  @"Image in SDRAM";
+					break;
+				case 14:
+					errorName =  @"Recording destination error";
+					break;
+				case 15:
+					errorName =  @"Capture in progress";
+					break;
+				case 16:
+					errorName =  @"Shooting mode is EFFECTS";
+					break;
+				case 17:
+					errorName =  @"Temperature too high";
+					break;
+				case 18:
+					errorName =  @"Card protected";
+					break;
+				case 19:
+					errorName =  @"Card error";
+					break;
+				case 20:
+					errorName =  @"Card unformatted";
+					break;
+				case 21:
+					errorName =  @"Bulb warning";
+					break;
+				case 22:
+					errorName =  @"Mirror-up in progress";
+					break;
+				case 24:
+					errorName =  @"Lens retraction in progress";
+					break;
+				case 31:
+					errorName =  @"Exposure Progam Mode not one of PSAM";
+					break;
+			}
+			if (!errorName)
+				[prohibitConditions addObject: [NSString stringWithFormat: @"Error Bit %zu", i]];
+			else
+				[prohibitConditions addObject: [NSString stringWithFormat: @"%@ (bit %zu)", errorName, i]];
+		}
+		return prohibitConditions;
+	}
+	else
+		return nil;
+		
+}
+
+- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId
 {
 	if (requiredPropertiesForReadiness.count)
 	{
@@ -505,20 +612,71 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		}
 	}
 	
-	[super receivedProperty: propertyInfo withId: propertyId];
+	switch(propertyId.intValue)
+	{
+		case PTP_PROP_NIKON_LV_STATUS:
+		{
+			bool isLiveViewOn = [propertyInfo[@"value"] intValue] > 0;
+			if ((liveViewStatus == LV_STATUS_WAITING) && isLiveViewOn)
+			{
+				[self cameraDidBecomeReadyForLiveViewStreaming];
+			}
+			else if (!isLiveViewOn)
+			{
+				if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_PROHIBIT])
+					[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_PROHIBIT];
+			}
+			break;
+		}
+		case PTP_PROP_NIKON_LV_PROHIBIT:
+		{
+			NSArray* prohibitConditions = [self prohibitErrorNames: propertyInfo[@"value"]];
+			if (prohibitConditions.count)
+				PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of the following error conditions: %@", [prohibitConditions componentsJoinedByString: @", "]);
+
+			break;
+		}
+	}
+	
+	[super receivedProperty: propertyInfo oldProperty: oldInfo withId: propertyId];
 }
 
-- (void) startLiveView
+- (void) cameraDidBecomeReadyForLiveViewStreaming
+{
+	liveViewStatus = LV_STATUS_ON;
+	[super cameraDidBecomeReadyForLiveViewStreaming];
+}
+
+- (BOOL) startLiveView
 {
 	PtpLog(@"");
+	
+	// do not do prohibit check here as info might be stale
+//	NSDictionary* lvProhibitInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_PROHIBIT)];
+//
+//	NSNumber* prohibitValue = lvProhibitInfo[@"value"];
+//
+//	NSArray* prohibitConditions = [self prohibitErrorNames: prohibitValue];
+//
+//	if (prohibitConditions.count)
+//	{
+//		PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of the following error conditions: %@", [prohibitConditions componentsJoinedByString: @", "]);
+//		liveViewStatus = LV_STATUS_ERROR;
+//		return NO;
+//	}
+	
+	liveViewStatus = LV_STATUS_WAITING;
+	
 	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STARTLIVEVIEW];
 	
 	BOOL isDeviceReadySupported = [self isPtpOperationSupported: PTP_CMD_NIKON_DEVICEREADY];
 	
 	if (isDeviceReadySupported)
 	{
-		// if the deviceReady command is supported, issue it to find out when live view is ready instead of simply waiting
-		[self queryDeviceBusy];
+		// query deviceReady with a little delay
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(33 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+			[self queryDeviceBusy];
+		});
 	}
 	else
 	{
@@ -527,11 +685,13 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			[self cameraDidBecomeReadyForLiveViewStreaming];
 		});
 	}
+	return YES;
 }
 
 - (void) stopLiveView
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
+	liveViewStatus = LV_STATUS_OFF;
 	[super stopLiveView];
 }
 

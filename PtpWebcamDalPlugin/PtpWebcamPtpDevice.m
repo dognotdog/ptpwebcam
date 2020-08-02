@@ -17,7 +17,7 @@
 	uint32_t transactionId;
 	NSStatusItem* statusItem;
 	BOOL isPropertyExplorerEnabled;
-	NSMutableDictionary* menuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
+	NSMutableDictionary* propertyMenuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
 }
 @end
 
@@ -40,7 +40,7 @@
 	self.modelUid = [NSString stringWithFormat: @"ptp-webcam-plugin-model-%@", camera.model];
 
 	isPropertyExplorerEnabled = [[NSProcessInfo processInfo].environment[@"PTPWebcamPropertyExplorerEnabled"] isEqualToString: @"YES"];
-	menuItemLookupTable = [NSMutableDictionary dictionary];
+	propertyMenuItemLookupTable = [NSMutableDictionary dictionary];
 
 	// camera has been ready for use at this point
 	[self queryAllCameraProperties];
@@ -59,7 +59,7 @@
 - (void) cameraDidBecomeReadyForUse: (PtpCamera*) camera
 {
 	dispatch_async(dispatch_get_main_queue(), ^{
-		[self rebuildStatusItem];
+//		[self rebuildStatusItem];
 	});
 }
 
@@ -68,15 +68,46 @@
 	[self.ptpStream cameraDidBecomeReadyForLiveViewStreaming];
 }
 
+- (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
+{
+	[self.ptpStream cameraFailedToStartLiveView];
+}
+
 - (void) receivedLiveViewJpegImage:(NSData *)jpegData withInfo:(NSDictionary *)info fromCamera:(PtpCamera *)camera
 {
 	[self.ptpStream receivedLiveViewJpegImageData: jpegData withInfo: info];
 }
 
-- (void) receivedCameraProperty:(NSDictionary *)propertyInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
+- (void) receivedCameraProperty:(NSDictionary *)propertyInfo oldProperty: (NSDictionary*) oldInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
 {
 	dispatch_async(dispatch_get_main_queue(), ^{
-		[self rebuildStatusItem];
+		NSMenuItem* item = self->propertyMenuItemLookupTable[propertyId];
+		
+		// rebuild menus if this is a newly received UI item
+		if (!item && [self.allUiPropertyIds containsObject: propertyId])
+			[self rebuildStatusItem];
+		else
+		{
+			if (![oldInfo isEqual: propertyInfo])
+			{
+				NSString* title = [self formatPropertyMenuItemTitleWithValue: propertyInfo[@"value"] defaultValue: propertyInfo[@"defaultValue"] propertyId: propertyId];
+				item.title = title;
+				
+				// need to rebuild the values submenu if rw changed or value changed
+				if (![oldInfo[@"rw"] isEqual: propertyInfo[@"rw"]] || ![oldInfo[@"value"] isEqual: propertyInfo[@"value"]])
+				{
+					if ([propertyInfo[@"rw"] boolValue])
+					{
+						NSMenu* subMenu = [self buildSubMenuForPropertyInfo: propertyInfo withId: propertyId interactive: YES];
+						item.submenu = subMenu;
+					}
+					else
+					{
+						item.submenu = nil;
+					}
+				}
+			}
+		}
 	});
 
 }
@@ -99,6 +130,22 @@
 
 // MARK: User Interface
 
+- (NSSet*) allUiPropertyIds
+{
+	NSMutableSet* properties = [NSMutableSet setWithArray: self.camera.uiPtpProperties];
+
+	for (id parentId in self.camera.uiPtpSubProperties)
+	{
+		NSDictionary* values = self.camera.uiPtpSubProperties[parentId];
+		for (id value in values)
+		{
+			NSArray* subPropertyIds = values[value];
+			[properties addObjectsFromArray: subPropertyIds];
+		}
+	}
+	return properties;
+}
+
 - (void) queryAllCameraProperties
 {
 	// if property explorer is enabled, query all properties, else only query properties that are supposed to show up in the UI
@@ -111,30 +158,12 @@
 	}
 	else
 	{
-		for (id propertyId in self.camera.uiPtpProperties)
-		{
-			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
-				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
-		}
-		
-		NSMutableSet* subProperties = [NSMutableSet set];
-		for (id parentId in self.camera.uiPtpSubProperties)
-		{
-			NSDictionary* values = self.camera.uiPtpSubProperties[parentId];
-			for (id value in values)
-			{
-				NSArray* subPropertyIds = values[value];
-				[subProperties addObjectsFromArray: subPropertyIds];
-			}
-			
-		}
-		for (id propertyId in subProperties)
+		for (id propertyId in self.allUiPropertyIds)
 		{
 			if ([self.camera.ptpDeviceInfo[@"properties"] containsObject: propertyId])
 				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
 		}
 	}
-
 }
 
 
@@ -177,6 +206,25 @@
 	
 }
 
+- (NSString*) formatPropertyMenuItemTitleWithValue: (id) value defaultValue: (id) defaultValue propertyId: (NSNumber*) propertyId
+{
+	NSString* valStr = [self.camera formatPtpPropertyValue: value ofProperty: [propertyId intValue] withDefaultValue: defaultValue];
+	return [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[propertyId], valStr];
+}
+
+- (NSString*) formatValueMenuItemTitleWithValue: (id) value defaultValue: (id) defaultValue propertyId: (NSNumber*) propertyId
+{
+	NSString* valStr = [self.camera formatPtpPropertyValue: value ofProperty: [propertyId intValue] withDefaultValue: defaultValue];
+	
+	if ([defaultValue isEqual: value])
+	{
+		valStr = [NSString stringWithFormat: @"%@ (default)", valStr];
+	}
+
+	return valStr;
+}
+
+
 - (NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
 {
 	NSMenu* submenu = [[NSMenu alloc] init];
@@ -188,20 +236,16 @@
 		
 		for (id enumVal in values)
 		{
-			NSString* valStr = [self.camera formatPtpPropertyValue: enumVal ofProperty: propertyId.intValue withDefaultValue: defaultValue];
-			if ([defaultValue isEqual: enumVal])
-			{
-				valStr = [NSString stringWithFormat: @"%@ (default)", valStr];
-			}
+			NSString* valStr = [self formatValueMenuItemTitleWithValue: enumVal defaultValue: defaultValue propertyId: propertyId];
 
-			NSMenuItem* subItem = [[NSMenuItem alloc] init];
-			subItem.title =  valStr;
+			NSMenuItem* valueItem = [[NSMenuItem alloc] init];
+			valueItem.title =  valStr;
 			if (isInteractive)
 			{
-				subItem.target = self;
-				subItem.action =  @selector(changeCameraPropertyAction:);
-				subItem.tag = propertyId.integerValue;
-				subItem.representedObject = enumVal;
+				valueItem.target = self;
+				valueItem.action =  @selector(changeCameraPropertyAction:);
+				valueItem.tag = propertyId.integerValue;
+				valueItem.representedObject = enumVal;
 				
 				NSArray* subProperties = [self.camera.uiPtpSubProperties[propertyId] objectForKey: enumVal];
 				if (subProperties)
@@ -215,30 +259,26 @@
 						{
 							id subValue = subInfo[@"value"];
 							id subDefaultValue = subInfo[@"defaultValue"];
-							NSString* subValStr = [self.camera formatPtpPropertyValue: subValue ofProperty: [subPropertyId intValue] withDefaultValue: subDefaultValue];
+							NSString* subValStr = [self formatPropertyMenuItemTitleWithValue: subValue defaultValue: subDefaultValue propertyId: subPropertyId];
 							
-							if ([subDefaultValue isEqual: subValue])
-							{
-								subValStr = [NSString stringWithFormat: @"%@ (default)", subValStr];
-							}
 							
 							NSMenu* subsub = [self buildSubMenuForPropertyInfo: subInfo withId: subPropertyId interactive: isInteractive];
-							NSMenuItem* subsubItem = [[NSMenuItem alloc] init];
-							subsubItem.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[subPropertyId], subValStr];
-							menuItemLookupTable[subPropertyId] = subsubItem;
-							subsubItem.submenu = subsub;
-							[subPropertyMenu addItem: subsubItem];
+							NSMenuItem* subPropertyItem = [[NSMenuItem alloc] init];
+							subPropertyItem.title = subValStr;
+							propertyMenuItemLookupTable[subPropertyId] = subPropertyItem;
+							subPropertyItem.submenu = subsub;
+							[subPropertyMenu addItem: subPropertyItem];
 						}
-						
+
 					}
-					subItem.submenu = subPropertyMenu;
+					valueItem.submenu = subPropertyMenu;
 				}
 			}
 			
 			if ([value isEqual: enumVal])
-				subItem.state = NSControlStateValueOn;
+				valueItem.state = NSControlStateValueOn;
 			
-			[submenu addItem: subItem];
+			[submenu addItem: valueItem];
 
 		}
 	}
@@ -254,7 +294,7 @@
 			for (long long i = rmin; i <= rmax; i += step)
 			{
 				NSMenuItem* subItem = [[NSMenuItem alloc] init];
-				NSString* valStr = [self.camera formatPtpPropertyValue: @(i) ofProperty: propertyId.intValue withDefaultValue: defaultValue];
+				NSString* valStr = [self formatValueMenuItemTitleWithValue: @(i) defaultValue: defaultValue propertyId: propertyId];
 				subItem.title = valStr;
 				
 				if ([value isEqual: @(i)])
@@ -281,7 +321,7 @@
 			slider.tag = propertyId.intValue;
 			slider.target = self;
 			slider.action = @selector(propertySliderAction:);
-			slider.continuous = YES;
+			slider.continuous = NO; // only send action when done sliding around to prevent too many PTP calls
 			
 			NSMenuItem* subItem = [[NSMenuItem alloc] init];
 //			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
@@ -308,7 +348,7 @@
 		[self createStatusItem];
 	}
 	
-	[menuItemLookupTable removeAllObjects];
+	[propertyMenuItemLookupTable removeAllObjects];
 		
 	
 	NSMenu* menu = [[NSMenu alloc] init];
@@ -341,10 +381,10 @@
 			NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
 
 			id value = property[@"value"];
-			NSString* valueString = [self.camera formatPtpPropertyValue: value ofProperty: [propertyId intValue] withDefaultValue: property[@"defaultValue"]];
-			
-			NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-			[menuItem setTitle: [NSString stringWithFormat: @"%@ (%@)", name, valueString]];
+			id defaultValue = property[@"defaultValue"];
+
+			NSMenuItem* propertyItem = [[NSMenuItem alloc] init];
+			[propertyItem setTitle: [self formatPropertyMenuItemTitleWithValue: value defaultValue: defaultValue propertyId: propertyId]];
 			
 			// add submenus for writable items
 			if ([property[@"rw"] boolValue])
@@ -353,18 +393,18 @@
 				{
 					NSMenu* submenu = [self buildSubMenuForPropertyInfo: property withId: propertyId interactive: YES];
 					
-					menuItem.submenu = submenu;
+					propertyItem.submenu = submenu;
 				}
 			}
 			else
 			{
 				// assign dummy action so items aren't grayed out
-				menuItem.target = self;
-				menuItem.action =  @selector(nopAction:);
+				propertyItem.target = self;
+				propertyItem.action =  @selector(nopAction:);
 			}
 
-			[menu addItem: menuItem];
-			menuItemLookupTable[propertyId] = menuItem;
+			[menu addItem: propertyItem];
+			propertyMenuItemLookupTable[propertyId] = propertyItem;
 		}
 	}
 	
@@ -466,7 +506,8 @@
 	
 	[self.camera ptpSetProperty: propertyId toValue: sender.representedObject];
 
-	[self.camera ptpQueryKnownDeviceProperties];
+	[self.camera ptpGetPropertyDescription: propertyId];
+//	[self.camera ptpQueryKnownDeviceProperties];
 }
 
 - (IBAction) propertySliderAction: (NSSlider*) sender
@@ -485,7 +526,7 @@
 
 	NSString* valStr = [self.camera formatPtpPropertyValue: @(value) ofProperty: propertyId withDefaultValue: propertyInfo[@"defaultValue"]];
 
-	NSMenuItem* item = menuItemLookupTable[@(propertyId)];
+	NSMenuItem* item = propertyMenuItemLookupTable[@(propertyId)];
 	item.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[@(propertyId)], valStr];
 
 

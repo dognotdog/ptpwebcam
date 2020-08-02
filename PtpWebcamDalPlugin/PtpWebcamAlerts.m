@@ -65,6 +65,29 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...)
 	}
 }
 
+void PtpWebcamShowDeviceAlert(NSString* format, ...)
+{
+    va_list args;
+    va_start(args, format);
+	NSString* message = [[NSString alloc] initWithFormat: format arguments: args];
+	va_end(args);
+	
+	NSLog(@"PtpWebcamDalPlugin process name: %@", [[NSProcessInfo processInfo] processName]);
+	NSLog(@"PtpWebcamDalPlugin experienced a device failure: %@", message);
+	
+	if (!PtpWebcamIsProcessGuiBlacklisted())
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			NSAlert *alert = [[NSAlert alloc] init];
+			[alert setMessageText: @"Camera Error"];
+			[alert setInformativeText: message];
+//			[alert addButtonWithTitle:@"Bummer."];
+			[alert setAlertStyle: NSAlertStyleWarning];
+			[alert runModal];
+		});
+	}
+}
+
 /**
  We want this function to block as long as the dialog shows, as a crash might be imminent with an unknown camera if we proceed.
  */

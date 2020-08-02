@@ -179,10 +179,25 @@
 
 }
 
-- (void) receivedCameraProperty:(NSDictionary *)propertyInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
+- (void) receivedCameraProperty:(NSDictionary *)propertyInfo oldProperty: (NSDictionary*) oldInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
 {
 	// do nothing when receiving camera properties during enumeration
 }
+
+- (void)cameraDidBecomeReadyForLiveViewStreaming:(nonnull PtpCamera *)camera {
+	// do nothing
+}
+
+
+- (void)cameraWasRemoved:(nonnull PtpCamera *)camera {
+	// do nothing as deviceBrowser tells us
+}
+
+
+- (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera {
+	// we don't care for live view images
+}
+
 
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)icCamera
 {
@@ -191,18 +206,18 @@
 	// create and register stream and device
 	
 	PtpCamera* camera = [PtpCamera cameraWithIcCamera: icCamera delegate: self];
-
+	
 	@synchronized (self) {
 		NSMutableArray* cameras = self.cameras.mutableCopy;
 		[cameras addObject: camera];
 		self.cameras = cameras;
 	}
-
+	
 }
 
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
 {
-//	NSLog(@"add device %@", device);
+	//	NSLog(@"add device %@", device);
 	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: camera];
 	if (cameraInfo)
 	{
@@ -210,10 +225,10 @@
 		{
 			PTPWebcamShowCameraIssueBlockingAlert(cameraInfo[@"make"], cameraInfo[@"model"]);
 		}
-//		NSLog(@"camera capabilities %@", camera.capabilities);
+		//		NSLog(@"camera capabilities %@", camera.capabilities);
 		camera.delegate = self;
 		[camera requestOpenSession];
-
+		
 	}
 }
 
@@ -228,7 +243,7 @@
 			PtpWebcamPtpDevice* ptpDevice = (id)device;
 			if ([icDevice isEqual: ptpDevice.camera.icCamera])
 			{
-//				[ptpDevice unplugDevice];
+				//				[ptpDevice unplugDevice];
 				@synchronized (self) {
 					NSMutableArray* devices = self.cmioDevices.mutableCopy;
 					[devices removeObject: device];
@@ -304,19 +319,19 @@
 
 - (void) connectToAssistantService
 {
-//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
-
+	//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+	
 	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
-
+	
 	__weak NSXPCConnection* weakConnection = assistantConnection;
 	assistantConnection.invalidationHandler = ^{
 		NSLog(@"oops, connection failed: %@", weakConnection);
 	};
 	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
 	
-//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
 	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
-//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
 	
 	assistantConnection.exportedObject = self;
 	assistantConnection.exportedInterface = exportedInterface;
@@ -327,7 +342,7 @@
 	[[assistantConnection remoteObjectProxy] pingService:^{
 		PtpLog(@"pong received.");
 	}];
-
+	
 }
 
 - (nullable id) xpcDeviceWithId: (id) cameraId
@@ -346,12 +361,12 @@
 
 - (void) cameraConnected: (id) cameraId withInfo: (NSDictionary*) cameraInfo
 {
-//	PtpLog(@"");
+	//	PtpLog(@"");
 	
 	// create and register stream and device
 	
 	PtpWebcamXpcDevice* device = [[PtpWebcamXpcDevice alloc] initWithCameraId: cameraId info: cameraInfo pluginInterface: self.pluginInterfaceRef];
-
+	
 	// checking and adding to self.devices must happen atomically, hence the @sync block
 	@synchronized (self) {
 		// do nothing if we already know of the camera
@@ -363,9 +378,9 @@
 		[devices addObject: device];
 		self.cmioDevices = devices;
 	}
-
+	
 	device.xpcConnection = assistantConnection;
-
+	
 	[device createCmioDeviceWithPluginId: self.objectId];
 	[PtpWebcamObject registerObject: device];
 	
@@ -373,12 +388,12 @@
 	stream.xpcDevice = device;
 	[stream createCmioStreamWithDevice: device];
 	[PtpWebcamObject registerObject: stream];
-
+	
 	// then publish stream and device
 	[device publishCmioDevice];
 	[stream publishCmioStream];
 	
-
+	
 }
 
 - (void)cameraDisconnected:(id)cameraId
@@ -397,7 +412,7 @@
 	}
 	
 	[device unplugDevice];
-
+	
 }
 
 
@@ -406,7 +421,7 @@
 	PtpWebcamXpcDevice* device = [self xpcDeviceWithId: cameraId];
 	PtpWebcamXpcStream* stream = (id)device.stream;
 	[stream liveViewStreamReady];
-
+	
 }
 
 - (void) receivedLiveViewJpegImageData:(NSData *)jpegData withInfo:(NSDictionary *)info forCameraWithId:(id)cameraId
@@ -416,10 +431,10 @@
 	[stream receivedLiveViewJpegImageData: jpegData withInfo: info];
 }
 
+- (void)propertyChanged:(NSDictionary *)property forCameraWithId:(id)cameraId {
+	// don't care
+}
 
-//- (void)propertyChanged:(NSDictionary *)property forCameraWithId:(id)cameraId {
-//	<#code#>
-//}
 
 
 @end

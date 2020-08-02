@@ -66,11 +66,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
-- (void) receivedProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
+- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldProperty withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
 
 - (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue;
 
-- (void) startLiveView;
+- (BOOL) startLiveView;
 - (void) stopLiveView;
 - (void) requestLiveViewImage;
 - (NSSize) currenLiveViewImageSize;
@@ -87,11 +87,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol PtpCameraDelegate <NSObject>
 
-- (void) receivedCameraProperty: (NSDictionary*) propertyInfo withId: (NSNumber*) propertyId fromCamera: (PtpCamera*) camera;
+- (void) receivedCameraProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId fromCamera: (PtpCamera*) camera;
 - (void) receivedLiveViewJpegImage: (NSData*) jpegData withInfo: (NSDictionary*) info fromCamera: (PtpCamera*) camera;
 
 - (void) cameraDidBecomeReadyForUse: (PtpCamera*) camera;
 - (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera*) camera;
+- (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
 - (void) cameraWasRemoved: (PtpCamera*) camera;
 
 @end

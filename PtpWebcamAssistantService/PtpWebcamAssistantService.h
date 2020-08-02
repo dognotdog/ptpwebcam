@@ -25,7 +25,7 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...);
 @property NSArray* connections; // XPC conncetions
 
 - (void) cameraReady: (PtpCamera*) camera;
-- (void) camera: (PtpCamera*) camera propertyChanged: (NSDictionary*) propertyInfo;
+//- (void) camera: (PtpCamera*) camera propertyChanged: (NSDictionary*) propertyInfo;
 - (void) camera: (PtpCamera*) camera didReceiveLiveViewJpegImage: (NSData*) jpegData withInfo: (NSDictionary*) info;
 - (void) cameraLiveViewReady: (PtpCamera*) camera;
 
