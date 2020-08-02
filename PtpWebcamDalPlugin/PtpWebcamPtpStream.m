@@ -66,40 +66,71 @@
 		return kCMIOHardwareBadStreamError;
 	}
 	
+	isStreaming = YES;
+
 	BOOL liveStarted = [self.ptpDevice.camera startLiveView];
 	
 	if (!liveStarted)
+	{
+		isStreaming = NO;
 		return kCMIOHardwareUnspecifiedError;
+	}
+	
 	
 	return kCMIOHardwareNoError;
 }
 
 - (void) cameraFailedToStartLiveView
 {
-	liveViewShouldBeEnabled = NO;
-	isStreaming = NO;
+	@synchronized (self) {
+		liveViewShouldBeEnabled = NO;
+		isStreaming = NO;
+	}
 }
 
 
 - (void) cameraDidBecomeReadyForLiveViewStreaming
 {
-	if (frameTimerSource)
-		dispatch_resume(frameTimerSource);
-	liveViewShouldBeEnabled = YES;
+	@synchronized (self) {
+		if (isStreaming && !liveViewShouldBeEnabled)
+		{
+			if (frameTimerSource)
+				dispatch_resume(frameTimerSource);
+			liveViewShouldBeEnabled = YES;
+		}
+
+	}
 	
 }
+
+- (void) cameraLiveViewStreamDidBecomeInterrupted
+{
+	@synchronized (self) {
+		if (liveViewShouldBeEnabled)
+		{
+			if (frameTimerSource)
+				dispatch_suspend(frameTimerSource);
+			liveViewShouldBeEnabled = NO;
+		}
+
+	}
+	
+}
+
 
 - (OSStatus) stopStream
 {
 	// only suspend frame timer if it has been resumed when camera signalled ready, otherwise the suspend count is too high and it won't resume next time (eg. when the camera could not start live view because of an error condition)
-	if (frameTimerSource && liveViewShouldBeEnabled)
-		dispatch_suspend(frameTimerSource);
-	
-	liveViewShouldBeEnabled = NO;
+	@synchronized (self) {
+		if (frameTimerSource && liveViewShouldBeEnabled)
+			dispatch_suspend(frameTimerSource);
+		
+		liveViewShouldBeEnabled = NO;
+		isStreaming = NO;
+	}
 
 	[self.ptpDevice.camera stopLiveView];
 
-	isStreaming = NO;
 	return kCMIOHardwareNoError;
 }
 

@@ -1584,12 +1584,31 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) stopLiveView
 {
 	PtpLog(@"");
-	if (frameTimerSource)
-		dispatch_suspend(frameTimerSource);
-	inLiveView = NO;
+	@synchronized (self) {
+		if (inLiveView)
+		{
+			if (frameTimerSource)
+				dispatch_suspend(frameTimerSource);
+			inLiveView = NO;
+
+		}
+	}
 	
 	[[NSProcessInfo processInfo] endActivity: videoActivityToken];
 	videoActivityToken = nil;
+}
+
+- (void) liveViewInterrupted
+{
+	PtpLog(@"");
+	@synchronized (self) {
+		if (inLiveView)
+		{
+			if (frameTimerSource)
+				dispatch_suspend(frameTimerSource);
+			inLiveView = NO;
+		}
+	}
 }
 
 - (void) requestLiveViewImage

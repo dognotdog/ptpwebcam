@@ -63,10 +63,16 @@
 	});
 }
 
-- (void) cameraDidBecomeReadyForLiveViewStreaming:(PtpCamera *)camera
+- (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera *) camera
 {
 	[self.ptpStream cameraDidBecomeReadyForLiveViewStreaming];
 }
+
+- (void) cameraLiveViewStreamDidBecomeInterrupted: (PtpCamera *) camera
+{
+	[self.ptpStream cameraLiveViewStreamDidBecomeInterrupted];
+}
+
 
 - (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
 {

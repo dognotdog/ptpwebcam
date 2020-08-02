@@ -72,6 +72,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL) startLiveView;
 - (void) stopLiveView;
+- (void) liveViewInterrupted; // called by subclass to indicate temporary problem with video stream, pendant to -cameraDidBecomeReadyForLiveViewStreaming
 - (void) requestLiveViewImage;
 - (NSSize) currenLiveViewImageSize;
 - (NSArray*) liveViewImageSizes;
@@ -92,6 +93,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void) cameraDidBecomeReadyForUse: (PtpCamera*) camera;
 - (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera*) camera;
+- (void) cameraLiveViewStreamDidBecomeInterrupted: (PtpCamera*) camera;
 - (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
 - (void) cameraWasRemoved: (PtpCamera*) camera;
 

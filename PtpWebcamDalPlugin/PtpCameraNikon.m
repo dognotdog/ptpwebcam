@@ -14,6 +14,7 @@ typedef enum {
 	LV_STATUS_OFF,
 	LV_STATUS_WAITING,
 	LV_STATUS_ON,
+	LV_STATUS_RESTART_STOPPING,
 	LV_STATUS_ERROR
 } liveViewStatus_t;
 
@@ -339,11 +340,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		
 		// restart live view if it got turned off after timeout or error
 		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
-		if (!isDeviceBusy)
+		if (!isDeviceBusy && (liveViewStatus == LV_STATUS_ON))
 		{
 			PtpLog(@"error code 0x%04X", code);
-			[self stopLiveView];
-			[self startLiveView];
+			[self restartLiveView];
 		}
 		
 		return;
@@ -496,6 +496,12 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				}
 			}
 
+			break;
+		}
+		case PTP_CMD_NIKON_STOPLIVEVIEW:
+		{
+			if (liveViewStatus == LV_STATUS_RESTART_STOPPING)
+				[self startLiveView];
 			break;
 		}
 		default:
@@ -687,6 +693,14 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	}
 	return YES;
 }
+
+- (void) restartLiveView
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
+	liveViewStatus = LV_STATUS_RESTART_STOPPING;
+	[super liveViewInterrupted];
+}
+
 
 - (void) stopLiveView
 {
