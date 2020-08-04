@@ -20,7 +20,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFPlugInFactories</key>
 	<dict>
-		<key>35FDFF29-BFCF-4644-AB77-B759DE932ABE</key>
+		<key>B929A70E-8EF3-4ED3-8E8A-BC7E98922A3A</key>
 		<string>PtpWebcamPluginFactory</string>
 	</dict>
 	<key>CFPlugInTypes</key>
