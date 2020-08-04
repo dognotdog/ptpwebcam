@@ -17,6 +17,7 @@ NSArray* PtpWebcamGuiBlacklistedProcesses(void)
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		blacklistedProcesses = @[
+			@"prl_disp_service", // Parallels Desktop service
 			@"Google Chrome Helper (Renderer)",
 			@"Google Chrome Helper (Plugin)",
 //			@"Google Chrome",
