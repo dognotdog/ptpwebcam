@@ -24,8 +24,8 @@ NSArray* PtpWebcamGuiBlacklistedProcesses(void)
 			@"Skype Helper (Renderer)",
 	//		@"Skype Helper",
 	//		@"Skype",
-			@"caphost", // zoom's video capture process
-	//		@"zoom.us",
+//			@"caphost", // zoom's video capture process
+//			@"zoom.us",
 		];
 	});
 	return blacklistedProcesses;
