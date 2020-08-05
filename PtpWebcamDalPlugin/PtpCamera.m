@@ -370,7 +370,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	self.uiPtpProperties = @[
 		@(PTP_PROP_BATTERYLEVEL),
-		@(PTP_PROP_FOCUSDISTANCE),
+//		@(PTP_PROP_FOCUSDISTANCE),
 		@(PTP_PROP_FLEN),
 		@(PTP_PROP_EXPOSUREPM),
 		@(PTP_PROP_FNUM),

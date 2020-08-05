@@ -203,7 +203,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	
 	self.uiPtpProperties = @[
 		@(PTP_PROP_BATTERYLEVEL),
-		@(PTP_PROP_FOCUSDISTANCE),
+//		@(PTP_PROP_FOCUSDISTANCE),
 		@(PTP_PROP_FLEN),
 		@(PTP_PROP_NIKON_LV_STATUS),
 		@"-",
