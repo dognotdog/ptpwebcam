@@ -559,7 +559,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 					errorName =  @"Image in SDRAM";
 					break;
 				case 14:
-					errorName =  @"Recording destination error";
+					errorName =  @"Recording destination error: insert memory card or change recording destination to remedy problem.";
 					break;
 				case 15:
 					errorName =  @"Capture in progress";
@@ -586,7 +586,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 					errorName =  @"Mirror-up in progress";
 					break;
 				case 24:
-					errorName =  @"Lens retraction in progress";
+					errorName =  @"Lens retracted: extend lens to remedy problem.";
 					break;
 				case 31:
 					errorName =  @"Exposure Progam Mode not one of PSAM";
@@ -595,7 +595,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			if (!errorName)
 				[prohibitConditions addObject: [NSString stringWithFormat: @"Error Bit %zu", i]];
 			else
-				[prohibitConditions addObject: [NSString stringWithFormat: @"%@ (bit %zu)", errorName, i]];
+				[prohibitConditions addObject: [NSString stringWithFormat: @"(bit %zu) %@", i, errorName]];
 		}
 		return prohibitConditions;
 	}
