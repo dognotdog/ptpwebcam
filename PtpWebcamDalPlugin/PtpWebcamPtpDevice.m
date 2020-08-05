@@ -231,7 +231,7 @@
 }
 
 
-- (NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
+- (nullable NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
 {
 	NSMenu* submenu = [[NSMenu alloc] init];
 	id value = property[@"value"];
@@ -277,7 +277,8 @@
 						}
 
 					}
-					valueItem.submenu = subPropertyMenu;
+					if (subPropertyMenu.numberOfItems > 0)
+						valueItem.submenu = subPropertyMenu;
 				}
 			}
 			
@@ -344,7 +345,10 @@
 		[submenu addItem: subItem];
 
 	}
-	return submenu;
+	if (submenu.numberOfItems > 0)
+		return submenu;
+	else
+		return nil;
 }
 
 - (void) rebuildStatusItem
@@ -386,6 +390,10 @@
 				continue;
 			NSDictionary* property = self.camera.ptpPropertyInfos[propertyId];
 
+			// if this property hasn't actually been read from camera, don't put it in menu
+			if (!property)
+				continue;
+			
 			id value = property[@"value"];
 			id defaultValue = property[@"defaultValue"];
 
@@ -457,7 +465,8 @@
 			
 			subItem.submenu = subsubmenu;
 
-			[submenu addItem: subItem];
+			if (subsubmenu.numberOfItems > 0)
+				[submenu addItem: subItem];
 
 		}
 		
@@ -465,7 +474,8 @@
 
 
 
-		[menu addItem: item];
+		if (submenu.numberOfItems > 0)
+			[menu addItem: item];
 
 	}
 	// operations
