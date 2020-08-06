@@ -16,6 +16,7 @@
 {
 	uint32_t transactionId;
 	NSStatusItem* statusItem;
+	NSMenuItem* autofocusMenuItem;
 	BOOL isPropertyExplorerEnabled;
 	NSMutableDictionary* propertyMenuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
 }
@@ -89,18 +90,21 @@
 	dispatch_async(dispatch_get_main_queue(), ^{
 		NSMenuItem* item = self->propertyMenuItemLookupTable[propertyId];
 		
+		bool descriptionChanged = ![oldInfo isEqual: propertyInfo];
+		bool valueChanged = ![oldInfo[@"value"] isEqual: propertyInfo[@"value"]];
+
 		// rebuild menus if this is a newly received UI item
 		if (!item && [self.allUiPropertyIds containsObject: propertyId])
 			[self rebuildStatusItem];
 		else
 		{
-			if (![oldInfo isEqual: propertyInfo])
+			if (descriptionChanged)
 			{
 				NSString* title = [self formatPropertyMenuItemTitleWithValue: propertyInfo[@"value"] defaultValue: propertyInfo[@"defaultValue"] propertyId: propertyId];
 				item.title = title;
 				
 				// need to rebuild the values submenu if rw changed or value changed
-				if (![oldInfo[@"rw"] isEqual: propertyInfo[@"rw"]] || ![oldInfo[@"value"] isEqual: propertyInfo[@"value"]])
+				if (![oldInfo[@"rw"] isEqual: propertyInfo[@"rw"]] || valueChanged)
 				{
 					if ([propertyInfo[@"rw"] boolValue])
 					{
@@ -113,6 +117,26 @@
 					}
 				}
 			}
+		}
+		
+		switch(propertyId.intValue)
+		{
+			case PTP_PROP_EXPOSUREPM:
+				if (valueChanged)
+				{
+					// when exposure program mode is changed, availability of iso/shutter/aperture setting might have changed
+					if ([self.camera isPtpPropertySupported: PTP_PROP_NIKON_SHUTTERSPEED])
+						[self.camera ptpGetPropertyDescription: PTP_PROP_NIKON_SHUTTERSPEED];
+					if ([self.camera isPtpPropertySupported: PTP_PROP_FNUM])
+						[self.camera ptpGetPropertyDescription: PTP_PROP_FNUM];
+					if ([self.camera isPtpPropertySupported: PTP_PROP_EXPOSUREISO])
+						[self.camera ptpGetPropertyDescription: PTP_PROP_EXPOSUREISO];
+				}
+				break;
+			case PTP_PROP_NIKON_LV_AFMODE:
+				if (valueChanged)
+					[self checkAutofocusAvailability];
+				break;
 		}
 	});
 
@@ -351,6 +375,38 @@
 		return nil;
 }
 
+- (void) checkAutofocusAvailability
+{
+	NSDictionary* afModeInfo = self.camera.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_AFMODE)];
+	if (afModeInfo)
+	{
+		NSNumber* value = afModeInfo[@"value"];
+		switch (value.intValue)
+		{
+			case 3:
+			{
+				autofocusMenuItem.title = @"Autofocus unavailable (manual lens)…";
+				break;
+			}
+			case 4:
+			{
+				autofocusMenuItem.title = @"Autofocus unavailable (manual mode)…";
+				break;
+			}
+			case 0:
+			case 1:
+			case 2:
+			default:
+			{
+				autofocusMenuItem.enabled = YES;
+				autofocusMenuItem.title = @"Autofocus…";
+				break;
+			}
+
+		}
+	}
+}
+
 - (void) rebuildStatusItem
 {
 	if (!statusItem)
@@ -413,8 +469,8 @@
 			else
 			{
 				// assign dummy action so items aren't grayed out
-				propertyItem.target = self;
-				propertyItem.action =  @selector(nopAction:);
+//				propertyItem.target = self;
+//				propertyItem.action =  @selector(nopAction:);
 			}
 
 			[menu addItem: propertyItem];
@@ -426,11 +482,12 @@
 	if ([self.camera.ptpDeviceInfo[@"operations"] containsObject: @(PTP_CMD_NIKON_AFDRIVE)])
 	{
 		[menu addItem: [NSMenuItem separatorItem]];
-		NSMenuItem* item = [[NSMenuItem alloc] init];
-		item.title =  @"Autofocus…";
-		item.target = self;
-		item.action =  @selector(autofocusAction:);
-		[menu addItem: item];
+		autofocusMenuItem = [[NSMenuItem alloc] init];
+		autofocusMenuItem.title =  @"Autofocus…";
+		autofocusMenuItem.target = self;
+		autofocusMenuItem.action =  @selector(autofocusAction:);
+		[self checkAutofocusAvailability];
+		[menu addItem: autofocusMenuItem];
 	}
 	
 	// camera properties
@@ -513,7 +570,13 @@
 }
 - (IBAction) autofocusAction:(NSMenuItem*)sender
 {
-	[self.camera requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
+	if ([self.camera isPtpPropertySupported: PTP_PROP_NIKON_LV_AFMODE])
+		[self.camera ptpGetPropertyDescription: PTP_PROP_NIKON_LV_AFMODE];
+
+	if ([self.camera isPtpOperationSupported: PTP_CMD_NIKON_AFDRIVE])
+	{
+		[self.camera requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
+	}
 }
 
 - (IBAction) changeCameraPropertyAction:(NSMenuItem*)sender
