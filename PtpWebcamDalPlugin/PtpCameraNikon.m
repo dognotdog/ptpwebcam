@@ -531,20 +531,23 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			NSString* errorName = nil;
 			switch(i)
 			{
+				case 0:
+					errorName =  @"The recording destination is the CF.";
+					break;
 				case 2:
-					errorName =  @"Sequence error";
+					errorName =  @"Sequence error.";
 					break;
 				case 4:
-					errorName =  @"Fully depressed shutter button";
+					errorName =  @"Fully depressed shutter release button.";
 					break;
 				case 5:
-					errorName =  @"Aperture value set by lens aperture ring";
+					errorName =  @"Aperture value set by lens aperture ring.";
 					break;
 				case 6:
-					errorName =  @"Bulb warning";
+					errorName =  @"Bulb warning.";
 					break;
 				case 7:
-					errorName =  @"Mirror-up in progress";
+					errorName =  @"Mirror-up in progress.";
 					break;
 				case 8:
 					errorName =  @"Battery low";
