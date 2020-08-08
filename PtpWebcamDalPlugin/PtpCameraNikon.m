@@ -108,13 +108,16 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
 			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
 			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
+			@(PTP_PROP_NIKON_RECORDINGMEDIA) : @"Recording Media",
 			@(PTP_PROP_NIKON_WBTUNE_AUTOTYPE) : @"WB Auto Type",
 			@(PTP_PROP_NIKON_WBTUNE_FLTYPE) : @"WB Flourescent Type",
 			@(PTP_PROP_NIKON_WBTUNE_COLORTEMP) : @"Color Temp Tune",
 			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @"Auto ISO",
+			@(PTP_PROP_NIKON_LV_MODE) : @"LiveView AF Miror Mode",
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
 			@(PTP_PROP_NIKON_LV_PROHIBIT) : @"LiveView Prohibit Condition",
+			@(PTP_PROP_NIKON_LV_APPLYSETTINGS) : @"Exposure Preview",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
 		}];
@@ -129,6 +132,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x8014) : @"Sports",
 				@(0x8015) : @"Night Portrait",
 				@(0x8016) : @"Flash Off Auto",
+				@(0x8017) : @"Child",
 				@(0x8018) : @"SCENE",
 				@(0x8019) : @"EFFECTS",
 				@(0x8050) : @"U1",
@@ -158,6 +162,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0) : @"Off",
 				@(1) : @"On",
 			},
+			@(PTP_PROP_NIKON_LV_APPLYSETTINGS) : @{
+				@(0) : @"Off",
+				@(1) : @"On",
+			},
 			@(PTP_PROP_NIKON_LV_AF) : @{
 				@(0x0000) : @"Face Detect",
 				@(0x0001) : @"Wide Area",
@@ -170,6 +178,15 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x0002) : @"[C] Continuous",
 				@(0x0003) : @"Manual Lens",
 				@(0x0004) : @"Manual",
+			},
+			@(PTP_PROP_NIKON_LV_MODE) : @{
+				@(0x0000) : @"Mirror-down for AF (hand-held mode)",
+				@(0x0001) : @"Mirror-up for AF (tripod mode)",
+			},
+			@(PTP_PROP_NIKON_RECORDINGMEDIA) : @{
+				@(0x0000) : @"Card",
+				@(0x0001) : @"SDRAM",
+				@(0x0002) : @"Card and SDRAM",
 			},
 			@(PTP_PROP_NIKON_WBTUNE_AUTOTYPE) : @{
 				@(0x0000) : @"Standard",
@@ -217,8 +234,11 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_NIKON_LV_AFMODE),
 		@(PTP_PROP_NIKON_LV_AF),
 		@(PTP_PROP_NIKON_LV_ZOOM),
+		@(PTP_PROP_NIKON_LV_MODE),
 		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW),
+		@(PTP_PROP_NIKON_LV_APPLYSETTINGS),
 		@(PTP_PROP_NIKON_LV_IMAGESIZE),
+		@(PTP_PROP_NIKON_RECORDINGMEDIA),
 	];
 	
 	self.uiPtpSubProperties = @{
