@@ -42,53 +42,7 @@ Delete `/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin` to uninstal
 
 ## Supported Cameras over USB
 
-### Tested
-
-- Nikon D3500
-- Nikon D5100, Nikon D5500, Nikon D5600
-- Nikon D7000, Nikon D7100, Nikon D7500
-- Nikon D750
-- Nikon Z6, Nikon Z7, Nikon Z50
-
-#### Nikon D800 
-
-- needs to be in Photography LiveView mode for exposure preview to be available
-- LiveView timeout can be set to infinity via  `CUSTOM SETTINGS MENU -> c Timers/AE Lock -> c4 Monitor off delay -> Live view` 
-
-#### Nikon D3400
-- exposure preview not available
- 
- #### Nikon D5100, Nikon D5200
- - potentially frequent (every few minutes) shutter cycling because of LiveView restarts
-  
-
-### Untested
-  
-The following cameras have support in the code, but have not been confirmed to actually work. If you have one of these cameras, and it does or does not work, please file an issue making a note of how it behaves, so that it can be added here.
-  
-  - ~Nikon D90~
-  - Nikon D300, Nikon D300S, Nikon D500
-  - Nikon D3200, Nikon D3300
-  - Nikon D5000, Nikon D5300
-  - Nikon D7000, Nikon D7200
-  
-  - Nikon Df
-  - ~Nikon D3~, Nikon D3S, Nikon D3X, Nikon D4, Nikon D4S, Nikon D5, Nikon D6
-  - Nikon D600, Nikon D610
-  - Nikon D700, Nikon D780
-  - Nikon D800E, Nikon D810, Nikon D810A, Nikon D850
-    
-Note: some cameras support larger LiveView image sizes, but it is not possible to select that at this time.
- 
-Many other cameras can in theory be made to work, but are not yet supported.
-
-### Reported having Issues
-
-- Nikon D3 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
-- Nikon D90 with PTP Webcam v1.0.0-alpha6: camera does not enter LiveView mode when selecting video source.
- 
-### Not usable because of hardware limitations
- - Nikon D40, D60, D80, D200 do not support tethered live view.
+The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md).
  
 ## Known Issues
  
