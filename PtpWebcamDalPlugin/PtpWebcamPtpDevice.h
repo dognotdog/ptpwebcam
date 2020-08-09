@@ -20,21 +20,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface PtpWebcamPtpDevice : PtpWebcamDevice <PtpCameraDelegate>
 
 @property PtpCamera* camera;
-//@property NSDictionary* ptpDeviceInfo;
-//@property NSDictionary* ptpPropertyInfos;
-
-//@property size_t liveViewHeaderLength;
-
-//- (uint32_t) nextTransactionId;
 
 - (instancetype) initWithCamera: (PtpCamera*) camera pluginInterface: (_Nonnull CMIOHardwarePlugInRef) pluginInterface;
-
-//- (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId;
-//- (void) ptpQueryKnownDeviceProperties;
-//
-//+ (nullable NSDictionary*) supportsCamera: (ICDevice*) camera;
-//
-//- (BOOL) isPtpOperationSupported: (uint16_t) opId;
 
 @end
 

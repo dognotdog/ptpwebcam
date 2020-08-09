@@ -1109,10 +1109,21 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	
 	
-	NSData* charData = [data subdataWithRange: NSMakeRange(1, 2*len)];
+	// if string has termination, skip everything after first occurence of terminator
+	uint16_t zero = 0;
+	uint8_t* zeroPtr = memmem(data.bytes + 1, 2*len, &zero, sizeof(zero));
+	// if zeroPtr is in the middle of a 2-byte word, we have to advance to the next character boundary
+	while (zeroPtr && ((zeroPtr - (uint8_t*)(data.bytes + 1)) % 2))
+	{
+		size_t n = zeroPtr - (uint8_t*)(data.bytes + 1);
+		zeroPtr = memmem(zeroPtr + 1, 2*len - n, &zero, sizeof(zero));
+	}
+	size_t numChars = zeroPtr ? (zeroPtr - (uint8_t*)(data.bytes + 1))/2 : len;
 	
+	NSData* charData = [data subdataWithRange: NSMakeRange(1, 2*numChars)];
+
 	// UCS-2 == UTF16?
-	NSString* string = [NSString stringWithCharacters: charData.bytes length: len];
+	NSString* string = [[NSString alloc] initWithData: charData encoding: NSUTF16LittleEndianStringEncoding];
 	
 	if (remData)
 	{
@@ -1628,6 +1639,105 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	// override in subclass
 	[self doesNotRecognizeSelector: _cmd];
 	return nil;
+}
+
+
+- (NSString*) cameraPropertyReport
+{
+	NSMutableString* report = [NSMutableString string];
+	[report appendFormat:@"# PTP Webcam %@ %@ Camera Report\n\n", self.ptpDeviceInfo[@"manufacturer"], self.ptpDeviceInfo[@"model"]];
+
+	[report appendFormat:@"PTP Version:              %@\n", self.ptpDeviceInfo[@"standardVersion"]];
+	[report appendFormat:@"Vendor Extension ID:      %@\n", self.ptpDeviceInfo[@"vendorExtensionId"]];
+	[report appendFormat:@"Vendor Extension Version: %@\n", self.ptpDeviceInfo[@"vendorExtensionVersion"]];
+	[report appendFormat:@"Vendor Description:       %@\n", self.ptpDeviceInfo[@"vendorDescription"]];
+	[report appendFormat:@"Functional Mode:          %@\n", self.ptpDeviceInfo[@"functionalMode"]];
+
+	[report appendFormat:@"Device Version:           %@\n", self.ptpDeviceInfo[@"deviceVersion"]];
+
+	[report appendFormat: @"\n## Supported Operations\n\n"];
+	
+	for (NSNumber* operationId in self.ptpDeviceInfo[@"operations"])
+	{
+		NSString* name = self.ptpOperationNames[operationId];
+		if (!name)
+			name = @"?";
+		
+		[report appendFormat:@"- 0x%04X (%@)\n", operationId.unsignedIntValue, name];
+
+	}
+	
+	[report appendFormat: @"\n## Supported Events\n\n"];
+	
+	for (NSNumber* eventId in self.ptpDeviceInfo[@"events"])
+	{
+		[report appendFormat:@"- 0x%04X (?)\n", eventId.unsignedIntValue];
+	}
+
+	[report appendFormat: @"\n## Supported Properties\n\n"];
+
+	for (NSNumber* propertyId in self.ptpDeviceInfo[@"properties"])
+	{
+		NSString* name = self.ptpPropertyNames[propertyId];
+		if (!name)
+			name = @"?";
+		
+		[report appendFormat:@"- 0x%04X (%@):\n", propertyId.unsignedIntValue, name];
+		
+		NSDictionary* info = self.ptpPropertyInfos[propertyId];
+		
+		id value = info[@"value"];
+		id defaultValue = info[@"defaultValue"];
+		if ([value respondsToSelector: @selector(unsignedIntValue)])
+			[report appendFormat:@"\t- value:   0x%04X (%@)\n", [value unsignedIntValue], [self formatPtpPropertyValue: value ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+		else
+			[report appendFormat:@"\t- value:   %@\n", [self formatPtpPropertyValue: value ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+		if ([defaultValue respondsToSelector: @selector(unsignedIntValue)])
+			[report appendFormat:@"\t- default: 0x%04X (%@)\n", [defaultValue unsignedIntValue], [self formatPtpPropertyValue: defaultValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+		else
+			[report appendFormat:@"\t- default: %@\n", [self formatPtpPropertyValue: defaultValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+
+		if ([info[@"range"] isKindOfClass: [NSArray class]])
+		{
+			[report appendFormat:@"\t- range (n=%zu):\n", [info[@"range"] count]];
+			for (id enumVal in  info[@"range"])
+			{
+				if ([enumVal respondsToSelector:@selector(unsignedIntValue)])
+					[report appendFormat:@"\t\t- 0x%04X (%@)\n", [enumVal unsignedIntValue], [self formatPtpPropertyValue: enumVal ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+				else
+					[report appendFormat:@"\t\t- %@\n", [self formatPtpPropertyValue: enumVal ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+
+			}
+
+		}
+		else if ([info[@"range"] isKindOfClass: [NSDictionary class]])
+		{
+			NSDictionary* range = info[@"range"];
+			id minValue = range[@"min"];
+			id maxValue = range[@"max"];
+			id stepValue = range[@"step"];
+			[report appendFormat:@"\t- range:\n"];
+			if ([minValue respondsToSelector: @selector(unsignedIntValue)])
+				[report appendFormat:@"\t\t- min:  0x%04X (%@)\n", [minValue unsignedIntValue], [self formatPtpPropertyValue: minValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+			else
+				[report appendFormat:@"\t\t- min:  %@\n", [self formatPtpPropertyValue: minValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+
+			if ([maxValue respondsToSelector: @selector(unsignedIntValue)])
+				[report appendFormat:@"\t\t- max:  0x%04X (%@)\n", [maxValue unsignedIntValue], [self formatPtpPropertyValue: maxValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+			else
+				[report appendFormat:@"\t\t- max:  %@\n", [self formatPtpPropertyValue: maxValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+
+			
+			if ([stepValue respondsToSelector: @selector(unsignedIntValue)])
+				[report appendFormat:@"\t\t- step: 0x%04X (%@)\n", [stepValue unsignedIntValue], [self formatPtpPropertyValue: stepValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+			else
+				[report appendFormat:@"\t\t- step: %@\n", [self formatPtpPropertyValue: stepValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+		}
+
+
+	}
+	
+	return report;
 }
 
 @end

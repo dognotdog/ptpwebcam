@@ -16,6 +16,7 @@ void PTPWebcamShowCameraIssueBlockingAlert(NSString* make, NSString* model);
 
 void PtpWebcamShowCatastrophicAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
 void PtpWebcamShowDeviceAlert(NSString* format, ...) NS_FORMAT_FUNCTION(1,2);
+void PtpWebcamShowInfoAlert(NSString* title, NSString* format, ...) NS_FORMAT_FUNCTION(2,3);
 
 #define PtpWebcamShowCatastrophicAlertOnce(format, ...) \
 { 										\

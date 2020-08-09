@@ -84,6 +84,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (uint32_t) nextTransactionId;
 
+- (NSString*) cameraPropertyReport;
+
 @end
 
 @protocol PtpCameraDelegate <NSObject>

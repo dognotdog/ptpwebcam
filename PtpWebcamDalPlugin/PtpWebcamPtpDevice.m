@@ -18,6 +18,7 @@
 	NSStatusItem* statusItem;
 	NSMenuItem* autofocusMenuItem;
 	BOOL isPropertyExplorerEnabled;
+	BOOL triggerReportGenerationWhenPropertiesComplete;
 	NSMutableDictionary* propertyMenuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
 }
 @end
@@ -139,6 +140,18 @@
 				break;
 		}
 	});
+	
+	// check if we have received all properties
+	if (triggerReportGenerationWhenPropertiesComplete)
+	{
+		NSSet* supportedProperties = [NSSet setWithArray: self.camera.ptpDeviceInfo[@"properties"]];
+		NSSet* receivedProperties = [NSSet setWithArray: self.camera.ptpPropertyInfos.allKeys];
+		if ([receivedProperties isSubsetOfSet: supportedProperties])
+		{
+			triggerReportGenerationWhenPropertiesComplete = NO;
+			[self copyCameraReportToClipboard];
+		}
+	}
 
 }
 
@@ -420,15 +433,23 @@
 	NSMenu* menu = [[NSMenu alloc] init];
 	NSDictionary* ptpPropertyNames = [self.camera ptpPropertyNames];
 
-//	if (isPropertyExplorerEnabled)
 	{
 		NSString *processName = [[NSProcessInfo processInfo] processName];
 		
 		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"controlled from \"%@\"", processName] action: NULL keyEquivalent: @""];
 		menuItem.target = self;
-		menuItem.action =  @selector(nopAction:);
-
+//		menuItem.action =  @selector(nopAction:);
 		[menu addItem: menuItem];
+
+		// add report command
+		if (YES)
+		{
+			NSMenuItem* item = [[NSMenuItem alloc] init];
+			item.title =  @"Generate Camera Report…";
+			item.target = self;
+			item.action =  @selector(generateCameraReport:);
+			[menu addItem: item];
+		}
 		[menu addItem: [NSMenuItem separatorItem]];
 	}
 
@@ -490,6 +511,8 @@
 		[menu addItem: autofocusMenuItem];
 	}
 	
+	
+
 	// camera properties
 	if (isPropertyExplorerEnabled)
 	{
@@ -613,6 +636,31 @@
 
 //	[self.camera ptpQueryKnownDeviceProperties];
 }
+
+- (void) copyCameraReportToClipboard
+{
+	NSString* report = [self.camera cameraPropertyReport];
+	
+	NSPasteboardItem* item = [[NSPasteboardItem alloc] init];
+	[item setString: report forType: NSPasteboardTypeString];
+	
+	[[NSPasteboard generalPasteboard] clearContents];
+	[[NSPasteboard generalPasteboard] writeObjects: @[item]];
+	
+	PtpWebcamShowInfoAlert(@"Camera Report Generated", @"The camera report has been copied to the clipboard, you can now paste it anywhere.");
+}
+
+- (IBAction) generateCameraReport:(NSMenuItem*)sender
+{
+	// query all properties
+	triggerReportGenerationWhenPropertiesComplete = YES;
+	for (id propertyId in self.camera.ptpDeviceInfo[@"properties"])
+	{
+		[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+	}
+
+}
+
 
 
 - (IBAction) nopAction:(NSMenuItem*)sender
