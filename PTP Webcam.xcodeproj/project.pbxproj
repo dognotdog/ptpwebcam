@@ -22,6 +22,8 @@
 		DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DE247EDA5E00794577 /* MainMenu.xib */; };
 		DA2922E3247EDA5E00794577 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922E2247EDA5E00794577 /* main.m */; };
 		DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = DA47648E24BE504C00F228B4 /* LICENSE.md */; };
+		DA8DCF9324E0FE9200AB90DE /* CAMERAS.md in Resources */ = {isa = PBXBuildFile; fileRef = DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */; };
+		DA8DCF9724E5A3DD00AB90DE /* FoundationExtensions.m in Sources */ = {isa = PBXBuildFile; fileRef = DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */; };
 		DAAACC7524C918C600E0B44C /* PtpWebcamAssistantService.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACC7424C918C600E0B44C /* PtpWebcamAssistantService.m */; };
 		DAAACC7724C918C600E0B44C /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACC7624C918C600E0B44C /* main.m */; };
 		DAAACC8224C91F6F00E0B44C /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DAAACC8124C91F6F00E0B44C /* AppKit.framework */; };
@@ -144,6 +146,9 @@
 		DA2922E2247EDA5E00794577 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DA2922E4247EDA5E00794577 /* PTP_Webcam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PTP_Webcam.entitlements; sourceTree = "<group>"; };
 		DA47648E24BE504C00F228B4 /* LICENSE.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
+		DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = CAMERAS.md; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = "<none>"; };
+		DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FoundationExtensions.m; sourceTree = "<group>"; };
+		DA8DCF9524E5A38E00AB90DE /* FoundationExtensions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FoundationExtensions.h; sourceTree = "<group>"; };
 		DAAACC7024C918C500E0B44C /* PtpWebcamAssistantService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = PtpWebcamAssistantService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAAACC7224C918C600E0B44C /* PtpWebcamAssistantServiceProtocol.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamAssistantServiceProtocol.h; sourceTree = "<group>"; };
 		DAAACC7324C918C600E0B44C /* PtpWebcamAssistantService.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamAssistantService.h; sourceTree = "<group>"; };
@@ -247,6 +252,8 @@
 		DA2681042481BB2100FF75EF /* PtpWebcamDalPlugin */ = {
 			isa = PBXGroup;
 			children = (
+				DA8DCF9524E5A38E00AB90DE /* FoundationExtensions.h */,
+				DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */,
 				DAAACCD724CFDE8300E0B44C /* PtpCamera.h */,
 				DAAACCD824CFDEA600E0B44C /* PtpCamera.m */,
 				DAAE16BD24D1166800DE2B9F /* PtpCameraNikon.h */,
@@ -288,6 +295,7 @@
 		DA2922CD247EDA5B00794577 = {
 			isa = PBXGroup;
 			children = (
+				DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */,
 				DA47648E24BE504C00F228B4 /* LICENSE.md */,
 				DAF01A4224BB7FB80056F853 /* README.md */,
 				DA2922D8247EDA5B00794577 /* PTP Webcam Preview */,
@@ -539,6 +547,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA2922DD247EDA5E00794577 /* Assets.xcassets in Resources */,
+				DA8DCF9324E0FE9200AB90DE /* CAMERAS.md in Resources */,
 				DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */,
 				DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */,
 			);
@@ -584,6 +593,7 @@
 				DAAACCDA24D0643800E0B44C /* PtpCamera.m in Sources */,
 				DA26811A24821E2A00FF75EF /* PtpWebcamPlugin.m in Sources */,
 				DAAE16C524D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
+				DA8DCF9724E5A3DD00AB90DE /* FoundationExtensions.m in Sources */,
 				DAD0A387248C8D550029D4FB /* PtpWebcamPtpStream.m in Sources */,
 				DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */,
 				DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */,
