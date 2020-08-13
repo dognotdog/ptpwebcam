@@ -219,5 +219,15 @@
 	[self terminateUserInterfaceAgent];
 }
 
+- (void)cameraFailedToStartLiveView:(nonnull PtpCamera *)camera {
+	
+}
+
+
+- (void)cameraLiveViewStreamDidBecomeInterrupted:(nonnull PtpCamera *)camera {
+	
+}
+
+
 
 @end
