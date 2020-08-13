@@ -235,7 +235,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_NIKON_LV_AF),
 		@(PTP_PROP_NIKON_LV_ZOOM),
 		@(PTP_PROP_NIKON_LV_MODE),
-		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW),
+		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW), // only one of ExposurePreview or ApplySettings seem to be present on a given camera, but they do the same thing
 		@(PTP_PROP_NIKON_LV_APPLYSETTINGS),
 		@(PTP_PROP_NIKON_LV_IMAGESIZE),
 		@(PTP_PROP_NIKON_RECORDINGMEDIA),
@@ -551,8 +551,8 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			NSString* errorName = nil;
 			switch(i)
 			{
-				case 0:
-					errorName =  @"The recording destination is the CF.";
+				case 0: // 0x00000001
+					errorName =  @"The recording destination is the Card: change Recording Media to SDRAM to remedy the problem.";
 					break;
 				case 2:
 					errorName =  @"Sequence error.";
@@ -569,50 +569,50 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				case 7:
 					errorName =  @"Mirror-up in progress.";
 					break;
-				case 8:
-					errorName =  @"Battery low";
+				case 8: // 0x00000100
+					errorName =  @"Battery low.";
 					break;
 				case 9:
-					errorName =  @"TTL error";
+					errorName =  @"TTL error.";
 					break;
 				case 11:
-					errorName =  @"CPU lens not mounted and mode is not M";
+					errorName =  @"CPU lens not mounted and mode is not M.";
 					break;
-				case 12:
-					errorName =  @"Image in SDRAM";
+				case 12:  // 0x00001000
+					errorName =  @"Image in SDRAM.";
 					break;
 				case 14:
 					errorName =  @"Recording destination error: insert memory card or change recording destination to remedy problem.";
 					break;
 				case 15:
-					errorName =  @"Capture in progress";
+					errorName =  @"Capture in progress.";
 					break;
-				case 16:
-					errorName =  @"Shooting mode is EFFECTS";
+				case 16: // 0x00010000
+					errorName =  @"Shooting mode is EFFECTS.";
 					break;
 				case 17:
-					errorName =  @"Temperature too high";
+					errorName =  @"Temperature too high.";
 					break;
 				case 18:
-					errorName =  @"Card protected";
+					errorName =  @"Card protected.";
 					break;
 				case 19:
-					errorName =  @"Card error";
+					errorName =  @"Card error.";
 					break;
-				case 20:
-					errorName =  @"Card unformatted";
+				case 20:  // 0x00100000
+					errorName =  @"Card unformatted.";
 					break;
 				case 21:
-					errorName =  @"Bulb warning";
+					errorName =  @"Bulb warning.";
 					break;
 				case 22:
-					errorName =  @"Mirror-up in progress";
+					errorName =  @"Mirror-up in progress.";
 					break;
-				case 24:
+				case 24:  // 0x01000000
 					errorName =  @"Lens retracted: extend lens to remedy problem.";
 					break;
 				case 31:
-					errorName =  @"Exposure Progam Mode not one of PSAM";
+					errorName =  @"Exposure Progam Mode not one of PSAM.";
 					break;
 			}
 			if (!errorName)

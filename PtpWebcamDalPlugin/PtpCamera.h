@@ -62,9 +62,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpGetPropertyDescription: (uint32_t) property;
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
 - (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
+- (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
+- (NSArray*) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
 
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
+- (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (nullable NSData*) paramData;
+- (void) sendPtpCommand: (NSData*) command withData: (NSData*) data;
+
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
 - (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldProperty withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
 
