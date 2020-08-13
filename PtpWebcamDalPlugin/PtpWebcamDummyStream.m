@@ -34,7 +34,7 @@
 	frameQueue = dispatch_queue_create("PtpWebcamDummyStreamFrameQueue", DISPATCH_QUEUE_SERIAL);
 		
 	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
-	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/60.0*NSEC_PER_SEC, 1000u*NSEC_PER_SEC);
+	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/60.0*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
 
 	__weak id weakSelf = self;
 	dispatch_source_set_event_handler(frameTimerSource, ^{
