@@ -12,7 +12,7 @@
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
-#import "PtpWebcamAssistantService.h"
+#import "../PtpWebcamAssistantService/PtpWebcamAssistantService.h"
 #import "PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/PtpWebcamPtp.h"
 #import "../PtpWebcamDalPlugin/PtpWebcamStream.h"
