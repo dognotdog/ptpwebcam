@@ -184,19 +184,13 @@
 	// do nothing when receiving camera properties during enumeration
 }
 
-- (void)cameraDidBecomeReadyForLiveViewStreaming:(nonnull PtpCamera *)camera {
-	// do nothing
-}
-
 
 - (void)cameraWasRemoved:(nonnull PtpCamera *)camera {
 	// do nothing as deviceBrowser tells us
 }
 
 
-- (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera {
-	// we don't care for live view images
-}
+
 
 
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)icCamera

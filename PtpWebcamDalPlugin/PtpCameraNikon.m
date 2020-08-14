@@ -399,7 +399,8 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
 //	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
 	
-	[self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
+	if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
+		[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
 	
 }
 

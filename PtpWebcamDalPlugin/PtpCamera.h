@@ -96,14 +96,21 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol PtpCameraDelegate <NSObject>
 
 - (void) receivedCameraProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId fromCamera: (PtpCamera*) camera;
-- (void) receivedLiveViewJpegImage: (NSData*) jpegData withInfo: (NSDictionary*) info fromCamera: (PtpCamera*) camera;
 
 - (void) cameraDidBecomeReadyForUse: (PtpCamera*) camera;
-- (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera*) camera;
-- (void) cameraLiveViewStreamDidBecomeInterrupted: (PtpCamera*) camera;
-- (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
 - (void) cameraWasRemoved: (PtpCamera*) camera;
 
 @end
+
+@protocol PtpCameraLiveViewDelegate <PtpCameraDelegate>
+
+- (void) receivedLiveViewJpegImage: (NSData*) jpegData withInfo: (NSDictionary*) info fromCamera: (PtpCamera*) camera;
+
+- (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera*) camera;
+- (void) cameraLiveViewStreamDidBecomeInterrupted: (PtpCamera*) camera;
+- (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
+
+@end
+
 
 NS_ASSUME_NONNULL_END

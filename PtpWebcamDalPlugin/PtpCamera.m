@@ -1637,7 +1637,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	inLiveView = YES;
 	
-	[self.delegate cameraDidBecomeReadyForLiveViewStreaming: self];
+	
+	if ([self.delegate respondsToSelector: @selector(cameraDidBecomeReadyForLiveViewStreaming:)])
+		[(id <PtpCameraLiveViewDelegate>)self.delegate cameraDidBecomeReadyForLiveViewStreaming: self];
 	[self ptpQueryKnownDeviceProperties];
 	
 	[self requestLiveViewImage];

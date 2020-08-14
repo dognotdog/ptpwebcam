@@ -17,7 +17,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 
-@interface PtpWebcamPtpDevice : PtpWebcamDevice <PtpCameraDelegate>
+@interface PtpWebcamPtpDevice : PtpWebcamDevice <PtpCameraLiveViewDelegate>
 
 @property PtpCamera* camera;
 
