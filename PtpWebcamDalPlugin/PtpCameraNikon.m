@@ -18,6 +18,17 @@ typedef enum {
 	LV_STATUS_ERROR
 } liveViewStatus_t;
 
+typedef enum {
+	LV_PROHIBIT_RECORDING_MEDIA_BIT = 0,
+	LV_PROHIBIT_BIT1_BIT,
+	LV_PROHIBIT_SEQUENCE_ERROR_BIT,
+	LV_PROHIBIT_BIT3_BIT,
+	LV_PROHIBIT_SHUTTER_DEPRESSED_BIT,
+	LV_PROHIBIT_LENS_APERTURE_RING_BIT,
+} liveViewProhibitCondition_t;
+
+
+
 @implementation PtpCameraNikon
 {
 	NSMutableSet* requiredPropertiesForReadiness; // properties required have been queried to declare the camera to the DAL plugin
@@ -238,7 +249,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW), // only one of ExposurePreview or ApplySettings seem to be present on a given camera, but they do the same thing
 		@(PTP_PROP_NIKON_LV_APPLYSETTINGS),
 		@(PTP_PROP_NIKON_LV_IMAGESIZE),
-		@(PTP_PROP_NIKON_RECORDINGMEDIA),
+//		@(PTP_PROP_NIKON_RECORDINGMEDIA),
 	];
 	
 	self.uiPtpSubProperties = @{
@@ -660,9 +671,29 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		}
 		case PTP_PROP_NIKON_LV_PROHIBIT:
 		{
-			NSArray* prohibitConditions = [self prohibitErrorNames: propertyInfo[@"value"]];
-			if (prohibitConditions.count)
-				PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of the following error conditions: %@", [prohibitConditions componentsJoinedByString: @", "]);
+			uint32_t flags = [propertyInfo[@"value"] unsignedIntValue];
+
+			if (0 != (flags & (1u << LV_PROHIBIT_RECORDING_MEDIA_BIT)))
+			{
+				if ([self isPtpPropertySupported: PTP_PROP_NIKON_RECORDINGMEDIA])
+				{
+					// set RecordingMedia to SDRAM and query prohibit bits again
+					[self ptpSetProperty: PTP_PROP_NIKON_RECORDINGMEDIA toValue: @(1)];
+					[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_PROHIBIT];
+
+					// clear flag because setting recording media should fix it, thus no need to report an error
+					flags = flags & ~(1u << LV_PROHIBIT_RECORDING_MEDIA_BIT);
+				}
+			}
+			
+			if (flags != 0)
+			{
+				NSArray* prohibitConditions = [self prohibitErrorNames: propertyInfo[@"value"]];
+				if (prohibitConditions.count)
+				{
+					PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of the following error conditions: %@", [prohibitConditions componentsJoinedByString: @", "]);
+				}
+			}
 
 			break;
 		}
