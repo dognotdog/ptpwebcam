@@ -21,6 +21,7 @@
 
 
 #define SONY_GETALLPROPS_MAGICNUMBER	0xC8
+#define SONY_LV_IMAGE_OBJECTID			0xFFFFC002
 
 
 typedef enum {
@@ -30,6 +31,7 @@ typedef enum {
 	CAMERA_STATUS_GETPROPERTIES,
 	CAMERA_STATUS_CONNECTING3,
 	CAMERA_STATUS_GETPROPERTYDESCRIPTIONS,
+	CAMERA_STATUS_GETROOTSTORAGEIDS,
 	CAMERA_STATUS_CONNECTED,
 	CAMERA_STATUS_ERROR
 } cameraStatus_t;
@@ -52,7 +54,21 @@ static NSDictionary* _ptpOperationNames = nil;
 	{
 		NSDictionary* supportedCameras = @{
 			@(0x054C) : @{
-				@(0x0954) : @[@"Sony", @"A7S", ],
+				@(0x079B) : @[@"Sony", @"A68"],
+				@(0x079C) : @[@"Sony", @"A6300"],
+				@(0x079E) : @[@"Sony", @"A99 II"],
+				@(0x07A4) : @[@"Sony", @"A6500"],
+				@(0x0953) : @[@"Sony", @"A77 II"],
+				@(0x0954) : @[@"Sony", @"A7S"],
+				@(0x0957) : @[@"Sony", @"A5100"],
+				@(0x096F) : @[@"Sony", @"A7 III"], // A7 III first entry
+				@(0x0A6B) : @[@"Sony", @"A7R II"],
+				@(0x0A71) : @[@"Sony", @"A7S II"],
+				@(0x0C2A) : @[@"Sony", @"A9"],
+				@(0x0C33) : @[@"Sony", @"A7R III"],
+				@(0x0C34) : @[@"Sony", @"A7S III"], // A7 III second entry
+				@(0x0CAA) : @[@"Sony", @"A6400"],
+				@(0x0CCC) : @[@"Sony", @"A7R IV"],
 			},
 		};
 		
@@ -75,14 +91,18 @@ static NSDictionary* _ptpOperationNames = nil;
 
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
+			@(0xD200) : @"DPC Compensation",
+			@(0xD201) : @"Dynamic Range Optimization",
+			@(0xD203) : @"Image Size",
 			@(PTP_PROP_SONY_SHUTTERSPEED) : @"Shutter Speed",
 			@(PTP_PROP_SONY_COLORTEMP) : @"WB Color Temp",
 			@(PTP_PROP_SONY_WB_GREENMAGENTA) : @"WB Tune Green-Magenta",
 			@(PTP_PROP_SONY_ZOOM) : @"Zoom",
 			@(PTP_PROP_SONY_BATTERYLEVEL) : @"Battery Level",
+			@(PTP_PROP_SONY_PICTURE_EFFECT) : @"Picture Effect",
 			@(PTP_PROP_SONY_WB_AMBERBLUE) : @"WB Tune Amber-Blue",
 			@(PTP_PROP_SONY_ISO) : @"ISO",
-			@(PTP_PROP_LV_STATUS) : @"LiveView Status",
+			@(PTP_PROP_SONY_LV_STATUS) : @"LiveView Status",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -125,6 +145,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		@(PTP_PROP_SONY_SHUTTERSPEED),
 		@(PTP_PROP_WHITEBALANCE),
 		@(PTP_PROP_EXPOSUREBIAS),
+		@(PTP_PROP_SONY_LV_STATUS),
 	];
 
 		
@@ -157,11 +178,123 @@ static NSDictionary* _ptpOperationNames = nil;
 
 }
 
+- (void) parsePtpStorageIdsResponse: (NSData*) data
+{
+//	NSArray* ids = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_ARRAY remainingData: NULL];
+	
+
+//	[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECTHANDLES parameters: @[@(0xFFFFFFFF), @(0), @(0)]];
+//	[self requestSendPtpCommandWithCode: PTP_CMD_GETNUMOBJECTS parameters: @[@(0xFFFFFFFF), @(0), @(0)]];
+
+	// neither getting object handles or storage info works on 0x00010000
+//	for (id storageId in ids)
+//	{
+//[self requestSendPtpCommandWithCode: PTP_CMD_GETNUMOBJECTS parameters: @[storageId, @(0), @(0)]];
+//		[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECTHANDLES parameters: @[storageId, @(0), @(0)]];
+//		[self requestSendPtpCommandWithCode: PTP_CMD_GETSTORAGEINFO parameters: @[storageId]];
+//	}
+	
+}
+
+- (void) parsePtpObjectInfoResponse: (NSData*) data
+{
+//	NSNumber* storageId = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* objectFormat = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT16_RAW remainingData: &data];
+//	NSNumber* protectionStatus = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT16_RAW remainingData: &data];
+//	NSNumber* compressedSize = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* thumbFormat = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT16_RAW remainingData: &data];
+//	NSNumber* thumbCompressedSize = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* thumbWidth = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* thumbHeight = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* imageWidth = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* imageHeight = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* imageBitDepth = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* parentObjectId = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* associationType = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT16_RAW remainingData: &data];
+//	NSNumber* associationDescription = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* sequenceNumber = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* fileName = [self parsePtpItem: data ofType: PTP_DATATYPE_STRING remainingData: &data];
+
+	return;
+}
+
+- (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData
+{
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+	// use JPEG SOI marker (0xFF 0xD8) to find image start
+	const uint8_t soi[2] = {0xFF, 0xD8};
+	const uint8_t eoi[2] = {0xFF, 0xD9};
+	const uint8_t* buf = liveViewData.bytes;
+	const uint8_t* eof = liveViewData.bytes + liveViewData.length;
+
+	const uint8_t* soiPtr = NULL;
+	while (1)
+	{
+		const uint8_t* start = soiPtr ? soiPtr+2 : buf;
+		const uint8_t* searchResult = memmem(start, eof - start, soi, sizeof(soi));
+		
+		if (searchResult)
+			soiPtr = searchResult;
+		else
+			break;
+	}
+	
+	if (!soiPtr)
+		return nil;
+	
+	
+	size_t offs = soiPtr-buf;
+	
+	const uint8_t* eoiPtr =  memmem(soiPtr, eof - soiPtr, eoi, sizeof(eoi));
+
+	if (!eoiPtr)
+		return nil;
+	
+	size_t jpeglen = eoiPtr + 2 - soiPtr;
+
+	return [liveViewData subdataWithRange: NSMakeRange( offs, jpeglen)];
+	
+}
+
+- (void) parsePtpObjectResponseData: (NSData*) data forObjectId: (uint32_t) objectId
+{
+//	NSNumber* int1 = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+//	NSNumber* int2 = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+	
+	switch (objectId)
+	{
+		case SONY_LV_IMAGE_OBJECTID:
+		{
+			NSData* jpegData = [self extractLiveViewJpegData: data];
+			
+			if (jpegData)
+			{
+				if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
+					[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
+			}
+			break;
+		}
+	}
+
+	
+	return;
+}
 - (void) didSendPTPCommand: (NSData*)command inData: (NSData*)data response: (NSData*)response error: (NSError*)error contextInfo: (void*)contextInfo
 {
 	uint16_t cmd = 0;
 	[command getBytes: &cmd range: NSMakeRange(6, 2)];
 	
+	uint32_t param0 = 0;
+	if (command.length >= 12+4)
+		[command getBytes: &param0 range: NSMakeRange(12, sizeof(param0))];
+	uint32_t param1 = 0;
+	if (command.length >= 16+4)
+		[command getBytes: &param1 range: NSMakeRange(16, sizeof(param1))];
+	uint32_t param2 = 0;
+	if (command.length >= 20+4)
+		[command getBytes: &param2 range: NSMakeRange(20, sizeof(param2))];
+
+
 //	assert(response || data);
 
 	switch (cmd)
@@ -232,12 +365,57 @@ static NSDictionary* _ptpOperationNames = nil;
 			@synchronized (self) {
 				if (cameraStatus == CAMERA_STATUS_GETPROPERTYDESCRIPTIONS)
 				{
-					cameraStatus = CAMERA_STATUS_CONNECTED;
+					
+					if ([self isPtpOperationSupported: PTP_CMD_GETSTORAGEIDS])
+					{
+						cameraStatus = CAMERA_STATUS_GETROOTSTORAGEIDS;
+
+						[self requestSendPtpCommandWithCode: PTP_CMD_GETSTORAGEIDS];
+					}
+					else
+						cameraStatus = CAMERA_STATUS_CONNECTED;
+
+
 				}
-				[self cameraDidBecomeReadyForUse];
 			}
+			[self cameraDidBecomeReadyForUse];
 
 			
+			break;
+		}
+		case PTP_CMD_GETSTORAGEIDS:
+		{
+			[self parsePtpStorageIdsResponse: data];
+			
+			@synchronized (self) {
+				if (cameraStatus == CAMERA_STATUS_GETROOTSTORAGEIDS)
+				{
+					cameraStatus = CAMERA_STATUS_CONNECTED;
+				}
+			}
+			
+			break;
+		}
+		case PTP_CMD_GETSTORAGEINFO:
+		{
+			break;
+		}
+		case PTP_CMD_GETOBJECTHANDLES:
+		{
+			break;
+		}
+		case PTP_CMD_GETNUMOBJECTS:
+		{
+			break;
+		}
+		case PTP_CMD_GETOBJECTINFO:
+		{
+			[self parsePtpObjectInfoResponse: data];
+			break;
+		}
+		case PTP_CMD_GETOBJECT:
+		{
+			[self parsePtpObjectResponseData: data forObjectId: param0];
 			break;
 		}
 		case PTP_CMD_SONY_SETPROPABS:
@@ -268,6 +446,46 @@ static NSDictionary* _ptpOperationNames = nil;
 	return _ptpPropertyValueNames;
 }
 
+- (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue
+{
+	switch (propertyId)
+	{
+		case PTP_PROP_SONY_SHUTTERSPEED:
+		{
+			uint32_t val = [value unsignedIntValue];
+			uint16_t nom = val >> 16;
+			uint16_t den = val & 0x0000FFFF;
+			if (val == 0xFFFFFFFF)
+			{
+				return @"Bulb";
+			}
+			else if (val == 0xFFFFFFFE)
+			{
+				return @"Flash";
+			}
+			else if ((den == 10) && (nom != 1))
+			{
+				return [NSString stringWithFormat:@"%.1f s", 0.1*nom];
+			}
+			else if ((nom == 10) && (den != 1))
+			{
+				return [NSString stringWithFormat:@"1/%.1f s", 0.1*den];
+			}
+			else if (den > 1)
+			{
+				return [NSString stringWithFormat:@"%u/%u s", nom, den];
+			}
+			else
+			{
+				return [NSString stringWithFormat:@"%u s", nom];
+			}
+		}
+		default:
+		{
+			return [super formatPtpPropertyValue: value ofProperty: propertyId withDefaultValue: defaultValue];
+		}
+	}
+}
 
 - (void) parseSonyPropertyDescriptionResponse: (NSData*) data
 {
@@ -389,14 +607,18 @@ static NSDictionary* _ptpOperationNames = nil;
 			}
 		}
 		
+		BOOL incremental = ([flags unsignedIntValue] & 0x01) == 0;
+		
 		NSDictionary* info = @{
 			@"defaultValue" : defaultValue,
 			@"value" : currentValue,
 			@"range" : form,
-			@"rw" : @([readwrite unsignedIntValue] == 1),
+			// FIXME: rw set to readonly for incremental values because we have no good way of setting them
+			@"rw" : @(([readwrite unsignedIntValue] == 1) && !incremental),
 			@"dataType" : dataType,
-			@"incremental" : @(([flags unsignedIntValue] & 0x01) == 0),
-			@"flags" : flags
+			@"incremental" : @(incremental),
+			@"flags" : flags,
+			@"auto_status" : readwrite,
 		};
 		
 //		NSLog(@"0x%04X : %@", [propertyId unsignedIntValue], info);
@@ -576,27 +798,30 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (NSSize) currenLiveViewImageSize
 {
-	NSDictionary* liveViewSizeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
-	NSNumber* liveViewImageSize = liveViewSizeInfo[@"value"];
-	if (!liveViewSizeInfo || !liveViewImageSize)
-		return NSMakeSize(640, 480);
-	
-	switch(liveViewImageSize.intValue)
-	{
-		case 1:
-			return NSMakeSize(320, 240);
-		case 2:
-			return NSMakeSize(640, 480);
-		case 3:
-			return NSMakeSize(1024, 768);
-		default:
-			return NSZeroSize;
-	}
+	return NSMakeSize(1024, 768);
 }
 
 - (NSArray*) liveViewImageSizes
 {
 	return @[[NSValue valueWithSize: self.currenLiveViewImageSize]];
+}
+
+- (BOOL) startLiveView
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[self cameraDidBecomeReadyForLiveViewStreaming];
+	});
+	return YES;
+}
+
+- (void) stopLiveView
+{
+	[super stopLiveView];
+}
+
+- (void) requestLiveViewImage
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECT parameters: @[@(SONY_LV_IMAGE_OBJECTID)]];
 }
 
 @end

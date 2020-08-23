@@ -207,25 +207,6 @@
 
 }
 
-- (nullable NSData*) extractNikonLiveViewJpegData: (NSData*) liveViewData
-{
-	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
-	// use JPEG SOI marker (0xFF 0xD8) to find image start
-	const uint8_t soi[2] = {0xFF, 0xD8};
-	const uint8_t* buf = liveViewData.bytes;
-	
-	const uint8_t* soiPtr = memmem(buf, liveViewData.length, soi, sizeof(soi));
-	
-	if (!soiPtr)
-		return nil;
-	
-	size_t offs = soiPtr-buf;
-	
-	return [liveViewData subdataWithRange: NSMakeRange( offs, liveViewData.length - offs)];
-	
-}
-
-
 - (NSData* __nullable) getPropertyDataForAddress: (CMIOObjectPropertyAddress) address qualifierData: (NSData*) qualifierData
 {
 //	NSLog(@"stream getPropertyDataForAddress: '%@",

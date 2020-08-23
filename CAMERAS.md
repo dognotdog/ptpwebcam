@@ -61,3 +61,38 @@ The tables below list what features are supported with which camera models. Valu
 
 - D5100, D5200: frequent shutter cycling [#4](https://github.com/dognotdog/ptpwebcam/issues/4)
 
+## Sony
+
+### Full-Frame
+
+| Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
+| ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
+| A7S           | 1024x768       | camera button          | camera dial         | on camera        |
+| A7R           | ?              | ?                      | ?                   | ?                |
+| A7R II        | ?              | ?                      | ?                   | ?                |
+| A7S II        | ?              | ?                      | ?                   | ?                |
+| A7R III       | ?              | ?                      | ?                   | ?                |
+| A7S III       | ?              | ?                      | ?                   | ?                |
+| A7R IV        | ?              | ?                      | ?                   | ?                |
+| A9            | ?              | ?                      | ?                   | ?                |
+
+#### Notes
+
+- if Sony cameras have the option, they need to be in "PC Remote" mode for the USB connection, not "Mass Storage" or MTP.
+
+### APS-C
+
+| Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
+| ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
+| A68           | ?              | ?                      | ?                   | ?                |
+| A77 II        | ?              | ?                      | ?                   | ?                |
+| A99 II        | ?              | ?                      | ?                   | ?                |
+| A5100         | ?              | ?                      | ?                   | ?                |
+| A6300         | ?              | ?                      | ?                   | ?                |
+| A6400         | ?              | ?                      | ?                   | ?                |
+| A6500         | ?              | ?                      | ?                   | ?                |
+
+#### Notes
+
+- if Sony cameras have the option, they need to be in "PC Remote" mode for the USB connection, not "Mass Storage" or MTP.
+

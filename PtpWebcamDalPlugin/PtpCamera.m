@@ -103,6 +103,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 //				@(0x0446) : @[@"Nikon", @"D780"],
 //				@(0x0447) : @[@"Nikon", @"D6"],
 			},
+			// Sony
+			@(0x054C) : @{
+				@(0x0954) : @(YES), // A7S
+			},
 		};
 
 		_ptpNonAdvertisedOperations = @{
@@ -295,13 +299,20 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	dispatch_once(&onceToken, ^{
 		_ptpOperationNames = @{
 			@(PTP_CMD_GETDEVICEINFO) : @"PTP Get Device Info",
+			@(0x1002) : @"PTP Open Session",
+			@(0x1003) : @"PTP Close Session",
+			@(0x1004) : @"PTP Get Storage IDs",
+			@(0x1005) : @"PTP Get Storage Info",
 			@(PTP_CMD_GETNUMOBJECTS) : @"PTP Get Number of Objects",
-			@(PTP_CMD_GETOBJECTHANDLE) : @"PTP Get Object Handle",
+			@(PTP_CMD_GETOBJECTHANDLES) : @"PTP Get Object Handles",
 			@(PTP_CMD_GETOBJECTINFO) : @"PTP Get Object Info",
 			@(PTP_CMD_GETOBJECT) : @"PTP Get Object",
+			@(0x100A) : @"PTP Get Thumb",
+			@(0x100B) : @"PTP Delete Object",
 			@(PTP_CMD_GETPROPDESC) : @"PTP Get Property Description",
 			@(PTP_CMD_GETPROPVAL) : @"PTP Get Property Value",
 			@(PTP_CMD_SETPROPVAL) : @"PTP Set Property Value",
+			@(0x101B) : @"PTP Get Partial Object",
 		};
 	});
 	return _ptpOperationNames;
@@ -1760,8 +1771,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 
 	[report appendFormat: @"\n## Supported Properties\n\n"];
+	
+	NSArray* allPropertyIds = self.ptpDeviceInfo[@"properties"];
 
-	for (NSNumber* propertyId in self.ptpDeviceInfo[@"properties"])
+	for (NSNumber* propertyId in [allPropertyIds sortedArrayUsingSelector: @selector(compare:)])
 	{
 		NSString* name = self.ptpPropertyNames[propertyId];
 		if (!name)
@@ -1781,6 +1794,17 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			[report appendFormat:@"\t- default: 0x%04X (%@)\n", [defaultValue unsignedIntValue], [self formatPtpPropertyValue: defaultValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
 		else
 			[report appendFormat:@"\t- default: %@\n", [self formatPtpPropertyValue: defaultValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
+		
+		if (info[@"flags"])
+		{
+			[report appendFormat:@"\t- flags:       0x%02X\n", [info[@"flags"] unsignedIntValue]];
+
+		}
+		if (info[@"auto_status"])
+		{
+			[report appendFormat:@"\t- auto_status: 0x%02X\n", [info[@"auto_status"] unsignedIntValue]];
+
+		}
 
 		if ([info[@"range"] isKindOfClass: [NSArray class]])
 		{
