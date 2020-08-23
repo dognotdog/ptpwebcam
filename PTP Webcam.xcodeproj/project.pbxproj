@@ -22,6 +22,9 @@
 		DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DE247EDA5E00794577 /* MainMenu.xib */; };
 		DA2922E3247EDA5E00794577 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922E2247EDA5E00794577 /* main.m */; };
 		DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = DA47648E24BE504C00F228B4 /* LICENSE.md */; };
+		DA608DD924F071F100F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
+		DA608DDA24F0736500F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
+		DA608DDB24F0736600F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
 		DA8DCF9324E0FE9200AB90DE /* CAMERAS.md in Resources */ = {isa = PBXBuildFile; fileRef = DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */; };
 		DA8DCF9724E5A3DD00AB90DE /* FoundationExtensions.m in Sources */ = {isa = PBXBuildFile; fileRef = DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */; };
 		DAAACC7524C918C600E0B44C /* PtpWebcamAssistantService.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACC7424C918C600E0B44C /* PtpWebcamAssistantService.m */; };
@@ -146,6 +149,8 @@
 		DA2922E2247EDA5E00794577 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DA2922E4247EDA5E00794577 /* PTP_Webcam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PTP_Webcam.entitlements; sourceTree = "<group>"; };
 		DA47648E24BE504C00F228B4 /* LICENSE.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
+		DA608DD724F071F100F0D9FB /* PtpCameraSony.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraSony.h; sourceTree = "<group>"; };
+		DA608DD824F071F100F0D9FB /* PtpCameraSony.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraSony.m; sourceTree = "<group>"; };
 		DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = CAMERAS.md; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = "<none>"; };
 		DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FoundationExtensions.m; sourceTree = "<group>"; };
 		DA8DCF9524E5A38E00AB90DE /* FoundationExtensions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FoundationExtensions.h; sourceTree = "<group>"; };
@@ -256,6 +261,8 @@
 				DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */,
 				DAAACCD724CFDE8300E0B44C /* PtpCamera.h */,
 				DAAACCD824CFDEA600E0B44C /* PtpCamera.m */,
+				DA608DD724F071F100F0D9FB /* PtpCameraSony.h */,
+				DA608DD824F071F100F0D9FB /* PtpCameraSony.m */,
 				DAAE16BD24D1166800DE2B9F /* PtpCameraNikon.h */,
 				DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */,
 				DAAE16C324D1325600DE2B9F /* PtpCameraCanon.h */,
@@ -600,6 +607,7 @@
 				DAAACCB924CD40BC00E0B44C /* PtpWebcamXpcStream.m in Sources */,
 				DAAE16BF24D1166800DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACCAF24CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */,
+				DA608DD924F071F100F0D9FB /* PtpCameraSony.m in Sources */,
 				DA26812324893DB700FF75EF /* PtpWebcamObject.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -617,6 +625,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA608DDB24F0736600F0D9FB /* PtpCameraSony.m in Sources */,
 				DAAE16C624D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
 				DAAACC7724C918C600E0B44C /* main.m in Sources */,
 				DAAE16C124D11C6600DE2B9F /* PtpCameraNikon.m in Sources */,
@@ -644,6 +653,7 @@
 				DAAACCCD24CF651400E0B44C /* main.m in Sources */,
 				DAAE16C224D11C6700DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACCC524CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m in Sources */,
+				DA608DDA24F0736500F0D9FB /* PtpCameraSony.m in Sources */,
 				DAAE16C724D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

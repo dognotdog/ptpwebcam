@@ -63,12 +63,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
 - (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
 - (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
-- (NSArray*) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
+- (NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;
+- (id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
+- (void) parsePtpDeviceInfoResponse: (NSData*) eventData; // to be overriden in subclass
 
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
+- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params;
+- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params data: (nullable NSData*) data;
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (nullable NSData*) paramData;
-- (void) sendPtpCommand: (NSData*) command withData: (NSData*) data;
+- (void) sendPtpCommand: (NSData*) command withData: (nullable NSData*) data;
 
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
 - (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldProperty withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions

@@ -9,6 +9,7 @@
 #import "PtpCamera.h"
 #import "PtpCameraNikon.h"
 #import "PtpCameraCanon.h"
+#import "PtpCameraSony.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
@@ -55,13 +56,14 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		// just send a message to the class to trigger its initialization, and with it registering its supported vendorId/productId combos
 		[PtpCameraNikon class];
 		[PtpCameraCanon class];
+		[PtpCameraSony class];
 
 		_confirmedCameras = @{
 			// Nikon
 			@(0x04B0) : @{
 //				@(0x0410) : @[@"Nikon", @"D200"],
 //				@(0x041A) : @[@"Nikon", @"D300"],
-//				@(0x041C) : @[@"Nikon", @"D3"],
+				@(0x041C) : @(YES), // D3
 //				@(0x0420) : @[@"Nikon", @"D3X"],
 				@(0x0421) : @(YES), // D90
 //				@(0x0422) : @[@"Nikon", @"D700"],
@@ -74,13 +76,13 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x042A) : @(YES), // D800
 //				@(0x042B) : @[@"Nikon", @"D4"],
 //				@(0x042C) : @[@"Nikon", @"D3200"],
-//				@(0x042D) : @[@"Nikon", @"D600"],
+				@(0x042D) : @(YES), // D600
 //				@(0x042E) : @[@"Nikon", @"D800E"],
 				@(0x042F) : @(YES), // D5200
 				@(0x0430) : @(YES), // D7100
 //				@(0x0431) : @[@"Nikon", @"D5300"],
 //				@(0x0432) : @[@"Nikon", @"Df"],
-//				@(0x0433) : @[@"Nikon", @"D3300"],
+				@(0x0433) : @(YES), // D3300
 //				@(0x0434) : @[@"Nikon", @"D610"],
 //				@(0x0435) : @[@"Nikon", @"D4S"],
 //				@(0x0436) : @[@"Nikon", @"D810"],
@@ -291,15 +293,18 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
-		_ptpPropertyNames = @{
-			@(PTP_CMD_GETDEVICEINFO) : @"Get Device Info",
-			@(PTP_CMD_GETNUMOBJECTS) : @"Get Number of Objects",
-			@(PTP_CMD_GETPROPDESC) : @"Get Property Description",
-			@(PTP_CMD_GETPROPVAL) : @"Get Property Value",
-			@(PTP_CMD_SETPROPVAL) : @"Set Property Value",
+		_ptpOperationNames = @{
+			@(PTP_CMD_GETDEVICEINFO) : @"PTP Get Device Info",
+			@(PTP_CMD_GETNUMOBJECTS) : @"PTP Get Number of Objects",
+			@(PTP_CMD_GETOBJECTHANDLE) : @"PTP Get Object Handle",
+			@(PTP_CMD_GETOBJECTINFO) : @"PTP Get Object Info",
+			@(PTP_CMD_GETOBJECT) : @"PTP Get Object",
+			@(PTP_CMD_GETPROPDESC) : @"PTP Get Property Description",
+			@(PTP_CMD_GETPROPVAL) : @"PTP Get Property Value",
+			@(PTP_CMD_SETPROPVAL) : @"PTP Set Property Value",
 		};
 	});
-	return _ptpPropertyNames;
+	return _ptpOperationNames;
 }
 
 
@@ -394,7 +399,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	[camera requestEnableTethering];
 	
-	[self requestSendPtpCommandWithCode:PTP_CMD_GETDEVICEINFO];
+	[self requestSendPtpCommandWithCode: PTP_CMD_GETDEVICEINFO];
 	
 	return self;
 
@@ -540,12 +545,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) ptpGetPropertyDescription: (uint32_t) property
 {
-	NSMutableData* data = [NSMutableData data];
-	[data appendBytes: &property length: 4];
-
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_GETPROPDESC transactionId: [self nextTransactionId] parameters: data];
-	
-	[self sendPtpCommand: command];
+	[self requestSendPtpCommandWithCode: PTP_CMD_GETPROPDESC parameters:@[@(property)]];
 }
 
 - (void) ptpGetPropertyValue: (uint32_t) property
@@ -649,15 +649,15 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return data;
 }
 
-- (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value
+- (NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value
 {
 	NSMutableData* data = [NSMutableData data];
-	ptpDataType_t dataType = [self getPtpPropertyType: propertyId];
+	
 	switch(dataType)
 	{
 		case PTP_DATATYPE_INVALID:
 		{
-			PtpWebcamShowCatastrophicAlert(@"Attempted to encode property 0x%04X, but data type is not known.", propertyId);
+			PtpWebcamShowCatastrophicAlert(@"Attempted to encode property, but data type is invalid.");
 			return nil;
 		}
 		case PTP_DATATYPE_SINT8_RAW:
@@ -720,7 +720,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			NSData* arrayData = [self ptpDataFromArray: value ofType: dataType];
 			if (!data)
 			{
-				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property 0x%04X, to an array failed.", propertyId);
+				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property to an array failed.");
 				return nil;
 			}
 			
@@ -737,12 +737,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			
 			if (numStringBytes % 2 != 0)
 			{
-				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property 0x%04X, but resulting encoded string data resulted in an uneven number of bytes, which for a UTF16 string should be impossible.", propertyId);
+				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property, but resulting encoded string data resulted in an uneven number of bytes, which for a UTF16 string should be impossible.");
 				return nil;
 			}
 			if (numStringBytes/2 > 0xFF)
 			{
-				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property 0x%04X to string with length %lu, but max is 255.", propertyId, numStringBytes/2);
+				PtpWebcamShowCatastrophicAlert(@"Attempted to encode property to string with length %lu, but max is 255.", numStringBytes/2);
 				return nil;
 			}
 			uint8_t len = (uint8_t)(numStringBytes/2);
@@ -806,12 +806,18 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		}
 		default:
 		{
-			PtpWebcamShowCatastrophicAlert(@"Attempted to encode property 0x%04X, but data type (%d) unsupported", propertyId, dataType);
+			PtpWebcamShowCatastrophicAlert(@"Attempted to encode property, but data type (%d) unsupported", dataType);
 			return nil;
 		}
 	}
 
 	return data;
+}
+
+- (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value
+{
+	ptpDataType_t dataType = [self getPtpPropertyType: propertyId];
+	return [self encodePtpDataOfType: dataType fromValue: value];
 }
 
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value
@@ -858,8 +864,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	// response is
 	// length (32bit)
-	// type (16bit)
-	// response code (16bit) 0x0003
+	// type (16bit) 0x0003
+	// response code (16bit)
 	// transaction id (32bit)
 	
 	switch (cmd)
@@ -872,7 +878,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		case PTP_CMD_GETPROPDESC:
 			if (!data)
 				NSLog(@"ooops no data received for property description");
-			[self parsePtpPropertyDescription: data];
+			else
+				[self parsePtpPropertyDescription: data];
 			break;
 		case PTP_CMD_GETPROPVAL:
 			[self parsePtpPropertyValue: data];
@@ -1510,16 +1517,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	{
 		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
 	}
-	// The Nikon LiveView properties are not returned as device properties, but are still there
-	if ([self isPtpOperationSupported: PTP_CMD_NIKON_GETVENDORPROPS])
-	{
-		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
-	}
-	else
-	{
-		// if no further information has to be determined, we're ready to talk to the DAL plugin
-		[self cameraDidBecomeReadyForUse];
-	}
+	
 
 	// MTP GetObjectPropsSupported requires a format code to be specified
 //	if ([self isPtpOperationSupported: MTP_CMD_GETOBJECTPROPSSUPPORTED])
@@ -1542,6 +1540,30 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
 								 contextInfo: NULL];
 }
+
+- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params
+{
+	[self requestSendPtpCommandWithCode: code parameters: params data: nil];
+}
+
+- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params data: (NSData*) data
+{
+	NSMutableData* paramData = [NSMutableData data];
+	for (NSNumber* param in params)
+	{
+		uint32_t pval = param.unsignedIntValue;
+		[paramData appendBytes: &pval length: sizeof(pval)];
+	}
+
+	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId] parameters: paramData];
+	
+	[self.icCamera requestSendPTPCommand: command
+									 outData: data
+						 sendCommandDelegate: self
+					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
+								 contextInfo: NULL];
+}
+
 
 - (void) ptpQueryKnownDeviceProperties
 {

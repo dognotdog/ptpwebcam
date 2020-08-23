@@ -415,6 +415,23 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	
 }
 
+- (void) parsePtpDeviceInfoResponse: (NSData*) eventData
+{
+	[super parsePtpDeviceInfoResponse: eventData];
+	
+	// The Nikon LiveView properties are not returned as device properties, but are still there
+	if ([self isPtpOperationSupported: PTP_CMD_NIKON_GETVENDORPROPS])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
+	}
+	else
+	{
+		// if no further information has to be determined, we're ready to talk to the DAL plugin
+		[self cameraDidBecomeReadyForUse];
+	}
+
+}
+
 - (void) parseNikonPropertiesResponse: (NSData*) data
 {
 	uint32_t len = 0;
