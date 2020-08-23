@@ -47,6 +47,9 @@
 	// camera has been ready for use at this point
 	[self queryAllCameraProperties];
 	
+	// build the status item
+//	[self rebuildStatusItem];
+	
 	return self;
 }
 
@@ -141,14 +144,21 @@
 		}
 	});
 	
+	[self checkCameraReportTrigger];
+}
+
+- (void) checkCameraReportTrigger
+{
 	// check if we have received all properties
 	if (triggerReportGenerationWhenPropertiesComplete)
 	{
 		NSSet* supportedProperties = [NSSet setWithArray: self.camera.ptpDeviceInfo[@"properties"]];
 		NSSet* receivedProperties = [NSSet setWithArray: self.camera.ptpPropertyInfos.allKeys];
-		if ([receivedProperties isSubsetOfSet: supportedProperties])
+		if ([supportedProperties isSubsetOfSet: receivedProperties])
 		{
-			triggerReportGenerationWhenPropertiesComplete = NO;
+			@synchronized (self) {
+				triggerReportGenerationWhenPropertiesComplete = NO;
+			}
 			[self copyCameraReportToClipboard];
 		}
 	}
@@ -659,6 +669,7 @@
 		[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
 	}
 
+	[self checkCameraReportTrigger];
 }
 
 
