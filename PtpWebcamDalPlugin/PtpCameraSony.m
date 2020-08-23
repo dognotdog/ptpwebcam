@@ -8,6 +8,7 @@
 
 #import "PtpCameraSony.h"
 #import "FoundationExtensions.h"
+#import "PtpWebcamAlerts.h"
 
 /**
  Sony needs a special connection handshake, apparently:
@@ -505,7 +506,8 @@ static NSDictionary* _ptpOperationNames = nil;
 	
 	if (data.length < 8)
 	{
-		assert(0);
+		
+		PtpWebcamShowCatastrophicAlertOnce(@"Could not parse Property Descriptions because the data buffer is too small.");
 		return;
 	}
 	
@@ -675,7 +677,7 @@ static NSDictionary* _ptpOperationNames = nil;
 {
 	if (data.length < 2)
 	{
-		assert(0);
+		PtpWebcamShowCatastrophicAlertOnce(@"Could not parse Sony PropertyIDs because data buffer is too small.");
 		return;
 	}
 	
@@ -684,7 +686,7 @@ static NSDictionary* _ptpOperationNames = nil;
 
 	if (code != SONY_GETALLPROPS_MAGICNUMBER)
 	{
-		assert(0);
+		PtpWebcamShowCatastrophicAlertOnce(@"Could not parse Sony PropertyIDs because the return code is %u, but should be %u.", code, SONY_GETALLPROPS_MAGICNUMBER);
 		return;
 	}
 

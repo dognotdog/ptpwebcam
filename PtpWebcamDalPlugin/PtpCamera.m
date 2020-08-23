@@ -1352,6 +1352,11 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	switch (dataType)
 	{
+		case PTP_DATATYPE_INVALID:
+		{
+			PtpWebcamShowCatastrophicAlertOnce(@"Could not parse PTP item because its datatype is invalid.");
+			return nil;
+		}
 		case PTP_DATATYPE_SINT8_RAW:
 		{
 			return [self parsePtpSint8: data remainingData: remData];
@@ -1407,7 +1412,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		}
 		default:
 		{
-			assert(0);
+			PtpWebcamShowCatastrophicAlertOnce(@"Could not parse PTP item because its datatype 0x%08X is unknown.", dataType);
 			return nil;
 		}
 	}
