@@ -71,10 +71,12 @@ The tables below list what features are supported with which camera models. Valu
 | A7R           | ?              | ?                      | ?                   | ?                |
 | A7R II        | ?              | ?                      | ?                   | ?                |
 | A7S II        | ?              | ?                      | ?                   | ?                |
+| A7 III        | ?              | ?                      | ?                   | ?                |
 | A7R III       | ?              | ?                      | ?                   | ?                |
 | A7S III       | ?              | ?                      | ?                   | ?                |
 | A7R IV        | ?              | ?                      | ?                   | ?                |
 | A9            | ?              | ?                      | ?                   | ?                |
+| A99 II        | ?              | ?                      | ?                   | ?                |
 
 #### Notes
 
@@ -86,7 +88,6 @@ The tables below list what features are supported with which camera models. Valu
 | ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
 | A68           | ?              | ?                      | ?                   | ?                |
 | A77 II        | ?              | ?                      | ?                   | ?                |
-| A99 II        | ?              | ?                      | ?                   | ?                |
 | A5100         | ?              | ?                      | ?                   | ?                |
 | A6300         | ?              | ?                      | ?                   | ?                |
 | A6400         | ?              | ?                      | ?                   | ?                |
