@@ -61,6 +61,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL) isPtpPropertySupported: (uint16_t) opId;
 - (void) ptpGetPropertyDescription: (uint32_t) property;
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
+- (void) ptpIncrementProperty: (uint32_t) property by: (int) increment; // override in subclasses that support incremental settings
 - (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
 - (nullable NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
 - (nullable NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;

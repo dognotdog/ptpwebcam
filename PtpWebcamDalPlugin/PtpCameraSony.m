@@ -481,6 +481,13 @@ static NSDictionary* _ptpOperationNames = nil;
 				return [NSString stringWithFormat:@"%u s", nom];
 			}
 		}
+		case PTP_PROP_SONY_BATTERYLEVEL:
+		{
+			if ([value intValue] == -1)
+				return @"Unknown";
+			else
+				return [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
+		}
 		default:
 		{
 			return [super formatPtpPropertyValue: value ofProperty: propertyId withDefaultValue: defaultValue];
@@ -570,8 +577,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		
 		// this seems to be flags
 		// 0x81 is a button
-		// maybe 0x01 indicates the settings bank (main/sub)
-		// maybe 0x01 indicates incremental setting?
+		// looks like 0x01 indicates incremental setting?
 		id flags = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT8_RAW remainingData: &data];
 		
 		// this seems to indicate read/write status
@@ -610,13 +616,15 @@ static NSDictionary* _ptpOperationNames = nil;
 		}
 		
 		BOOL incremental = ([flags unsignedIntValue] & 0x01) == 0;
-		
+		// FIXME: rw set to readonly for incremental values because we have no good way of setting them
+//		bool rw = ([readwrite unsignedIntValue] == 1) && !incremental;
+		bool rw = ([readwrite unsignedIntValue] == 1);
+
 		NSDictionary* info = @{
 			@"defaultValue" : defaultValue,
 			@"value" : currentValue,
 			@"range" : form,
-			// FIXME: rw set to readonly for incremental values because we have no good way of setting them
-			@"rw" : @(([readwrite unsignedIntValue] == 1) && !incremental),
+			@"rw" : @(rw),
 			@"dataType" : dataType,
 			@"incremental" : @(incremental),
 			@"flags" : flags,

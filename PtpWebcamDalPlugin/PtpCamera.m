@@ -844,6 +844,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	[self sendPtpCommand: command withData: data];
 }
 
+- (void) ptpIncrementProperty: (uint32_t) property by: (int) increment
+{
+	// override in subclasses if incremental settings are supported
+	[self doesNotRecognizeSelector: _cmd];
+}
+
 - (void) sendPtpCommand: (NSData*) command
 {
 	[self.icCamera requestSendPTPCommand: command

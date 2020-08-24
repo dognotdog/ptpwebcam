@@ -96,6 +96,7 @@
 		
 		bool descriptionChanged = ![oldInfo isEqual: propertyInfo];
 		bool valueChanged = ![oldInfo[@"value"] isEqual: propertyInfo[@"value"]];
+		bool incremental = [propertyInfo[@"incremental"] boolValue];
 
 		// rebuild menus if this is a newly received UI item
 		if (!item && [self.allUiPropertyIds containsObject: propertyId])
@@ -108,7 +109,8 @@
 				item.title = title;
 				
 				// need to rebuild the values submenu if rw changed or value changed
-				if (![oldInfo[@"rw"] isEqual: propertyInfo[@"rw"]] || valueChanged)
+				// but not on valueChanged if it's an incremental item
+				if (![oldInfo[@"rw"] isEqual: propertyInfo[@"rw"]] || (valueChanged && !incremental))
 				{
 					if ([propertyInfo[@"rw"] boolValue])
 					{
@@ -281,117 +283,154 @@
 - (nullable NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
 {
 	NSMenu* submenu = [[NSMenu alloc] init];
+	
 	id value = property[@"value"];
 	id defaultValue = property[@"defaultValue"];
-	if ([property[@"range"] isKindOfClass: [NSArray class]])
+	bool incremental = [property[@"incremental"] boolValue];
+	
+	if (incremental)
 	{
-		NSArray* values = property[@"range"];
+		// add buttons for increment/decrement if it's an incremental setting
 		
-		for (id enumVal in values)
+		NSButton* decButton = [NSButton buttonWithTitle: @"-" target: self action: @selector(propertyDecrementAction:)];
+		decButton.tag = propertyId.intValue;
+		decButton.frameOrigin = NSMakePoint(8, 0);
+		decButton.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+		NSButton* incButton = [NSButton buttonWithTitle: @"+" target: self action: @selector(propertyIncrementAction:)];
+		incButton.tag = propertyId.intValue;
+		incButton.frameOrigin = NSMakePoint(decButton.frame.origin.x + decButton.frame.size.width + 8, 0);
+		incButton.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+		
+		NSView* view = [[NSView alloc] initWithFrame: NSMakeRect(0, 0, incButton.frame.origin.x + incButton.frame.size.width + 8, incButton.frame.size.height)];
+		view.autoresizesSubviews = YES;
+		[view addSubview: decButton];
+		[view addSubview: incButton];
+
+		NSMenuItem* incrementItem = [[NSMenuItem alloc] init];
+		incrementItem.view = view;
+		[submenu addItem: incrementItem];
+
+		[submenu addItem: [NSMenuItem separatorItem]];
+	}
+	else
+	{
+		// for non incremental items, add selection submenu listing items or a slider
+		
+		if ([property[@"range"] isKindOfClass: [NSArray class]])
 		{
-			NSString* valStr = [self formatValueMenuItemTitleWithValue: enumVal defaultValue: defaultValue propertyId: propertyId];
-
-			NSMenuItem* valueItem = [[NSMenuItem alloc] init];
-			valueItem.title =  valStr;
-			if (isInteractive)
+			NSArray* values = property[@"range"];
+			
+			for (id enumVal in values)
 			{
-				valueItem.target = self;
-				valueItem.action =  @selector(changeCameraPropertyAction:);
-				valueItem.tag = propertyId.integerValue;
-				valueItem.representedObject = enumVal;
-				
-				NSArray* subProperties = [self.camera.uiPtpSubProperties[propertyId] objectForKey: enumVal];
-				if (subProperties)
-				{
-					NSMenu* subPropertyMenu = [[NSMenu alloc] init];
+				NSString* valStr = [self formatValueMenuItemTitleWithValue: enumVal defaultValue: defaultValue propertyId: propertyId];
 
-					for (id subPropertyId in subProperties)
+				NSMenuItem* valueItem = [[NSMenuItem alloc] init];
+				valueItem.title =  valStr;
+				if (isInteractive && !incremental)
+				{
+					valueItem.target = self;
+					valueItem.action =  @selector(changeCameraPropertyAction:);
+					valueItem.tag = propertyId.integerValue;
+					valueItem.representedObject = enumVal;
+					
+					NSArray* subProperties = [self.camera.uiPtpSubProperties[propertyId] objectForKey: enumVal];
+					if (subProperties)
 					{
-						NSDictionary* subInfo = self.camera.ptpPropertyInfos[subPropertyId];
-						if (subInfo[@"range"])
+						NSMenu* subPropertyMenu = [[NSMenu alloc] init];
+
+						for (id subPropertyId in subProperties)
 						{
-							id subValue = subInfo[@"value"];
-							id subDefaultValue = subInfo[@"defaultValue"];
-							NSString* subValStr = [self formatPropertyMenuItemTitleWithValue: subValue defaultValue: subDefaultValue propertyId: subPropertyId];
-							
-							
-							NSMenu* subsub = [self buildSubMenuForPropertyInfo: subInfo withId: subPropertyId interactive: isInteractive];
-							NSMenuItem* subPropertyItem = [[NSMenuItem alloc] init];
-							subPropertyItem.title = subValStr;
-							propertyMenuItemLookupTable[subPropertyId] = subPropertyItem;
-							subPropertyItem.submenu = subsub;
-							[subPropertyMenu addItem: subPropertyItem];
+							NSDictionary* subInfo = self.camera.ptpPropertyInfos[subPropertyId];
+							if (subInfo[@"range"])
+							{
+								id subValue = subInfo[@"value"];
+								id subDefaultValue = subInfo[@"defaultValue"];
+								NSString* subValStr = [self formatPropertyMenuItemTitleWithValue: subValue defaultValue: subDefaultValue propertyId: subPropertyId];
+								
+								
+								NSMenu* subsub = [self buildSubMenuForPropertyInfo: subInfo withId: subPropertyId interactive: isInteractive];
+								NSMenuItem* subPropertyItem = [[NSMenuItem alloc] init];
+								subPropertyItem.title = subValStr;
+								propertyMenuItemLookupTable[subPropertyId] = subPropertyItem;
+								subPropertyItem.submenu = subsub;
+								[subPropertyMenu addItem: subPropertyItem];
+							}
+
 						}
+						if (subPropertyMenu.numberOfItems > 0)
+							valueItem.submenu = subPropertyMenu;
+					}
+				}
+				
+				if ([value isEqual: enumVal])
+					valueItem.state = NSControlStateValueOn;
+				
+				[submenu addItem: valueItem];
+
+			}
+		}
+		else if (property[@"range"]) // Range is a range (min, max, step)
+		{
+			NSDictionary* rangeInfo = property[@"range"];
+			long long rmin = [rangeInfo[@"min"] longLongValue];
+			long long rmax = [rangeInfo[@"max"] longLongValue];
+			long long step = [rangeInfo[@"step"] longLongValue];
+			size_t count = (rmax-rmin+1)/step;
+			if (count <= 30)
+			{
+				for (long long i = rmin; i <= rmax; i += step)
+				{
+					NSMenuItem* subItem = [[NSMenuItem alloc] init];
+					NSString* valStr = [self formatValueMenuItemTitleWithValue: @(i) defaultValue: defaultValue propertyId: propertyId];
+					subItem.title = valStr;
+					
+					if ([value isEqual: @(i)])
+						subItem.state = NSControlStateValueOn;
+					
+					if (isInteractive)
+					{
+						subItem.target = self;
+						subItem.action =  @selector(changeCameraPropertyAction:);
+						subItem.tag = propertyId.integerValue;
+						subItem.representedObject = @(i);
 
 					}
-					if (subPropertyMenu.numberOfItems > 0)
-						valueItem.submenu = subPropertyMenu;
+					[submenu addItem: subItem];
 				}
 			}
-			
-			if ([value isEqual: enumVal])
-				valueItem.state = NSControlStateValueOn;
-			
-			[submenu addItem: valueItem];
-
-		}
-	}
-	else if (property[@"range"]) // Range is a range (min, max, step)
-	{
-		NSDictionary* rangeInfo = property[@"range"];
-		long long rmin = [rangeInfo[@"min"] longLongValue];
-		long long rmax = [rangeInfo[@"max"] longLongValue];
-		long long step = [rangeInfo[@"step"] longLongValue];
-		size_t count = (rmax-rmin+1)/step;
-		if (count <= 30)
-		{
-			for (long long i = rmin; i <= rmax; i += step)
+			else
 			{
+				// add a slider for a range with more items, as long as it's not incremental
+				
+				NSSlider* slider = [[NSSlider alloc] initWithFrame: NSMakeRect(0, 0, 160, 16)];
+				slider.minValue = rmin;
+				slider.maxValue = rmax;
+				slider.doubleValue = [value doubleValue];
+				slider.tag = propertyId.intValue;
+				slider.target = self;
+				slider.action = @selector(propertySliderAction:);
+				slider.continuous = NO; // only send action when done sliding around to prevent too many PTP calls
+				
 				NSMenuItem* subItem = [[NSMenuItem alloc] init];
-				NSString* valStr = [self formatValueMenuItemTitleWithValue: @(i) defaultValue: defaultValue propertyId: propertyId];
-				subItem.title = valStr;
-				
-				if ([value isEqual: @(i)])
-					subItem.state = NSControlStateValueOn;
-				
-				if (isInteractive)
-				{
-					subItem.target = self;
-					subItem.action =  @selector(changeCameraPropertyAction:);
-					subItem.tag = propertyId.integerValue;
-					subItem.representedObject = @(i);
-
-				}
+	//			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
+				subItem.view = slider;
+	//			subItem.enabled = NO;
 				[submenu addItem: subItem];
+
 			}
 		}
 		else
 		{
-			// add a slider for a range with more items
-			NSSlider* slider = [[NSSlider alloc] initWithFrame: NSMakeRect(0, 0, 160, 16)];
-			slider.minValue = rmin;
-			slider.maxValue = rmax;
-			slider.doubleValue = [value doubleValue];
-			slider.tag = propertyId.intValue;
-			slider.target = self;
-			slider.action = @selector(propertySliderAction:);
-			slider.continuous = NO; // only send action when done sliding around to prevent too many PTP calls
-			
 			NSMenuItem* subItem = [[NSMenuItem alloc] init];
-//			subItem.title =  [NSString stringWithFormat: @"Property Range: %@", property[@"range"]];
-			subItem.view = slider;
-//			subItem.enabled = NO;
+			subItem.title =  @"(Property has available no range)";
 			[submenu addItem: subItem];
 
 		}
-	}
-	else
-	{
-		NSMenuItem* subItem = [[NSMenuItem alloc] init];
-		subItem.title =  @"(Property has available no range)";
-		[submenu addItem: subItem];
 
 	}
+
 	if (submenu.numberOfItems > 0)
 		return submenu;
 	else
@@ -621,6 +660,21 @@
 	[self.camera ptpGetPropertyDescription: propertyId];
 //	[self.camera ptpQueryKnownDeviceProperties];
 }
+
+- (IBAction) propertyDecrementAction: (NSSlider*) sender
+{
+	uint32_t propertyId = (uint32_t)sender.tag;
+
+	[self.camera ptpIncrementProperty: propertyId by: -1];
+}
+
+- (IBAction) propertyIncrementAction: (NSSlider*) sender
+{
+	uint32_t propertyId = (uint32_t)sender.tag;
+
+	[self.camera ptpIncrementProperty: propertyId by: 1];
+}
+
 
 - (IBAction) propertySliderAction: (NSSlider*) sender
 {
