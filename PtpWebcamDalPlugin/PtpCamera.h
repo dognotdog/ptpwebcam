@@ -53,7 +53,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1;
 
 
-+ (instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
++ (nullable instancetype) cameraWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate;
 
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo; // override in subclasses only, use +cameraWithIcCamera... instead to instantiate camera
 
@@ -62,8 +62,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpGetPropertyDescription: (uint32_t) property;
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value;
 - (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
-- (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
-- (NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;
+- (nullable NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
+- (nullable NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;
 - (id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
 - (void) parsePtpDeviceInfoResponse: (NSData*) eventData; // to be overriden in subclass
 
@@ -75,7 +75,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) sendPtpCommand: (NSData*) command withData: (nullable NSData*) data;
 
 - (void) didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo; // override in subclasses, do not call otherwise
-- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldProperty withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
+- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (nullable NSDictionary*) oldProperty withId: (NSNumber*) propertyId; // for subclasses that want to be notified about having received property descriptions
 
 - (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue;
 

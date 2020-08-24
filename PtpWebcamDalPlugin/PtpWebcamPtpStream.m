@@ -251,7 +251,7 @@
 				imageSizeNumber = @(2);
 			}
 
-			if (!imageSizeNumber)
+			if (nil == imageSizeNumber)
 				return kCMIOHardwareBadObjectError;
 			
 			[self.ptpDevice.camera ptpSetProperty: PTP_PROP_NIKON_LV_IMAGESIZE toValue: imageSizeNumber];
