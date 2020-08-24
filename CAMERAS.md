@@ -9,7 +9,7 @@ The tables below list what features are supported with which camera models. Valu
 | Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
 | ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
 | Df            | 640x480        | (YES)                  | (YES)               | (YES)            |
-| (D3) [#11](https://github.com/dognotdog/ptpwebcam/issues/11) | 640x480 | ? | ? | ?             |
+| D3            | 640x480        | ?                      | ?                   | ?                |
 | D3S           | 640x480        | (NO)                   | (YES)               | (YES)            |
 | D4            | 640x480        | YES (Photography Mode) | YES                 | YES              |
 | D4S           | 640x480        | YES (Photography Mode) | YES                 | YES              |
