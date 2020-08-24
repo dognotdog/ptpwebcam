@@ -757,7 +757,7 @@ static NSDictionary* _ptpOperationNames = nil;
 	
 	NSInteger difference = newIndex - oldIndex;
 	
-	[self ptpIncrementProperty: propertyId by: difference];
+	[self ptpIncrementProperty: propertyId by: (int)difference];
 }
 
 - (void) ptpIncrementProperty: (uint32_t) propertyId by: (int32_t) increment
