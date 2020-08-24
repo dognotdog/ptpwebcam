@@ -57,19 +57,19 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(0x054C) : @{
 				@(0x079B) : @[@"Sony", @"A68"],
 				@(0x079C) : @[@"Sony", @"A6300"],
-				@(0x079E) : @[@"Sony", @"A99 II"],
+				@(0x079E) : @[@"Sony", @"A99-II"],
 				@(0x07A4) : @[@"Sony", @"A6500"],
-				@(0x0953) : @[@"Sony", @"A77 II"],
+				@(0x0953) : @[@"Sony", @"A77-II"],
 				@(0x0954) : @[@"Sony", @"A7S"],
 				@(0x0957) : @[@"Sony", @"A5100"],
-				@(0x096F) : @[@"Sony", @"A7 III"], // A7 III first entry
-				@(0x0A6B) : @[@"Sony", @"A7R II"],
-				@(0x0A71) : @[@"Sony", @"A7S II"],
+				@(0x096F) : @[@"Sony", @"A7-III"], // A7 III first entry
+				@(0x0A6B) : @[@"Sony", @"A7R-II"],
+				@(0x0A71) : @[@"Sony", @"A7S-II"],
 				@(0x0C2A) : @[@"Sony", @"A9"],
-				@(0x0C33) : @[@"Sony", @"A7R III"],
-				@(0x0C34) : @[@"Sony", @"A7S III"], // A7 III second entry
+				@(0x0C33) : @[@"Sony", @"A7R-III"],
+				@(0x0C34) : @[@"Sony", @"A7S-III"], // A7 III second entry
 				@(0x0CAA) : @[@"Sony", @"A6400"],
-				@(0x0CCC) : @[@"Sony", @"A7R IV"],
+				@(0x0CCC) : @[@"Sony", @"A7R-IV"],
 			},
 		};
 		
