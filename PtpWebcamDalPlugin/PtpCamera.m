@@ -75,7 +75,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0429) : @(YES), // D5100
 				@(0x042A) : @(YES), // D800
 //				@(0x042B) : @[@"Nikon", @"D4"],
-//				@(0x042C) : @[@"Nikon", @"D3200"],
+				@(0x042C) : @(YES), // D3200
 				@(0x042D) : @(YES), // D600
 //				@(0x042E) : @[@"Nikon", @"D800E"],
 				@(0x042F) : @(YES), // D5200
