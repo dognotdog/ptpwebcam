@@ -42,7 +42,7 @@ Delete `/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin` to uninstal
 
 ## Supported Cameras over USB
 
-The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md).
+The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md). Cameras from Canon, Nikon, and Sony are currently supported.
  
 ## Known Issues
  

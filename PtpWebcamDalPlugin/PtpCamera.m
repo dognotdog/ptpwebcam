@@ -59,6 +59,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[PtpCameraSony class];
 
 		_confirmedCameras = @{
+			// Canon
+			@(0x04A9) : @{
+				@(0x3250) : @(YES), // 6D
+			},
 			// Nikon
 			@(0x04B0) : @{
 //				@(0x0410) : @[@"Nikon", @"D200"],
@@ -218,6 +222,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	cameraInfo[@"confirmed"] = @([confirmedCameraInfo boolValue]);
 	
 	return cameraInfo;
+}
+
++ (BOOL) enumeratesContentCatalogOnSessionOpen
+{
+	[self doesNotRecognizeSelector: _cmd];
+	return NO;
 }
 
 + (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1
@@ -1147,17 +1157,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	// returns raw property value
 }
 
-- (NSString*) parseEosString: (NSData*) data remainingData: (NSData** _Nullable) remData
-{
-	size_t len = strnlen(data.bytes, data.length);
-	NSString* string = [[NSString alloc] initWithData: [data subdataWithRange: NSMakeRange(0, len)] encoding: NSUTF8StringEncoding];
-	
-	if (remData && len < data.length)
-		*remData = [data subdataWithRange: NSMakeRange(len+1, data.length - (len+1))];
-	
-	return string;
-	
-}
 
 
 - (NSString*) parsePtpString: (NSData*) data remainingData: (NSData** _Nullable) remData
@@ -1412,10 +1411,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		{
 			return [self parsePtpString: data remainingData: remData];
 		}
-		case PTP_DATATYPE_EOS_STRING:
-		{
-			return [self parseEosString: data remainingData: remData];
-		}
 		default:
 		{
 			PtpWebcamShowCatastrophicAlertOnce(@"Could not parse PTP item because its datatype 0x%08X is unknown.", dataType);
@@ -1577,7 +1572,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[paramData appendBytes: &pval length: sizeof(pval)];
 	}
 
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId] parameters: paramData];
+	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId] parameters: paramData.length ? paramData : nil];
 	
 	[self.icCamera requestSendPTPCommand: command
 									 outData: data
@@ -1730,6 +1725,44 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	}
 }
 
+- (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData
+{
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+	// use JPEG SOI marker (0xFF 0xD8) to find image start
+	const uint8_t soi[2] = {0xFF, 0xD8};
+	const uint8_t eoi[2] = {0xFF, 0xD9};
+	const uint8_t* buf = liveViewData.bytes;
+	const uint8_t* eof = liveViewData.bytes + liveViewData.length;
+
+	const uint8_t* soiPtr = NULL;
+	while (1)
+	{
+		const uint8_t* start = soiPtr ? soiPtr+2 : buf;
+		const uint8_t* searchResult = memmem(start, eof - start, soi, sizeof(soi));
+		
+		if (searchResult)
+			soiPtr = searchResult;
+		else
+			break;
+	}
+	
+	if (!soiPtr)
+		return nil;
+	
+	
+	size_t offs = soiPtr-buf;
+	
+	const uint8_t* eoiPtr =  memmem(soiPtr, eof - soiPtr, eoi, sizeof(eoi));
+
+	if (!eoiPtr)
+		return nil;
+	
+	size_t jpeglen = eoiPtr + 2 - soiPtr;
+
+	return [liveViewData subdataWithRange: NSMakeRange( offs, jpeglen)];
+	
+}
+
 - (void) requestLiveViewImage
 {
 	// override in subclass
@@ -1764,7 +1797,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	[report appendFormat: @"\n## Supported Operations\n\n"];
 	
-	for (NSNumber* operationId in self.ptpDeviceInfo[@"operations"])
+	for (NSNumber* operationId in [self.ptpDeviceInfo[@"operations"] sortedArrayUsingSelector: @selector(compare:)])
 	{
 		NSString* name = self.ptpOperationNames[operationId];
 		if (!name)
@@ -1776,7 +1809,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	[report appendFormat: @"\n## Supported Events\n\n"];
 	
-	for (NSNumber* eventId in self.ptpDeviceInfo[@"events"])
+	for (NSNumber* eventId in [self.ptpDeviceInfo[@"events"] sortedArrayUsingSelector: @selector(compare:)])
 	{
 		[report appendFormat:@"- 0x%04X (?)\n", eventId.unsignedIntValue];
 	}

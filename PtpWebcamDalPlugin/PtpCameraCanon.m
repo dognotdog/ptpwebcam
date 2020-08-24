@@ -30,18 +30,35 @@ typedef enum {
 
 static NSDictionary* _ptpPropertyNames = nil;
 static NSDictionary* _ptpPropertyValueNames = nil;
+static NSDictionary* _ptpOperationNames = nil;
 
 + (void) initialize
 {
 	if (self == [PtpCameraCanon self])
 	{
 		NSDictionary* supportedCameras = @{
-			@(0x049A) : @{
-				@(0x3294) : @[@"Canon", @"80D", [PtpCameraCanon class]],
+			@(0x04A9) : @{
+				@(0x3250) : @[@"Canon", @"6D"],
+				@(0x3294) : @[@"Canon", @"80D"],
 			},
 		};
 		
 		[PtpCamera registerSupportedCameras: supportedCameras byClass: [PtpCameraCanon class]];
+
+		NSMutableDictionary* operationNames = [super ptpStandardOperationNames].mutableCopy;
+		[operationNames addEntriesFromDictionary: @{
+			@(PTP_CMD_CANON_GETEVFIMG) : @"Canon Get EVF Image",
+			@(PTP_CMD_CANON_GETDEVICEINFO_EX) : @"Canon GetDeviceInfoEx",
+			@(PTP_CMD_CANON_SETPROPVAL_EX) : @"Canon SetPropValEx",
+			@(PTP_CMD_CANON_SETREMOTEMODE) : @"Canon SetRemoteMode",
+			@(PTP_CMD_CANON_SETEVENTMODE) : @"Canon SetEventMode",
+			@(PTP_CMD_CANON_GETEVENT) : @"Canon GetEvent",
+			@(PTP_CMD_CANON_KEEPDEVICEON) : @"Canon KeepDeviceOn",
+			@(PTP_CMD_CANON_REQUESTPROPVAL) : @"Canon RequestPropVal",
+			@(PTP_CMD_CANON_GETVIEWFINDERDATA) : @"Canon GetViewFinderData",
+			@(PTP_CMD_CANON_DOF_PREVIEW) : @"Canon Exposure Preview",
+		}];
+		_ptpOperationNames = operationNames;
 
 		NSMutableDictionary* propertyNames = [super ptpStandardPropertyNames].mutableCopy;
 		[propertyNames addEntriesFromDictionary: @{
@@ -50,8 +67,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_CANON_EVF_WHITEBALANCE) : @"EVF Whitebalance",
 			@(PTP_PROP_CANON_EVF_EXPOSURE_PREVIEW) : @"Exposure Preview",
 			@(PTP_PROP_CANON_EXPOSUREBIAS) : @"Exposure Correction",
-			@(PTP_PROP_CANON_ISO) : @"ISO",
+			@(PTP_PROP_CANON_METERINGMODE) : @"Metering Mode",
 			@(PTP_PROP_CANON_APERTURE) : @"Aperture",
+			@(PTP_PROP_CANON_EXPOSURETIME) : @"Shutter Speed",
+			@(PTP_PROP_CANON_ISO) : @"ISO",
 			@(PTP_PROP_CANON_LV_EYEDETECT) : @"AF Eye Detection",
 		}];
 		_ptpPropertyNames = propertyNames;
@@ -95,6 +114,11 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	}
 }
 
++ (BOOL) enumeratesContentCatalogOnSessionOpen
+{
+	return NO;
+}
+
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo
 {
 	if (!(self = [super initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo]))
@@ -111,6 +135,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_CANON_AUTOEXPOSURE),
 			@(PTP_PROP_CANON_EXPOSURETIME),
 			@(PTP_PROP_CANON_EVF_WHITEBALANCE),
+			@(PTP_PROP_CANON_EVF_COLORTEMP),
 			@(PTP_PROP_CANON_EXPOSUREBIAS),
 			@(PTP_PROP_CANON_METERINGMODE),
 //			@(PTP_PROP_CANON_EVF_ZOOM),
@@ -118,6 +143,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_CANON_EVF_DOF_PREVIEW),
 			@(PTP_PROP_CANON_EVF_EXPOSURE_PREVIEW),
 		];
+	
 	
 	
 	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
@@ -131,6 +157,38 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	dispatch_resume(eventPollTimer);
 
 	return self;
+}
+
+- (NSDictionary*) ptpOperationNames
+{
+	return _ptpOperationNames;
+}
+
+- (NSDictionary*) ptpPropertyNames
+{
+	return _ptpPropertyNames;
+}
+
+- (NSDictionary*) ptpPropertyValueNames
+{
+	return _ptpPropertyValueNames;
+}
+
+- (void) parsePtpDeviceInfoResponse: (NSData*) eventData
+{
+	[super parsePtpDeviceInfoResponse: eventData];
+	
+	// do Canon special connect
+	if ([self isPtpOperationSupported: PTP_CMD_CANON_SETREMOTEMODE])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_CANON_SETREMOTEMODE parameters: @[@(1)]];
+	}
+	else
+	{
+		// if no further information has to be determined, we're ready to talk to the DAL plugin
+		[self cameraDidBecomeReadyForUse];
+	}
+
 }
 
 - (void) didRemoveDevice:(nonnull ICDevice *)device
@@ -163,16 +221,155 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	liveViewStatus = LV_STATUS_WAITING;
 
 	[self ptpSetProperty: PTP_PROP_CANON_EVF_MODE toValue: @(1)];
-	[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
+//	[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
 	
 	[self queryCanonEvents];
 	
 	return YES;
 }
 
+- (void) requestLiveViewImage
+{
+	[self requestSendPtpCommandWithCode: PTP_CMD_CANON_GETVIEWFINDERDATA parameters: @[@(0x00100000)]];
+
+}
+
 - (void) queryCanonEvents
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_CANON_GETEVENT];
+}
+
+- (NSString*) formatPtpPropertyValue: (id) value ofProperty: (int) propertyId withDefaultValue: (id) defaultValue
+{
+	switch (propertyId)
+	{
+		case PTP_PROP_CANON_APERTURE:
+		{
+			return [NSString stringWithFormat: @"%.1f", 0.1*[value doubleValue]];
+		}
+		case PTP_PROP_CANON_ISO:
+		{
+			// 72 is 100
+			// 80 is 200
+			// 88 is 400
+			// 96 is 800
+			// 104 is 1600
+			// ... so 72 is 100, every +8 is doubling
+			//     but in-between values are linear, great...
+			int base = [value intValue]/8;
+			int frac = [value intValue] - base*8;
+			double roundedFrac = (10.0*(1.0 + 0.1*floor(10.0*frac/8.0)))/10.0;
+			double val = 100.0*pow(2, (base - 9))*roundedFrac;
+			double roundedVal = val;
+			if (frac != 0) // only round fractionals
+			{
+				double targets[] = {0.8, 1.0, 1.25, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0, 6.4, 8.0, 10.0, 12.5};
+				for (size_t i = 0; i < 10; ++i)
+				{
+					double decadeLow = pow(10, i);
+					double decadeHigh = pow(10, i+1);
+					if ((val > decadeLow) && (val < decadeHigh))
+					{
+						double dval = val / decadeLow;
+						
+						for (size_t k = 1; k+1 < sizeof(targets)/sizeof(*targets); ++k)
+						{
+							if ((fabs(dval-targets[k]) < fabs(dval-targets[k-1])) && (fabs(dval-targets[k]) < fabs(dval-targets[k+1])))
+								dval = targets[k];
+						}
+
+						roundedVal = decadeLow * dval;
+						break;
+					}
+				}
+			}
+//			return [NSString stringWithFormat: @"%.0f", [value doubleValue]];
+			return [NSString stringWithFormat: @"%.0f", roundedVal];
+		}
+		case PTP_PROP_CANON_EXPOSURETIME:
+		{
+			// inferred 56 = 1/1
+			// inferred 64 = 1/2
+			// inferred 72 = 1/4
+			// inferred 80 = 1/8
+			// inferred 88 = 1/16
+			// 96 = 1/30
+			// 99 = 1/40
+			// 101 = 1/50
+			// 104 = 1/60
+			// 107 = 1/80
+			// 109 = 1/100
+			// 112 = 1/125
+			// 115 = 1/160
+			// 117 = 1/200
+			// 120 = 1/250
+			// 128 = 1/500
+			// ... seems same 8 ish setup as with ISO
+
+			int base = [value intValue]/8;
+			int frac = [value intValue] - base*8;
+			base = base - 7;
+			
+			bool over1sec = [value intValue] <= 56;
+			if (over1sec)
+			{
+				base = -base - (frac>0);
+				frac = (8-frac) % 8;
+			}
+			
+			double val = 1.0*pow(2, base)*0.1*floor(10.0*(1.0+frac/8.0));
+			
+			double roundedVal = val;
+//			if (frac != 0) // only round fractionals
+			{
+				double targets[] = {0.8, 1.0, 1.25, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0, 6.4, 8.0, 10.0, 12.5};
+				for (size_t i = 0; i < 10; ++i)
+				{
+					targets[2] = i < 2 ? 1.3 : 1.25;
+					targets[6] = i < 2 ? 3.0 : 3.2;
+					targets[9] = i < 2 ? 6.0 : 6.4;
+					double decadeLow = pow(10, i);
+					double decadeHigh = pow(10, i+1);
+					if ((val > decadeLow) && (val < decadeHigh))
+					{
+						double dval = val / decadeLow;
+						
+						for (size_t k = 1; k+1 < sizeof(targets)/sizeof(*targets); ++k)
+						{
+							if ((fabs(dval-targets[k]) < fabs(dval-targets[k-1])) && (fabs(dval-targets[k]) < fabs(dval-targets[k+1])))
+								dval = targets[k];
+						}
+
+						roundedVal = decadeLow * dval;
+						break;
+					}
+				}
+			}
+
+			if (over1sec)
+			{
+				if (roundedVal < 3.0)
+					return [NSString stringWithFormat: @"%.1f s", roundedVal];
+				else
+					return [NSString stringWithFormat: @"%.0f s", roundedVal];
+			}
+			else
+			{
+				if (roundedVal < 3.0)
+					return [NSString stringWithFormat: @"1/%.1f s", roundedVal];
+				else
+					return [NSString stringWithFormat: @"1/%.0f s", roundedVal];
+			}
+		}
+		case PTP_PROP_CANON_EXPOSUREBIAS:
+		{
+			return [NSString stringWithFormat: @"%+.1f", 0.1*[value charValue]];
+		}
+		default:
+		{
+			return [super formatPtpPropertyValue: value ofProperty: propertyId withDefaultValue: defaultValue];
+		}
+	}
 }
 
 - (void) ptpSetProperty: (uint32_t) propertyId toValue: (id) value
@@ -186,6 +383,293 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	[self canonSetProperty: propertyId toValue: value];
 	
 }
+
+- (NSArray*) parseEosDataArray: (NSData*) data ofType: (int) dataType remainingData: (NSData**) remainingData
+{
+	if (data.length < 4)
+		return nil;
+	
+	uint32_t len = 0;
+	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+	
+	size_t bytesRequired = 0;
+	
+	size_t (^reader)(NSData* data, size_t i, id* value) = nil;
+
+	switch (dataType)
+	{
+		case PTP_DATATYPE_EOS_SINT8_ARRAY:
+		{
+			bytesRequired = 4+len*4;
+			
+ 			reader = ^size_t(NSData* data, size_t i, id* value){
+				int8_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_UINT8_ARRAY:
+		{
+				bytesRequired = 4+len*4;
+				
+				reader = ^size_t(NSData* data, size_t i, id* value){
+				uint8_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_SINT16_ARRAY:
+		{
+			bytesRequired = 4+len*4;
+			
+			reader = ^size_t(NSData* data, size_t i, id* value){
+				int16_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_UINT16_ARRAY:
+		{
+			bytesRequired = 4+len*4;
+			
+			reader = ^size_t(NSData* data, size_t i, id* value){
+				uint16_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_SINT32_ARRAY:
+		{
+			bytesRequired = 4+len*4;
+			
+			reader = ^size_t(NSData* data, size_t i, id* value){
+				int32_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_UINT32_ARRAY:
+		{
+			bytesRequired = 4+len*4;
+			
+			reader = ^size_t(NSData* data, size_t i, id* value){
+				uint32_t val = 0;
+				[data getBytes: &val range: NSMakeRange(i, sizeof(val))];
+				*value = @(val);
+				return 4;
+			};
+			
+			break;
+		}
+		case PTP_DATATYPE_EOS_STRING:
+		{
+			reader = ^size_t(NSData* data, size_t i, id* value) {
+				NSData* remaining = data;
+				[self parseEosString: data remainingData: &remaining];
+				size_t bytesRead = data.length - remaining.length;
+								
+				return bytesRead;
+			};
+			
+			break;
+		}
+	}
+	
+	if (data.length < bytesRequired)
+		return nil;
+
+	if (!reader)
+		return nil;
+
+	NSMutableArray* values = [NSMutableArray arrayWithCapacity: len];
+	size_t k = 4;
+	for (size_t i = 0; i < len; ++i)
+	{
+		id value = nil;
+		k += reader(data, k, &value);
+		if (value)
+			[values addObject: value];
+	}
+
+	if (remainingData)
+		*remainingData = [data subdataWithRange: NSMakeRange(k, data.length - k)];
+
+	return values;
+
+}
+
+- (NSNumber*) parseEosSint8: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	int8_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parseEosUint8: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	uint8_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parseEosSint16: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	int16_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parseEosUint16: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	uint16_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parseEosSint32: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	int32_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSNumber*) parseEosUint32: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	if (data.length < 4)
+		return nil;
+	
+	uint32_t val = 0;
+	[data getBytes: &val range: NSMakeRange(0, sizeof(val))];
+		
+	if (remData)
+	{
+		*remData = [data subdataWithRange: NSMakeRange( 4, data.length - 4)];
+	}
+	
+	return @(val);
+}
+
+- (NSString*) parseEosString: (NSData*) data remainingData: (NSData** _Nullable) remData
+{
+	size_t len = strnlen(data.bytes, data.length);
+	NSString* string = [[NSString alloc] initWithData: [data subdataWithRange: NSMakeRange(0, len)] encoding: NSUTF8StringEncoding];
+	
+	if (remData && len < data.length)
+		*remData = [data subdataWithRange: NSMakeRange(len+1, data.length - (len+1))];
+	
+	return string;
+	
+}
+
+- (id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData**) remData
+{
+	switch (dataType)
+	{
+		case PTP_DATATYPE_EOS_SINT8:
+		{
+			return [self parseEosSint8: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_UINT8:
+		{
+			return [self parseEosUint8: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_SINT16:
+		{
+			return [self parseEosSint16: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_UINT16:
+		{
+			return [self parseEosUint16: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_SINT32:
+		{
+			return [self parseEosSint32: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_UINT32:
+		{
+			return [self parseEosUint32: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_STRING:
+		{
+			return [self parseEosString: data remainingData: remData];
+		}
+		case PTP_DATATYPE_EOS_SINT8_ARRAY:
+		case PTP_DATATYPE_EOS_UINT8_ARRAY:
+		case PTP_DATATYPE_EOS_SINT16_ARRAY:
+		case PTP_DATATYPE_EOS_UINT16_ARRAY:
+		case PTP_DATATYPE_EOS_SINT32_ARRAY:
+		case PTP_DATATYPE_EOS_UINT32_ARRAY:
+		case PTP_DATATYPE_EOS_STRING_ARRAY:
+		{
+			return [self parseEosDataArray: data ofType: dataType remainingData: remData];
+		}
+		default:
+		{
+			return [super parsePtpItem: data ofType: dataType remainingData: remData];
+		}
+	}
+}
+
 
 - (NSData*) encodeCanonPropertyBlock: (uint32_t) propertyId fromValue: (id) value
 {
@@ -204,10 +688,21 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 {
 	NSData* dataBlock = [self encodeCanonPropertyBlock: propertyId fromValue: value];
 	
+	[self requestSendPtpCommandWithCode: PTP_CMD_CANON_SETPROPVAL_EX parameters: nil data: dataBlock];
+}
+
+- (void) ptpGetPropertyDescription: (uint32_t) property
+{
+	if (property < 0x9000)
+	{
+		[super ptpGetPropertyDescription: property];
+		return;
+	}
 	
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: PTP_CMD_CANON_SETPROPVAL_EX transactionId: [self nextTransactionId] parameters: nil];
-	
-	[self sendPtpCommand: command withData: dataBlock];
+	if ([self isPtpOperationSupported: PTP_CMD_CANON_REQUESTPROPVAL])
+		[self requestSendPtpCommandWithCode: PTP_CMD_CANON_REQUESTPROPVAL parameters: @[@(property)]];
+//	else
+//		assert(0);
 
 }
 
@@ -223,8 +718,8 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	// But what about strings you ask? I don't know.
 	// some indication exists that this is only up to 32b types plus strings
 
-	if (canonDataType < 7)
-		return PTP_DATATYPE_ARRAY_MASK + canonDataType;
+	if (canonDataType <= 7)
+		return PTP_DATATYPE_EOS_ARRAY_MASK + canonDataType;
 	else
 		return 0;
 
@@ -237,8 +732,8 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 
 	// ensure the property update itself is atomic
 	@synchronized (self) {
-		NSDictionary* oldInfo = self.ptpPropertyInfos[@(propertyId)];
-		NSMutableDictionary* propertyInfo = oldInfo.mutableCopy;
+		oldInfo = self.ptpPropertyInfos[@(propertyId)];
+		propertyInfo = oldInfo.mutableCopy;
 
 		// try to guess property size if don't have a type
 		if ([propertyInfo[@"dataType"] intValue] == PTP_DATATYPE_INVALID)
@@ -265,6 +760,27 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	}
 
 	[self receivedProperty: propertyInfo oldProperty: oldInfo withId: @(propertyId)];
+}
+
+- (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId
+{
+	switch(propertyId.intValue)
+	{
+		case PTP_PROP_CANON_EVF_MODE:
+		{
+			if ([propertyInfo[@"value"] intValue] == 1)
+				[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
+			break;
+		}
+		case PTP_PROP_CANON_EVF_OUTPUTDEVICE:
+		{
+			if ([propertyInfo[@"value"] intValue] == 2)
+				[self cameraDidBecomeReadyForLiveViewStreaming];
+			break;
+		}
+	}
+	
+	[super receivedProperty: propertyInfo oldProperty: oldInfo withId: propertyId];
 }
 
 //- (id) parseCanonPropertyValue: (NSData*) data ofType: (uint32_t) dataType remainingData: (NSData** _Nullable) remainingData
@@ -320,6 +836,8 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 				if (!info)
 					info = [NSMutableDictionary dictionary];
 				info[@"range"] = values;
+				if (values.count > 0)
+					info[@"rw"] = @(YES);
 				info[@"dataType"] = @(_canonDataTypeToPtpDataType(dataType));
 				self.ptpPropertyInfos = [self.ptpPropertyInfos dictionaryBySettingObject: info forKey: @(propertyId)];
 			}
@@ -347,10 +865,74 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		
 		NSData* blockData = [eventData subdataWithRange: NSMakeRange(8, len-8)];
 
-		[self parseCanonEventBlock: blockData ofType: type];
+		if (blockData.length > 0)
+			[self parseCanonEventBlock: blockData ofType: type];
 		
 		eventData = [eventData subdataWithRange: NSMakeRange(len, eventData.length - len)];
 	}
+}
+
+- (void) parsePtpLiveViewImageResponse: (NSData*) response data: (NSData*) data
+{
+	// response structure
+	// 32bit length
+	// 16bit 0x0003 type = response
+	// 16bit response code
+	// 32bit transaction id
+	// 32bit response parameter
+		
+	uint32_t len = 0;
+	[response getBytes: &len range: NSMakeRange(0, 4)];
+	uint16_t type = 0;
+	[response getBytes: &type range: NSMakeRange(4, 2)];
+	uint16_t code = 0;
+	[response getBytes: &code range: NSMakeRange(6, 2)];
+	uint32_t transId = 0;
+	[response getBytes: &transId range: NSMakeRange(8, 4)];
+
+//	bool isDeviceBusy = code == PTP_RSP_DEVICEBUSY;
+	
+	if (!data) // no data means no image to present
+	{
+		if (code != PTP_RSP_CANON_NOT_READY)
+			PtpLog(@"parsePtpLiveViewImageResponse: no data!");
+		
+		
+		// restart live view if it got turned off after timeout or error
+		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
+//		if (!isDeviceBusy && (liveViewStatus == LV_STATUS_ON))
+//		{
+//			PtpLog(@"error code 0x%04X", code);
+//			[self restartLiveView];
+//		}
+		
+		return;
+	}
+	
+	
+	switch (code)
+	{
+		case PTP_RSP_OK:
+		{
+			// OK means proceed with image
+			break;
+		}
+		default:
+		{
+			NSLog(@"len = %u type = 0x%X, code = 0x%X, transId = %u", len, type, code, transId);
+			break;
+		}
+			
+	}
+	
+	NSData* jpegData = [self extractLiveViewJpegData: data];
+	
+	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
+//	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+	
+	if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
+		[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
+	
 }
 
 - (void)didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo
@@ -358,17 +940,59 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	uint16_t cmd = 0;
 	[command getBytes: &cmd range: NSMakeRange(6, 2)];
 
+	// response is
+	// length (32bit)
+	// type (16bit) 0x0003
+	// response code (16bit)
+	// transaction id (32bit)
+
+	uint16_t responseCode = 0;
+	[response getBytes: &responseCode range: NSMakeRange(6, 2)];
+
 	switch (cmd)
 	{
+		case PTP_CMD_CANON_SETREMOTEMODE:
+		{
+			if ([self isPtpOperationSupported: PTP_CMD_CANON_SETEVENTMODE])
+			{
+				[self requestSendPtpCommandWithCode: PTP_CMD_CANON_SETEVENTMODE parameters: @[@(1)]];
+			}
+			else
+			{
+				[self cameraDidBecomeReadyForUse];
+			}
+			break;
+		}
+		case PTP_CMD_CANON_SETEVENTMODE:
+		{
+			[self cameraDidBecomeReadyForUse];
+			break;
+		}
 		case PTP_CMD_CANON_GETEVENT:
 			[self parseCanonGetEventResponse: data];
 			break;
-		case PTP_CMD_CANON_GETEVFIMG:
+		case PTP_CMD_CANON_GETVIEWFINDERDATA:
 		{
-//			[self parsePtpLiveViewImageResponse: response data: data];
+			[self parsePtpLiveViewImageResponse: response data: data];
 //			if (inLiveView)
 //				[self requestLiveViewImage];
 			
+			break;
+		}
+		case PTP_CMD_CANON_REQUESTPROPVAL:
+		{
+			break;
+		}
+		case PTP_CMD_CANON_SETPROPVAL_EX:
+		{
+			if ((responseCode == PTP_RSP_OK) || (responseCode == PTP_RSP_DEVICEBUSY))
+			{
+				id dataLength = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+				#pragma unused(dataLength)
+
+				id property = [self parsePtpItem: data ofType: PTP_DATATYPE_UINT32_RAW remainingData: &data];
+				[self canonPropertyChanged: [property unsignedIntValue] toData: data];
+			}
 			break;
 		}
 //		case PTP_CMD_NIKON_DEVICEREADY:
@@ -416,6 +1040,18 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 			break;
 	}
 
+}
+
+
+
+- (NSSize) currenLiveViewImageSize
+{
+	return NSMakeSize(1024, 768);
+}
+
+- (NSArray*) liveViewImageSizes
+{
+	return @[[NSValue valueWithSize: self.currenLiveViewImageSize]];
 }
 
 @end

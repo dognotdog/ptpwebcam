@@ -2,6 +2,21 @@
 
 The tables below list what features are supported with which camera models. Values in parenthesis, such as _(YES)_ indicate unconfirmed cases.
 
+## Canon
+
+### Full-Frame
+
+| Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
+| ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
+| 6D            | 960x640        | YES (Movie Mode)       | YES                 | YES            |
+
+### APS-C
+
+| Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
+| ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
+| 80D           | ?              | ?                      | ?                   | ?                      |
+
+
 ## Nikon
 
 ### Full-Frame / FX

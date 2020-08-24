@@ -224,6 +224,11 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	}
 }
 
++ (BOOL) enumeratesContentCatalogOnSessionOpen
+{
+	return YES;
+}
+
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo
 {
 	if (!(self = [super initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo]))

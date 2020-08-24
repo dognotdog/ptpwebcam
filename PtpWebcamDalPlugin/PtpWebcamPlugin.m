@@ -196,9 +196,7 @@
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)icCamera
 {
 	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", icCamera);
-	
-	// create and register stream and device
-	
+		
 	PtpCamera* camera = [PtpCamera cameraWithIcCamera: icCamera delegate: self];
 	
 	@synchronized (self) {
@@ -263,8 +261,29 @@
 - (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
 {
 	NSLog(@"device didOpenSession");
+	
+	
 	if (error)
+	{
 		NSLog(@"device could not open session because %@", error);
+		return;
+	}
+	
+	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)device];
+	Class cameraClass = cameraInfo[@"Class"];
+	
+	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
+	{
+		PtpCamera* camera = [PtpCamera cameraWithIcCamera: (id)device delegate: self];
+		
+		@synchronized (self) {
+			NSMutableArray* cameras = self.cameras.mutableCopy;
+			[cameras addObject: camera];
+			self.cameras = cameras;
+		}
+
+	}
+
 	
 }
 

@@ -127,6 +127,11 @@ static NSDictionary* _ptpOperationNames = nil;
 	}
 }
 
++ (BOOL) enumeratesContentCatalogOnSessionOpen
+{
+	return YES;
+}
+
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo
 {
 	if (!(self = [super initWithIcCamera: camera delegate: delegate cameraInfo: cameraInfo]))
@@ -219,43 +224,6 @@ static NSDictionary* _ptpOperationNames = nil;
 	return;
 }
 
-- (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData
-{
-	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
-	// use JPEG SOI marker (0xFF 0xD8) to find image start
-	const uint8_t soi[2] = {0xFF, 0xD8};
-	const uint8_t eoi[2] = {0xFF, 0xD9};
-	const uint8_t* buf = liveViewData.bytes;
-	const uint8_t* eof = liveViewData.bytes + liveViewData.length;
-
-	const uint8_t* soiPtr = NULL;
-	while (1)
-	{
-		const uint8_t* start = soiPtr ? soiPtr+2 : buf;
-		const uint8_t* searchResult = memmem(start, eof - start, soi, sizeof(soi));
-		
-		if (searchResult)
-			soiPtr = searchResult;
-		else
-			break;
-	}
-	
-	if (!soiPtr)
-		return nil;
-	
-	
-	size_t offs = soiPtr-buf;
-	
-	const uint8_t* eoiPtr =  memmem(soiPtr, eof - soiPtr, eoi, sizeof(eoi));
-
-	if (!eoiPtr)
-		return nil;
-	
-	size_t jpeglen = eoiPtr + 2 - soiPtr;
-
-	return [liveViewData subdataWithRange: NSMakeRange( offs, jpeglen)];
-	
-}
 
 - (void) parsePtpObjectResponseData: (NSData*) data forObjectId: (uint32_t) objectId
 {
@@ -615,9 +583,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			}
 		}
 		
-		BOOL incremental = ([flags unsignedIntValue] & 0x01) == 0;
-		// FIXME: rw set to readonly for incremental values because we have no good way of setting them
-//		bool rw = ([readwrite unsignedIntValue] == 1) && !incremental;
+		bool incremental = ([flags unsignedIntValue] & 0x01) == 0;
 		bool rw = ([readwrite unsignedIntValue] == 1);
 
 		NSDictionary* info = @{

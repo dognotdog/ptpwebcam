@@ -36,6 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void) registerSupportedCameras: (NSDictionary*) supportedCameras byClass: (Class) aClass;
 
 + (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device;
++ (BOOL) enumeratesContentCatalogOnSessionOpen;
 
 //+ (NSDictionary*) ptpStandardProgramModeNames;
 //+ (NSDictionary*) ptpStandardWhiteBalanceModeNames;
@@ -71,7 +72,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) ptpQueryKnownDeviceProperties;
 - (void) requestSendPtpCommandWithCode: (int) code;
 - (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params;
-- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params data: (nullable NSData*) data;
+- (void) requestSendPtpCommandWithCode: (int) code parameters: (nullable NSArray*) params data: (nullable NSData*) data;
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (nullable NSData*) paramData;
 - (void) sendPtpCommand: (NSData*) command withData: (nullable NSData*) data;
 
@@ -86,6 +87,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) requestLiveViewImage;
 - (NSSize) currenLiveViewImageSize;
 - (NSArray*) liveViewImageSizes;
+- (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData;
 
 
 - (void) cameraDidBecomeReadyForUse; // call from subclasses only
