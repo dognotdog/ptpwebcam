@@ -337,12 +337,13 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			@(PTP_PROP_BATTERYLEVEL) : @"Battery Level",
 			@(PTP_PROP_WHITEBALANCE) : @"White Balance",
 			@(PTP_PROP_FNUM) : @"Aperture",
+			@(PTP_PROP_FLEN) : @"Focal Length",
 			@(PTP_PROP_FOCUSDISTANCE) : @"Focus Distance",
-			@(PTP_PROP_EXPOSUREPM) : @"Exposure Program Mode",
+			@(PTP_PROP_FOCUSMODE) : @"Focus Mode",
 			@(PTP_PROP_EXPOSUREISO) : @"ISO",
 			@(PTP_PROP_EXPOSUREBIAS) : @"Exposure Correction",
-			@(PTP_PROP_FLEN) : @"Focal Length",
 			@(PTP_PROP_EXPOSURETIME) : @"Exposure Time",
+			@(PTP_PROP_EXPOSUREPM) : @"Exposure Program Mode",
 		};
 	});
 	return _ptpPropertyNames;
