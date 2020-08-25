@@ -72,7 +72,8 @@
                              [NSNumber numberWithBool:YES], kCVPixelBufferCGBitmapContextCompatibilityKey, nil];
     CVPixelBufferRef pxbuffer = NULL;
     CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32ARGB, (__bridge CFDictionaryRef) options, &pxbuffer);
-
+#pragma unused(status)
+	
     NSParameterAssert(status == kCVReturnSuccess && pxbuffer != NULL);
 
     CVPixelBufferLockBaseAddress(pxbuffer, 0);
