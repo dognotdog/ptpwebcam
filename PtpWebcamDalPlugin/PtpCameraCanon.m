@@ -22,7 +22,8 @@ typedef enum {
 @implementation PtpCameraCanon
 {
 	liveViewStatus_t liveViewStatus;
-	
+	dispatch_source_t frameWatchdogTimer;
+
 	dispatch_queue_t eventPollQueue;
 	dispatch_source_t eventPollTimer;
 	
@@ -293,8 +294,10 @@ static NSDictionary* _ptpOperationNames = nil;
 	 
 	 apparently EOS cameras need to be polled for events
 	 */
-	
-	liveViewStatus = LV_STATUS_WAITING;
+	@synchronized(self)
+	{
+		liveViewStatus = LV_STATUS_WAITING;
+	}
 
 	[self ptpSetProperty: PTP_PROP_CANON_EVF_MODE toValue: @(1)];
 //	[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
@@ -302,6 +305,33 @@ static NSDictionary* _ptpOperationNames = nil;
 	[self queryCanonEvents];
 	
 	return YES;
+}
+
+- (void) restartLiveView
+{
+	PtpLog(@"restarting live view");
+	@synchronized (self) {
+		if (frameWatchdogTimer)
+			dispatch_source_cancel(frameWatchdogTimer);
+		frameWatchdogTimer = nil;
+
+		liveViewStatus = LV_STATUS_WAITING;
+	}
+	[self ptpSetProperty: PTP_PROP_CANON_EVF_MODE toValue: @(1)];
+	[super liveViewInterrupted];
+}
+
+- (void) stopLiveView
+{
+	@synchronized(self)
+	{
+		if (frameWatchdogTimer)
+			dispatch_source_cancel(frameWatchdogTimer);
+		frameWatchdogTimer = nil;
+		
+		liveViewStatus = LV_STATUS_OFF;
+	}
+	[super stopLiveView];
 }
 
 - (void) requestLiveViewImage
@@ -321,7 +351,43 @@ static NSDictionary* _ptpOperationNames = nil;
 	{
 		case PTP_PROP_CANON_APERTURE:
 		{
-			return [NSString stringWithFormat: @"%.1f", 0.1*[value doubleValue]];
+			// thus 24 is 2.0?
+			// 40 is 4.0
+			// thus 56 is 8.0
+			//      72 is 16.0
+			// 80 is 22.0
+			int ival = [value intValue] - 8;
+			int base = ival/16;
+			int frac = ival - base*16;
+			double roundedFrac = (10.0*(1.0 + 0.1*(10.0*frac/16)))/10.0;
+			double val = 1.0*pow(2, base)*roundedFrac;
+
+			double roundedVal = val;
+			if (frac != 0) // only round fractionals
+			{
+				double targets[] = {0.7, 1.0, 1.1, 1.3, 1.4, 1.8, 2.0, 2.2, 3.5, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 9.0, 10.0, 11.0};
+				for (size_t i = 0; i < 10; ++i)
+				{
+					double decadeLow = pow(10, i);
+					double decadeHigh = pow(10, i+1);
+					if ((val > decadeLow) && (val < decadeHigh))
+					{
+						double dval = val / decadeLow;
+						
+						// choose the next lowest value
+						for (size_t k = 1; k+1 < sizeof(targets)/sizeof(*targets); ++k)
+						{
+							if ((dval >= targets[k]) && (dval < targets[k+1]))
+								dval = targets[k];
+						}
+
+						roundedVal = decadeLow * dval;
+						break;
+					}
+				}
+			}
+
+			return [NSString stringWithFormat: @"%.1f", roundedVal];
 		}
 		case PTP_PROP_CANON_ISO:
 		{
@@ -843,20 +909,45 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	[self receivedProperty: propertyInfo oldProperty: oldInfo withId: @(propertyId)];
 }
 
+- (void) createFrameWatchdog
+{
+	if (!frameWatchdogTimer)
+	{
+		PtpLog(@"creating watchdog timer");
+		frameWatchdogTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+		dispatch_source_set_timer(frameWatchdogTimer, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), DISPATCH_TIME_FOREVER, 1 * NSEC_PER_SEC);
+		dispatch_source_set_event_handler(frameWatchdogTimer, ^{
+			[self restartLiveView];
+		});
+		dispatch_resume(frameWatchdogTimer);
+	}
+}
+
 - (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId
 {
 	switch(propertyId.intValue)
 	{
 		case PTP_PROP_CANON_EVF_MODE:
 		{
-			if ([propertyInfo[@"value"] intValue] == 1)
-				[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
+			if (liveViewStatus == LV_STATUS_WAITING)
+			{
+				if ([propertyInfo[@"value"] intValue] == 1)
+					[self ptpSetProperty: PTP_PROP_CANON_EVF_OUTPUTDEVICE toValue: @(2)];
+			}
+			
 			break;
 		}
 		case PTP_PROP_CANON_EVF_OUTPUTDEVICE:
 		{
-			if ([propertyInfo[@"value"] intValue] == 2)
+			bool isOn = 0 != ([propertyInfo[@"value"] unsignedIntValue] & 0x02);
+			if (isOn)
+			{
+				@synchronized (self) {
+					if (liveViewStatus == LV_STATUS_WAITING)
+						liveViewStatus = LV_STATUS_ON;
+				}
 				[self cameraDidBecomeReadyForLiveViewStreaming];
+			}
 			break;
 		}
 		case PTP_PROP_CANON_FOCUSMODE:
@@ -980,6 +1071,8 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	// 16bit response code
 	// 32bit transaction id
 	// 32bit response parameter
+	
+	dispatch_time_t now = dispatch_time(DISPATCH_TIME_NOW, 0);
 		
 	uint32_t len = 0;
 	[response getBytes: &len range: NSMakeRange(0, 4)];
@@ -990,14 +1083,13 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 	uint32_t transId = 0;
 	[response getBytes: &transId range: NSMakeRange(8, 4)];
 
-//	bool isDeviceBusy = code == PTP_RSP_DEVICEBUSY;
+	bool isDeviceBusy = (code == PTP_RSP_DEVICEBUSY) || (code == PTP_RSP_CANON_NOT_READY);
 	
 	if (!data) // no data means no image to present
 	{
-		if (code != PTP_RSP_CANON_NOT_READY)
+		if (!isDeviceBusy)
 			PtpLog(@"parsePtpLiveViewImageResponse: no data!");
-		
-		
+
 		// restart live view if it got turned off after timeout or error
 		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
 //		if (!isDeviceBusy && (liveViewStatus == LV_STATUS_ON))
@@ -1020,15 +1112,24 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		default:
 		{
 			NSLog(@"len = %u type = 0x%X, code = 0x%X, transId = %u", len, type, code, transId);
+			NSLog(@"response = %@", response);
 			break;
 		}
 			
 	}
 	
 	NSData* jpegData = [self extractLiveViewJpegData: data];
-	
-	// TODO: JPEG SOI marker might appear in other data, so just using that is not enough to reliably extract JPEG without knowing more
-//	NSData* jpegData = [self extractNikonLiveViewJpegData: data];
+
+	if (jpegData)
+	{
+		@synchronized (self) {
+			// re-trigger watchdog timer when good data arrives
+			if (frameWatchdogTimer)
+				dispatch_source_set_timer(frameWatchdogTimer, dispatch_time(now, 3*NSEC_PER_SEC), DISPATCH_TIME_FOREVER, 1*NSEC_PER_SEC);
+			else
+				[self createFrameWatchdog];
+		}
+	}
 	
 	if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
 		[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
@@ -1073,7 +1174,9 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 			break;
 		case PTP_CMD_CANON_GETVIEWFINDERDATA:
 		{
-			[self parsePtpLiveViewImageResponse: response data: data];
+			// ignore frame when we get it initially
+			if (liveViewStatus != LV_STATUS_OFF)
+				[self parsePtpLiveViewImageResponse: response data: data];
 //			if (inLiveView)
 //				[self requestLiveViewImage];
 			
