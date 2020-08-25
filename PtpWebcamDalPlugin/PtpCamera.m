@@ -912,8 +912,9 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			[self parsePtpPropertyValue: data];
 			break;
 		default:
-			NSLog(@"didSendPTPCommand  cmd=%@", command);
-			NSLog(@"didSendPTPCommand data=%@", data);
+			PtpLog(@"     cmd=%@", command);
+			PtpLog(@"    data=%@", data);
+			PtpLog(@" reponse=%@", response);
 			break;
 	}
 	
