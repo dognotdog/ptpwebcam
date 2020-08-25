@@ -774,7 +774,9 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 - (void) restartLiveView
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
-	liveViewStatus = LV_STATUS_RESTART_STOPPING;
+	@synchronized (self) {
+		liveViewStatus = LV_STATUS_RESTART_STOPPING;
+	}
 	[super liveViewInterrupted];
 }
 
@@ -782,7 +784,9 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 - (void) stopLiveView
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_STOPLIVEVIEW];
-	liveViewStatus = LV_STATUS_OFF;
+	@synchronized (self) {
+		liveViewStatus = LV_STATUS_OFF;
+	}
 	[super stopLiveView];
 }
 
