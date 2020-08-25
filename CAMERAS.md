@@ -13,14 +13,13 @@ The tables below list what features are supported with which camera models. Valu
 | EOS 1D X          | ?              | ?                      | ?                   | ?                |
 | EOS 1D X Mark II  | ?              | ?                      | ?                   | ?                |
 | EOS 1D X Mark III | ?              | ?                      | ?                   | ?                |
-| EOS 5D S          | ?              | ?                      | ?                   | ?                |
-| EOS 5D S R        | ?              | ?                      | ?                   | ?                |
+| EOS 5Ds           | ?              | ?                      | ?                   | ?                |
+| EOS 5Ds R         | ?              | ?                      | ?                   | ?                |
 | EOS 5D Mark II    | ?              | ?                      | ?                   | ?                |
 | EOS 5D Mark III   | ?              | ?                      | ?                   | ?                |
 | EOS 5D Mark IV    | ?              | ?                      | ?                   | ?                |
 | EOS 6D            | 960x640        | YES (Movie Mode)       | YES                 | YES              |
 | EOS 6D Mark II    | ?              | ?                      | ?                   | ?                |
-| EOS 7D            | ?              | ?                      | ?                   | ?                |
 | EOS R             | ?              | ?                      | ?                   | ?                |
 | EOS R2            | ?              | ?                      | ?                   | ?                |
 | EOS R5            | ?              | ?                      | ?                   | ?                |
@@ -29,32 +28,33 @@ The tables below list what features are supported with which camera models. Valu
 
 | Camera         | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
 | -------------- | -------------- | ---------------------- | ------------------- | ---------------- |
+| EOS 7D         | ?              | ?                      | ?                   | ?                |
 | EOS 40D        | ?              | ?                      | ?                   | ?                |
 | EOS 50D        | ?              | ?                      | ?                   | ?                |
 | EOS 60D        | ?              | ?                      | ?                   | ?                |
 | EOS 70D        | ?              | ?                      | ?                   | ?                |
-| EOS 77D        | ?              | ?                      | ?                   | ?                |
+| EOS 77D / 9000D | ?             | ?                      | ?                   | ?                |
 | EOS 80D        | ?              | ?                      | ?                   | ?                |
 | EOS 90D        | ?              | ?                      | ?                   | ?                |
-| EOS 100D       | ?              | ?                      | ?                   | ?                |
-| EOS 200D       | ?              | ?                      | ?                   | ?                |
-| EOS 250D       | ?              | ?                      | ?                   | ?                |
-| ~EOS 300D~     | no LiveView    | -                      | -                   | -                |
-| EOS 450D       | ?              | ?                      | ?                   | ?                |
-| EOS 500D       | ?              | ?                      | ?                   | ?                |
-| EOS 550D       | ?              | ?                      | ?                   | ?                |
-| EOS 600D       | ?              | ?                      | ?                   | ?                |
-| EOS 650D       | ?              | ?                      | ?                   | ?                |
-| EOS 700D       | ?              | ?                      | ?                   | ?                |
-| EOS 750D       | ?              | ?                      | ?                   | ?                |
-| EOS 760D       | ?              | ?                      | ?                   | ?                |
-| EOS 800D       | ?              | ?                      | ?                   | ?                |
-| EOS 1000D      | ?              | ?                      | ?                   | ?                |
-| EOS 1100D      | ?              | ?                      | ?                   | ?                |
-| EOS 1200D      | ?              | ?                      | ?                   | ?                |
-| EOS 1300D      | ?              | ?                      | ?                   | ?                |
-| EOS 1500D      | ?              | ?                      | ?                   | ?                |
-| EOS 4000D      | ?              | ?                      | ?                   | ?                |
+| EOS 100D / Rebel SL1 | ?        | ?                      | ?                   | ?                |
+| EOS 200D / Rebel SL2 | ?        | ?                      | ?                   | ?                |
+| EOS 250D / Rebel SL3 | ?        | ?                      | ?                   | ?                |
+| ~EOS 300D / Digital Rebel~ | no LiveView | -             | -                   | -                |
+| EOS 450D / Rebel XSi | ?        | ?                      | ?                   | ?                |
+| EOS 500D / Rebel T1i | ?        | ?                      | ?                   | ?                |
+| EOS 550D / Rebel T2i | ?        | ?                      | ?                   | ?                |
+| EOS 600D / Rebel T3i | ?        | ?                      | ?                   | ?                |
+| EOS 650D / Rebel T4i | ?        | ?                      | ?                   | ?                |
+| EOS 700D / Rebel T5i | ?        | ?                      | ?                   | ?                |
+| EOS 750D / Rebel T6i | ?        | ?                      | ?                   | ?                |
+| EOS 760D / Rebel T6s | ?        | ?                      | ?                   | ?                |
+| EOS 800D / Rebel T7i | ?        | ?                      | ?                   | ?                |
+| EOS 1000D / Rebel XS | ?        | ?                      | ?                   | ?                |
+| EOS 1100D / Rebel T3 | ?        | ?                      | ?                   | ?                |
+| EOS 1200D / Rebel T5 | ?        | ?                      | ?                   | ?                |
+| EOS 1300D / Rebel T6 | ?        | ?                      | ?                   | ?                |
+| EOS 1500D / 2000D / Rebel T7 | ? | ?                     | ?                   | ?                |
+| EOS 3000D / 4000D / Rebel T100 | ? | ?                   | ?                   | ?                |
 | EOS M          | ?              | ?                      | ?                   | ?                |
 | EOS M2         | ?              | ?                      | ?                   | ?                |
 | EOS M3         | ?              | ?                      | ?                   | ?                |
