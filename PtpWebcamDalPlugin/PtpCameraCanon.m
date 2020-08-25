@@ -191,6 +191,29 @@ static NSDictionary* _ptpOperationNames = nil;
 
 }
 
+- (NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData**) remData
+{
+	uint16_t enumCount = [[self parsePtpItem: data ofType: PTP_DATATYPE_UINT16_RAW remainingData: &data] unsignedShortValue];
+	
+	// adjust dataType because Canon decided to use 16bit enum values even for 8bit dataTypes
+	switch(dataType)
+	{
+		case PTP_DATATYPE_SINT8_RAW:
+			dataType = PTP_DATATYPE_SINT16_RAW;
+		case PTP_DATATYPE_UINT8_RAW:
+			dataType = PTP_DATATYPE_UINT16_RAW;
+	}
+	
+	NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
+	for (size_t i = 0; i < enumCount; ++i)
+	{
+		[enumValues addObject: [self parsePtpItem: data ofType: dataType remainingData: &data]];
+	}
+	if (remData)
+		*remData = data;
+	return enumValues;
+}
+
 - (void) didRemoveDevice:(nonnull ICDevice *)device
 {
 	@synchronized (self) {
@@ -757,6 +780,11 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		
 		self.ptpPropertyInfos = [self.ptpPropertyInfos dictionaryBySettingObject: propertyInfo forKey: @(propertyId)];
 
+		if (![self.ptpDeviceInfo[@"properties"] containsObject: @(propertyId)])
+		{
+			self.ptpDeviceInfo = [self.ptpDeviceInfo dictionaryBySettingObject: [self.ptpDeviceInfo[@"properties"] arrayByAddingObject: @(propertyId)] forKey: @"properties"];
+		}
+
 	}
 
 	[self receivedProperty: propertyInfo oldProperty: oldInfo withId: @(propertyId)];
@@ -840,6 +868,11 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 					info[@"rw"] = @(YES);
 				info[@"dataType"] = @(_canonDataTypeToPtpDataType(dataType));
 				self.ptpPropertyInfos = [self.ptpPropertyInfos dictionaryBySettingObject: info forKey: @(propertyId)];
+				
+				if (![self.ptpDeviceInfo[@"properties"] containsObject: @(propertyId)])
+				{
+					self.ptpDeviceInfo = [self.ptpDeviceInfo dictionaryBySettingObject: [self.ptpDeviceInfo[@"properties"] arrayByAddingObject: @(propertyId)] forKey: @"properties"];
+				}
 			}
 			
 

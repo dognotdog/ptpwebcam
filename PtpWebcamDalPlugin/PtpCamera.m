@@ -1068,6 +1068,20 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return [propertyInfo[@"dataType"] intValue];
 }
 
+- (NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData**) remData
+{
+	uint16_t enumCount = [self parsePtpUint16: data remainingData: &data].unsignedShortValue;
+	
+	NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
+	for (size_t i = 0; i < enumCount; ++i)
+	{
+		[enumValues addObject: [self parsePtpItem: data ofType: dataType remainingData: &data]];
+	}
+	if (remData)
+		*remData = data;
+	return enumValues;
+}
+
 - (void) parsePtpPropertyDescription: (NSData*) data
 {
 	// 16b property id
@@ -1119,14 +1133,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		}
 		case 0x02: // enum
 		{
-			uint16_t enumCount = [self parsePtpUint16: valuesData remainingData: &valuesData].unsignedShortValue;
-			
-			NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
-			for (size_t i = 0; i < enumCount; ++i)
-			{
-				[enumValues addObject: [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData]];
-			}
-			form = enumValues;
+			form = [self parsePtpRangeEnumData: valuesData ofType: dataType remainingData: &valuesData];
 			break;
 		}
 	}
