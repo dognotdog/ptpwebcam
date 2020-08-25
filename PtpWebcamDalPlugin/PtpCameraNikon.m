@@ -838,4 +838,50 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	return sizes;
 }
 
+- (int) canAutofocus
+{
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_AFMODE])
+	{
+		NSDictionary* afModeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_AFMODE)];
+		if (afModeInfo)
+		{
+			NSNumber* value = afModeInfo[@"value"];
+			switch (value.intValue)
+			{
+				case 3:
+				{
+					return PTPCAM_AF_MANUAL_LENS;
+				}
+				case 4:
+				{
+					return PTPCAM_AF_MANUAL_MODE;
+				}
+				case 0:
+				case 1:
+				case 2:
+				default:
+				{
+					return PTPCAM_AF_AVAILABLE;
+				}
+
+			}
+		}
+		else
+			return PTPCAM_AF_UNKNOWN;
+	}
+	else
+		return PTPCAM_AF_UNKNOWN;
+}
+- (void) performAutofocus
+{
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_AFMODE])
+		[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_AFMODE];
+
+	if ([self isPtpOperationSupported: PTP_CMD_NIKON_AFDRIVE])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
+	}
+}
+
+
 @end

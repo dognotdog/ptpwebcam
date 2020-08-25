@@ -56,7 +56,10 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(PTP_CMD_CANON_KEEPDEVICEON) : @"Canon KeepDeviceOn",
 			@(PTP_CMD_CANON_REQUESTPROPVAL) : @"Canon RequestPropVal",
 			@(PTP_CMD_CANON_GETVIEWFINDERDATA) : @"Canon GetViewFinderData",
+			@(PTP_CMD_CANON_DOAF) : @"Canon Do AF",
+			@(PTP_CMD_CANON_DRIVELENS) : @"Canon DriveLens",
 			@(PTP_CMD_CANON_DOF_PREVIEW) : @"Canon Exposure Preview",
+			@(PTP_CMD_CANON_AF_CANCEL) : @"Canon AF Cancel",
 		}];
 		_ptpOperationNames = operationNames;
 
@@ -68,6 +71,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(PTP_PROP_CANON_EVF_EXPOSURE_PREVIEW) : @"Exposure Preview",
 			@(PTP_PROP_CANON_EXPOSUREBIAS) : @"Exposure Correction",
 			@(PTP_PROP_CANON_METERINGMODE) : @"Metering Mode",
+			@(PTP_PROP_CANON_FOCUSMODE) : @"Focus Mode",
 			@(PTP_PROP_CANON_APERTURE) : @"Aperture",
 			@(PTP_PROP_CANON_EXPOSURETIME) : @"Shutter Speed",
 			@(PTP_PROP_CANON_ISO) : @"ISO",
@@ -138,6 +142,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(PTP_PROP_CANON_EVF_COLORTEMP),
 			@(PTP_PROP_CANON_EXPOSUREBIAS),
 			@(PTP_PROP_CANON_METERINGMODE),
+//			@(PTP_PROP_CANON_FOCUSMODE),
 //			@(PTP_PROP_CANON_EVF_ZOOM),
 			@(PTP_PROP_CANON_LV_EYEDETECT),
 			@(PTP_PROP_CANON_EVF_DOF_PREVIEW),
@@ -806,6 +811,12 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 				[self cameraDidBecomeReadyForLiveViewStreaming];
 			break;
 		}
+		case PTP_PROP_CANON_FOCUSMODE:
+		{
+			if ([self.delegate respondsToSelector:@selector(cameraAutofocusCapabilityChanged:)])
+				[(id <PtpCameraLiveViewDelegate>)self.delegate cameraAutofocusCapabilityChanged: self];
+			break;
+		}
 	}
 	
 	[super receivedProperty: propertyInfo oldProperty: oldInfo withId: propertyId];
@@ -1085,6 +1096,42 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 - (NSArray*) liveViewImageSizes
 {
 	return @[[NSValue valueWithSize: self.currenLiveViewImageSize]];
+}
+
+- (int) canAutofocus
+{
+	bool afOpSupported = [self isPtpOperationSupported: PTP_CMD_CANON_DOAF];
+	if (afOpSupported && [self isPtpPropertySupported: PTP_PROP_CANON_FOCUSMODE])
+	{
+		NSDictionary* info = self.ptpPropertyInfos[@(PTP_PROP_CANON_FOCUSMODE)];
+		id val = info[@"value"];
+		switch ([val intValue])
+		{
+			case 0:
+				return PTPCAM_AF_AVAILABLE;
+			case 3:
+				return PTPCAM_AF_MANUAL_MODE;
+			default:
+				return PTPCAM_AF_UNKNOWN;
+
+		}
+	}
+	else if (afOpSupported)
+		return PTPCAM_AF_AVAILABLE;
+	else
+		return PTPCAM_AF_UNKNOWN;
+}
+
+- (void) performAutofocus
+{
+	if ([self isPtpOperationSupported: PTP_CMD_CANON_AF_CANCEL])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_CANON_AF_CANCEL];
+	}
+	if ([self isPtpOperationSupported: PTP_CMD_CANON_DOAF])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_CANON_DOAF];
+	}
 }
 
 @end

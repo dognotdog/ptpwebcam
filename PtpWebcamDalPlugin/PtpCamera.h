@@ -12,6 +12,16 @@
 
 #import "PtpWebcamPtp.h"
 
+
+
+typedef enum {
+	PTPCAM_AF_NONE,
+	PTPCAM_AF_UNKNOWN,
+	PTPCAM_AF_MANUAL_LENS,
+	PTPCAM_AF_MANUAL_MODE,
+	PTPCAM_AF_AVAILABLE,
+} ptpCameraAutofocusCapability_t;
+
 NS_ASSUME_NONNULL_BEGIN
 
 @protocol PtpCameraDelegate;
@@ -99,6 +109,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (NSString*) cameraPropertyReport;
 
+- (int) canAutofocus;
+- (void) performAutofocus;
+
 @end
 
 @protocol PtpCameraDelegate <NSObject>
@@ -117,6 +130,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) cameraDidBecomeReadyForLiveViewStreaming: (PtpCamera*) camera;
 - (void) cameraLiveViewStreamDidBecomeInterrupted: (PtpCamera*) camera;
 - (void) cameraFailedToStartLiveView: (PtpCamera*) camera;
+
+- (void) cameraAutofocusCapabilityChanged: (PtpCamera*) camera;
 
 @end
 

@@ -1788,6 +1788,16 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return nil;
 }
 
+- (int) canAutofocus
+{
+	return PTPCAM_AF_NONE;
+}
+
+- (void) performAutofocus
+{
+	[self doesNotRecognizeSelector: _cmd];
+}
+
 
 - (NSString*) cameraPropertyReport
 {

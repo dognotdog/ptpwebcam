@@ -149,6 +149,11 @@
 	[self checkCameraReportTrigger];
 }
 
+- (void) cameraAutofocusCapabilityChanged: (PtpCamera*) camera
+{
+	[self checkAutofocusAvailability];
+}
+
 - (void) checkCameraReportTrigger
 {
 	// check if we have received all properties
@@ -437,36 +442,35 @@
 		return nil;
 }
 
-- (void) checkAutofocusAvailability
+- (int) checkAutofocusAvailability
 {
-	NSDictionary* afModeInfo = self.camera.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_AFMODE)];
-	if (afModeInfo)
+	int afCapability = [self.camera canAutofocus];
+	
+	switch (afCapability)
 	{
-		NSNumber* value = afModeInfo[@"value"];
-		switch (value.intValue)
+		case PTPCAM_AF_MANUAL_LENS:
 		{
-			case 3:
-			{
-				autofocusMenuItem.title = @"Autofocus unavailable (manual lens)…";
-				break;
-			}
-			case 4:
-			{
-				autofocusMenuItem.title = @"Autofocus unavailable (manual mode)…";
-				break;
-			}
-			case 0:
-			case 1:
-			case 2:
-			default:
-			{
-				autofocusMenuItem.enabled = YES;
-				autofocusMenuItem.title = @"Autofocus…";
-				break;
-			}
-
+			autofocusMenuItem.title = @"Autofocus unavailable (manual lens)…";
+			break;
+		}
+		case PTPCAM_AF_MANUAL_MODE:
+		{
+			autofocusMenuItem.title = @"Autofocus unavailable (manual mode)…";
+			break;
+		}
+		case PTPCAM_AF_AVAILABLE:
+		{
+			autofocusMenuItem.enabled = YES;
+			autofocusMenuItem.title = @"Autofocus…";
+			break;
+		}
+		default:
+		{
+			autofocusMenuItem.title = @"Autofocus unavailable (N/A)…";
+			break;
 		}
 	}
+	return afCapability;
 }
 
 - (void) rebuildStatusItem
@@ -548,15 +552,16 @@
 		}
 	}
 	
+	autofocusMenuItem = [[NSMenuItem alloc] init];
+	autofocusMenuItem.title =  @"Autofocus…";
+	autofocusMenuItem.target = self;
+	autofocusMenuItem.action =  @selector(autofocusAction:);
+
 	// add autofocus command
-	if ([self.camera.ptpDeviceInfo[@"operations"] containsObject: @(PTP_CMD_NIKON_AFDRIVE)])
+	int afCapability = [self checkAutofocusAvailability];
+	if (afCapability != PTPCAM_AF_NONE)
 	{
 		[menu addItem: [NSMenuItem separatorItem]];
-		autofocusMenuItem = [[NSMenuItem alloc] init];
-		autofocusMenuItem.title =  @"Autofocus…";
-		autofocusMenuItem.target = self;
-		autofocusMenuItem.action =  @selector(autofocusAction:);
-		[self checkAutofocusAvailability];
 		[menu addItem: autofocusMenuItem];
 	}
 	
@@ -640,15 +645,11 @@
 	statusItem.menu = menu;
 
 }
+
 - (IBAction) autofocusAction:(NSMenuItem*)sender
 {
-	if ([self.camera isPtpPropertySupported: PTP_PROP_NIKON_LV_AFMODE])
-		[self.camera ptpGetPropertyDescription: PTP_PROP_NIKON_LV_AFMODE];
-
-	if ([self.camera isPtpOperationSupported: PTP_CMD_NIKON_AFDRIVE])
-	{
-		[self.camera requestSendPtpCommandWithCode: PTP_CMD_NIKON_AFDRIVE];
-	}
+	if ([self.camera canAutofocus])
+		[self.camera performAutofocus];
 }
 
 - (IBAction) changeCameraPropertyAction:(NSMenuItem*)sender
@@ -716,6 +717,8 @@
 
 - (IBAction) generateCameraReport:(NSMenuItem*)sender
 {
+	// copy report even if don't have all properties
+	[self copyCameraReportToClipboard];
 	// query all properties
 	triggerReportGenerationWhenPropertiesComplete = YES;
 	for (id propertyId in self.camera.ptpDeviceInfo[@"properties"])
