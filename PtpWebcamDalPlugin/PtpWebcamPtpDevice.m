@@ -116,9 +116,11 @@
 					{
 						NSMenu* subMenu = [self buildSubMenuForPropertyInfo: propertyInfo withId: propertyId interactive: YES];
 						item.submenu = subMenu;
+						item.enabled = YES;
 					}
 					else
 					{
+						item.enabled = NO;
 						item.submenu = nil;
 					}
 				}
@@ -137,6 +139,10 @@
 						[self.camera ptpGetPropertyDescription: PTP_PROP_FNUM];
 					if ([self.camera isPtpPropertySupported: PTP_PROP_EXPOSUREISO])
 						[self.camera ptpGetPropertyDescription: PTP_PROP_EXPOSUREISO];
+					if ([self.camera isPtpPropertySupported: PTP_PROP_SONY_ISO])
+						[self.camera ptpGetPropertyDescription: PTP_PROP_SONY_ISO];
+					if ([self.camera isPtpPropertySupported: PTP_PROP_SONY_SHUTTERSPEED])
+						[self.camera ptpGetPropertyDescription: PTP_PROP_SONY_SHUTTERSPEED];
 				}
 				break;
 			case PTP_PROP_NIKON_LV_AFMODE:

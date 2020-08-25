@@ -872,6 +872,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	else
 		return PTPCAM_AF_UNKNOWN;
 }
+
 - (void) performAutofocus
 {
 	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_AFMODE])

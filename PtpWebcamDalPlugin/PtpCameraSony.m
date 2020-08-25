@@ -98,12 +98,14 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(PTP_PROP_SONY_SHUTTERSPEED) : @"Shutter Speed",
 			@(PTP_PROP_SONY_COLORTEMP) : @"WB Color Temp",
 			@(PTP_PROP_SONY_WB_GREENMAGENTA) : @"WB Tune Green-Magenta",
+			@(PTP_PROP_SONY_FOCUSFOUND) : @"Focus Found",
 			@(PTP_PROP_SONY_ZOOM) : @"Zoom",
 			@(PTP_PROP_SONY_BATTERYLEVEL) : @"Battery Level",
 			@(PTP_PROP_SONY_PICTURE_EFFECT) : @"Picture Effect",
 			@(PTP_PROP_SONY_WB_AMBERBLUE) : @"WB Tune Amber-Blue",
 			@(PTP_PROP_SONY_ISO) : @"ISO",
 			@(PTP_PROP_SONY_LV_STATUS) : @"LiveView Status",
+			@(PTP_PROP_SONY_AUTOFOCUSBUTTON) : @"Autofocus Button",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -798,6 +800,32 @@ static NSDictionary* _ptpOperationNames = nil;
 - (void) requestLiveViewImage
 {
 	[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECT parameters: @[@(SONY_LV_IMAGE_OBJECTID)]];
+}
+
+- (int) canAutofocus
+{
+	if ([self isPtpPropertySupported: PTP_PROP_SONY_AUTOFOCUSBUTTON])
+	{
+		return PTPCAM_AF_AVAILABLE;
+	}
+	else
+		return PTPCAM_AF_NONE;
+}
+
+- (void) performAutofocus
+{
+	if ([self isPtpPropertySupported: PTP_PROP_SONY_AUTOFOCUSBUTTON])
+	{
+		[self ptpGetPropertyDescription: PTP_PROP_SONY_AUTOFOCUSBUTTON];
+		
+		// perform button press
+		[self ptpSetProperty: PTP_PROP_SONY_AUTOFOCUSBUTTON toValue: @(2)];
+		
+		// then release after 3 seconds
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			[self ptpSetProperty: PTP_PROP_SONY_AUTOFOCUSBUTTON toValue: @(1)];
+		});
+	}
 }
 
 @end
