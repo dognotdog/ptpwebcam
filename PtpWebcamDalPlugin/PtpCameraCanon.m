@@ -225,7 +225,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		if (eventPollTimer)
 		{
 			dispatch_suspend(eventPollTimer);
-			dispatch_source_set_event_handler(eventPollTimer, nil);
+//			dispatch_source_set_event_handler(eventPollTimer, nil);
 			eventPollTimer = nil;
 		}
 	}
@@ -817,6 +817,14 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 				[(id <PtpCameraLiveViewDelegate>)self.delegate cameraAutofocusCapabilityChanged: self];
 			break;
 		}
+		case PTP_PROP_CANON_FOCUSINFO:
+		{
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+				if ([self isPtpOperationSupported: PTP_CMD_CANON_AF_CANCEL])
+					[self requestSendPtpCommandWithCode: PTP_CMD_CANON_AF_CANCEL];
+			});
+			break;
+		}
 	}
 	
 	[super receivedProperty: propertyInfo oldProperty: oldInfo withId: propertyId];
@@ -1021,6 +1029,10 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 //			if (inLiveView)
 //				[self requestLiveViewImage];
 			
+			break;
+		}
+		case PTP_CMD_CANON_DOAF:
+		{
 			break;
 		}
 		case PTP_CMD_CANON_REQUESTPROPVAL:
