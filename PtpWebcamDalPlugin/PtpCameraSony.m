@@ -142,7 +142,6 @@ static NSDictionary* _ptpOperationNames = nil;
 	self.uiPtpProperties = @[
 		@(PTP_PROP_BATTERYLEVEL),
 		@(PTP_PROP_SONY_BATTERYLEVEL),
-//		@(PTP_PROP_FOCUSDISTANCE),
 		@(PTP_PROP_FLEN),
 		@"-",
 		@(PTP_PROP_EXPOSUREPM),
@@ -153,6 +152,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		@(PTP_PROP_SONY_SHUTTERSPEED),
 		@(PTP_PROP_WHITEBALANCE),
 		@(PTP_PROP_EXPOSUREBIAS),
+		@(PTP_PROP_FOCUSMODE),
 		@(PTP_PROP_SONY_LV_STATUS),
 	];
 
