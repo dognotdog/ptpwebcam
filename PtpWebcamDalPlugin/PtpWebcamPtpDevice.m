@@ -11,6 +11,7 @@
 #import "PtpWebcamAlerts.h"
 #import "PtpWebcamPtp.h"
 
+#import "PtpGridTuneView.h"
 
 @interface PtpWebcamPtpDevice ()
 {
@@ -290,6 +291,27 @@
 	return valStr;
 }
 
+- (nullable NSDictionary*) matrixInfoForPropertyId: (NSNumber*) propertyId
+{
+	static NSDictionary* matrixInfos = nil;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		NSDictionary* nikonWbTuneInfo = @{
+			@"gridSize" : @(13),
+			@"rmin" : @(0),
+			@"rmax" : @(168),
+		};
+		matrixInfos = @{
+			@(PTP_PROP_NIKON_WBTUNE_INCADESCENT) : nikonWbTuneInfo,
+			@(PTP_PROP_NIKON_WBTUNE_FLOURESCENT) : nikonWbTuneInfo,
+			@(PTP_PROP_NIKON_WBTUNE_SUNNY) : nikonWbTuneInfo,
+			@(PTP_PROP_NIKON_WBTUNE_FLASH) : nikonWbTuneInfo,
+			@(PTP_PROP_NIKON_WBTUNE_CLOUDY) : nikonWbTuneInfo,
+			@(PTP_PROP_NIKON_WBTUNE_SHADE) : nikonWbTuneInfo,
+		};
+	});
+	return matrixInfos[propertyId];
+}
 
 - (nullable NSMenu*) buildSubMenuForPropertyInfo: (NSDictionary*) property withId: (NSNumber*) propertyId interactive: (BOOL) isInteractive
 {
@@ -298,6 +320,7 @@
 	id value = property[@"value"];
 	id defaultValue = property[@"defaultValue"];
 	bool incremental = [property[@"incremental"] boolValue];
+	NSDictionary* matrixInfo = [self matrixInfoForPropertyId: propertyId];
 	
 	if (incremental)
 	{
@@ -329,7 +352,61 @@
 	{
 		// for non incremental items, add selection submenu listing items or a slider
 		
-		if ([property[@"range"] isKindOfClass: [NSArray class]])
+		int rmin = [matrixInfo[@"rmin"] intValue];
+		int rmax = [matrixInfo[@"rmax"] intValue];
+		if (([property[@"range"] isKindOfClass: [NSDictionary class]]) && (rmin != rmax) && ([[property[@"range"] objectForKey: @"min"] intValue] == rmin) &&  ([[property[@"range"] objectForKey: @"max"] intValue] == rmax))
+		{
+			int gridSize = [matrixInfo[@"gridSize"] intValue];
+			
+//			NSMutableArray* buttons = [NSMutableArray arrayWithCapacity: values.count];
+//			size_t x = 0, y = 0;
+//			double xmax = 0, ymax = 0;
+//			int step = [[property[@"range"] objectForKey: @"step"] intValue];
+//			for (int i = rmin; i <= rmax; i += step)
+//			{
+//				NSButton* button = [NSButton radioButtonWithTitle: @"" target: self action: nil];
+//				button.tag = propertyId.integerValue;
+//				button.bezelColor = [NSColor redColor];
+//
+//				CGPoint origin = CGPointMake(button.frame.size.width*x, button.frame.size.height*y);
+//
+//				button.frameOrigin = origin;
+//				xmax = MAX(xmax, CGRectGetMaxX(button.frame));
+//				ymax = MAX(ymax, CGRectGetMaxY(button.frame));
+//
+//				if (i == [value intValue])
+//					button.state = NSOnState;
+//
+//				[buttons addObject: button];
+//
+//				y = y + (x+1)/gridSize;
+//				x = (x+1) % gridSize;
+//			}
+//
+//			NSView* view = [[NSView alloc] initWithFrame: CGRectMake(0.0, 0.0, xmax, ymax)];
+//			view.autoresizingMask = NSViewNotSizable;
+//			for (NSButton* button in buttons)
+//			{
+//				[view addSubview: button];
+//			}
+			
+			PtpGridTuneView* view = [[PtpGridTuneView alloc] initWithFrame: CGRectMake(0, 0, 1, 1)];
+			view.autoresizingMask = NSViewNotSizable;
+			view.gridSize = gridSize;
+			view.range = property[@"range"];
+			view.representedObject = value;
+			view.action = @selector(propertySliderAction:);
+			view.target = self;
+			view.tag = [propertyId intValue];
+			[view updateSize];
+			
+			NSMenuItem* gridItem = [[NSMenuItem alloc] init];
+			gridItem.view = view;
+			[submenu addItem: gridItem];
+
+
+		}
+		else if ([property[@"range"] isKindOfClass: [NSArray class]])
 		{
 			NSArray* values = property[@"range"];
 			
@@ -695,7 +772,7 @@
 //	long long rmax = [rangeInfo[@"max"] longLongValue];
 	long long step = [rangeInfo[@"step"] longLongValue];
 
-	long value = rmin + floor((sender.doubleValue - rmin)/step)*step;
+	long value = rmin + floor((sender.intValue - rmin)/step)*step;
 
 	NSString* valStr = [self.camera formatPtpPropertyValue: @(value) ofProperty: propertyId withDefaultValue: propertyInfo[@"defaultValue"]];
 
