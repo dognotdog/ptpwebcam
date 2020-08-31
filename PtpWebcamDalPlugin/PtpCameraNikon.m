@@ -788,6 +788,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		liveViewStatus = LV_STATUS_OFF;
 	}
 	[super stopLiveView];
+	
+	// fetch LV status after stopping so UI can be updated.
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_STATUS])
+		[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
 }
 
 - (void) requestLiveViewImage
