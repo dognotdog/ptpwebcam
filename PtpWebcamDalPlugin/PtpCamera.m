@@ -293,7 +293,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0001) : @"Manual",
 				@(0x0002) : @"Automatic",
 				@(0x0003) : @"One-Push Automatic",
-				@(0x0004) : @"Daylight",
+				@(0x0004) : @"Sunny",
 				@(0x0005) : @"Flourescent",
 				@(0x0006) : @"Tungsten",
 				@(0x0007) : @"Flash",
