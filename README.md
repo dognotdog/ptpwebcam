@@ -91,6 +91,10 @@ codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
 ```
 
+### Canon EOS Webcam Utility Incompatibility
+
+PTP Webam is incompatible with Canon's EOS Webcam Utility software, is Canon's software prevents PTP Webcam from accessing any attached camera. Therefore, `/Library/CoreMediaIO/Plug-Ins/DAL/EOSWebcam.plugin` has to be removed or deleted before PTP Webcam can work.
+
 ## Funding and Sponsorship
 
 This project is open-source and free to use, but can be [supported through Patreon](https://www.patreon.com/dognotdog).
