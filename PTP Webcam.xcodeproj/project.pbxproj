@@ -21,6 +21,9 @@
 		DA2922DD247EDA5E00794577 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DC247EDA5E00794577 /* Assets.xcassets */; };
 		DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DE247EDA5E00794577 /* MainMenu.xib */; };
 		DA2922E3247EDA5E00794577 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922E2247EDA5E00794577 /* main.m */; };
+		DA45A4E224FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
+		DA45A4E324FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
+		DA45A4E424FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
 		DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = DA47648E24BE504C00F228B4 /* LICENSE.md */; };
 		DA608DD924F071F100F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
 		DA608DDA24F0736500F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
@@ -148,6 +151,8 @@
 		DA2922E1247EDA5E00794577 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA2922E2247EDA5E00794577 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DA2922E4247EDA5E00794577 /* PTP_Webcam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PTP_Webcam.entitlements; sourceTree = "<group>"; };
+		DA45A4E024FD8ADA00B14412 /* PtpGridTuneView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpGridTuneView.h; sourceTree = "<group>"; };
+		DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpGridTuneView.m; sourceTree = "<group>"; };
 		DA47648E24BE504C00F228B4 /* LICENSE.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
 		DA608DD724F071F100F0D9FB /* PtpCameraSony.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraSony.h; sourceTree = "<group>"; };
 		DA608DD824F071F100F0D9FB /* PtpCameraSony.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraSony.m; sourceTree = "<group>"; };
@@ -295,6 +300,8 @@
 				DAAACCB824CD40BC00E0B44C /* PtpWebcamXpcStream.m */,
 				DAAACCBA24CE9B5A00E0B44C /* PtpWebcamPtp.h */,
 				DAAACCBB24CF5F3100E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist */,
+				DA45A4E024FD8ADA00B14412 /* PtpGridTuneView.h */,
+				DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */,
 			);
 			path = PtpWebcamDalPlugin;
 			sourceTree = "<group>";
@@ -601,6 +608,7 @@
 				DA26811A24821E2A00FF75EF /* PtpWebcamPlugin.m in Sources */,
 				DAAE16C524D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
 				DA8DCF9724E5A3DD00AB90DE /* FoundationExtensions.m in Sources */,
+				DA45A4E224FD8ADA00B14412 /* PtpGridTuneView.m in Sources */,
 				DAD0A387248C8D550029D4FB /* PtpWebcamPtpStream.m in Sources */,
 				DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */,
 				DAD0A384248C86090029D4FB /* PtpWebcamPtpDevice.m in Sources */,
@@ -625,6 +633,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA45A4E324FD8ADA00B14412 /* PtpGridTuneView.m in Sources */,
 				DA608DDB24F0736600F0D9FB /* PtpCameraSony.m in Sources */,
 				DAAE16C624D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
 				DAAACC7724C918C600E0B44C /* main.m in Sources */,
@@ -653,6 +662,7 @@
 				DAAACCCD24CF651400E0B44C /* main.m in Sources */,
 				DAAE16C224D11C6700DE2B9F /* PtpCameraNikon.m in Sources */,
 				DAAACCC524CF651200E0B44C /* PtpWebcamAssistantAppDelegate.m in Sources */,
+				DA45A4E424FD8ADA00B14412 /* PtpGridTuneView.m in Sources */,
 				DA608DDA24F0736500F0D9FB /* PtpCameraSony.m in Sources */,
 				DAAE16C724D1325600DE2B9F /* PtpCameraCanon.m in Sources */,
 			);
@@ -712,7 +722,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
@@ -724,7 +734,7 @@
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
 				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				OTHER_CODE_SIGN_FLAGS = "--options=runtime";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.ptpwebcamdalplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -740,7 +750,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				DSTROOT = /;
@@ -752,7 +762,7 @@
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
 				INSTALL_PATH = "/Library/CoreMediaIO/Plug-ins/DAL";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				OTHER_CODE_SIGN_FLAGS = "--options=runtime";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.ptpwebcamdalplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -881,7 +891,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -898,7 +908,7 @@
 					"$(PROJECT_DIR)",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamPreview;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -915,7 +925,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -932,7 +942,7 @@
 					"$(PROJECT_DIR)",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamPreview;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -947,12 +957,12 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistantService/PtpWebcamAssistantService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAssistantService/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistantService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -965,12 +975,12 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistantService/PtpWebcamAssistantService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAssistantService/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistantService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -984,7 +994,7 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAgent/PtpWebcamAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAgent/Info.plist;
@@ -993,7 +1003,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -1006,7 +1016,7 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAgent/PtpWebcamAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAgent/Info.plist;
@@ -1015,7 +1025,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -1028,7 +1038,7 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistant/PtpWebcamAssistant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
@@ -1037,7 +1047,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -1050,7 +1060,7 @@
 				CODE_SIGN_ENTITLEMENTS = PtpWebcamAssistant/PtpWebcamAssistant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
@@ -1059,7 +1069,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
