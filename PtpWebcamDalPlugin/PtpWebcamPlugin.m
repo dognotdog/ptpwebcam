@@ -20,8 +20,8 @@
 //#import "../PtpWebcamAgent/PtpWebcamAgentProtocol.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
-
 #import <ServiceManagement/ServiceManagement.h>
+#include <servers/bootstrap.h>
 
 // define DUMMY_DEVICE_ENABLED to enable the dummy device to test that the DAL plugin can deliver images without a camera connection
 //#define DUMMY_DEVICE_ENABLED=1
@@ -31,6 +31,10 @@
 	ICDeviceBrowser* deviceBrowser;
 	
 	NSXPCConnection* assistantConnection;
+	
+	NSPort* assistantPort;
+	NSPort* receivePort;
+
 }
 @end
 
@@ -330,31 +334,154 @@
 
 // MARK: Assistant Service
 
+typedef enum {
+	PTP_WEBCAM_ASSISTANT_MSG_INVALID = 0,
+	PTP_WEBCAM_ASSISTANT_MSG_PING,
+	PTP_WEBCAM_ASSISTANT_MSG_PONG,
+} ptpWebcamAssistantMessageId_t;
+
+- (void) pingAssistant
+{
+	NSArray* components = @[
+		[NSData data],
+	];
+	NSPortMessage* msg = [[NSPortMessage alloc] initWithSendPort: assistantPort receivePort: receivePort components: components];
+	msg.msgid = PTP_WEBCAM_ASSISTANT_MSG_PING;
+	
+	[msg sendBeforeDate: [NSDate distantFuture]];
+
+}
+
+- (void) handlePortMessage: (NSPortMessage*) message
+{
+	// we can send to the agent after we received its first message with the correct port
+//	if (message.sendPort)
+//	{
+//		agentPort = message.sendPort;
+//	}
+
+	switch (message.msgid)
+	{
+		case PTP_WEBCAM_ASSISTANT_MSG_PING:
+		{
+			
+			NSArray* components = @[
+				message.components[0],
+			];
+			
+			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: receivePort components: components];
+			response.msgid = PTP_WEBCAM_ASSISTANT_MSG_PONG;
+			
+			[response sendBeforeDate: [NSDate distantFuture]];
+			break;
+		}
+		default:
+		{
+			PtpLog(@"plugin received unknown message with id %d", message.msgid);
+			break;
+		}
+	}
+}
+
 - (void) connectToAssistantService
 {
-	//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+//	NSString* agentPortName = [NSString stringWithFormat: @"org.ptpwebcam.PtpWebcamAssistant"];
+//
+//	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: agentPortName];
+//
+//	if (!assistantPort)
+//	{
+//		NSLog(@"Assistant could not create UI agent Mach port with name %@.", agentPortName);
+//	}
+//
+//	assistantPort.delegate = self;
+//	[[NSRunLoop currentRunLoop] addPort: assistantPort forMode: NSRunLoopCommonModes];
+//
+//	[self pingAssistant];
+
+	mach_port_t assistantServicePort = MACH_PORT_NULL;
+	name_t assistantServiceName = "org.ptpwebcam.PtpWebcamSimpleAssistant";
+	kern_return_t err = bootstrap_look_up(bootstrap_port, assistantServiceName, &assistantServicePort);
+	if (BOOTSTRAP_SUCCESS != err)
+	{
+		// Create an URL to SampleAssistant that resides at "/Library/CoreMediaIO/Plug-Ins/DAL/Sample.plugin/Contents/Resources/SampleAssistant"
+		CFURLRef assistantURL = CFURLCreateWithFileSystemPath(NULL, CFSTR("/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Frameworks/PtpWebcamSimpleAssistant"), kCFURLPOSIXPathStyle, false);
+
+		uint8_t path[2048] = "";
+		
+
+		// Get the file system representation
+		CFURLGetFileSystemRepresentation(assistantURL, true, path, sizeof(path));
+
+		mach_port_t assistantServerPort = MACH_PORT_NULL;
+		err = bootstrap_create_server(bootstrap_port, (char*)path, getuid(), true, &assistantServerPort);
+		// KERN_RPC_CONTINUE_ORPHAN
+		char* errName = bootstrap_strerror(err);
+		assert(BOOTSTRAP_SUCCESS == err);
+
+		err = bootstrap_check_in(assistantServerPort, assistantServiceName, &assistantServicePort);
+
+		// The server port is no longer needed so get rid of it
+		(void) mach_port_deallocate(mach_task_self(), assistantServerPort);
+
+		// Make sure the call to bootstrap_create_service() succeeded
+		assert(BOOTSTRAP_SUCCESS == err);
+
+	}
 	
-	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
-	
-	__weak NSXPCConnection* weakConnection = assistantConnection;
-	assistantConnection.invalidationHandler = ^{
-		NSLog(@"oops, connection failed: %@", weakConnection);
-	};
-	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
-	
-	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
-	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
-	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
-	
-	assistantConnection.exportedObject = self;
-	assistantConnection.exportedInterface = exportedInterface;
-	
-	[assistantConnection resume];
-	
-	// send message to get the service started by launchd
-	[[assistantConnection remoteObjectProxy] pingService:^{
-		PtpLog(@"pong received.");
-	}];
+	mach_port_t recvPort = MACH_PORT_NULL;
+	err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &recvPort);
+
+//	mach_port_t notificationPort = MACH_PORT_NULL;
+//	err = mach_port_request_notification(mach_task_self(), sendPort, MACH_NOTIFY_NO_SENDERS, 1, sendPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &notificationPort);
+//
+//	err = mach_port_move_member(mach_task_self(), sendPort, GetPortSet());
+
+
+	assistantPort = [NSMachPort portWithMachPort: assistantServicePort options: NSMachPortDeallocateNone];
+	receivePort = [NSMachPort portWithMachPort: recvPort options: NSMachPortDeallocateNone];
+
+	if (!assistantPort)
+	{
+		NSLog(@"Plugin could not create assistant Mach port.");
+	}
+
+	assistantPort.delegate = self;
+	receivePort.delegate = self;
+	[[NSRunLoop currentRunLoop] addPort: receivePort forMode: NSRunLoopCommonModes];
+
+	[self pingAssistant];
+
+//	mach_port_deallocate(mach_task_self(), assistantServicePort);
+
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: NSXPCConnectionPrivileged];
+
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistant"];
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
+
+//	__weak NSXPCConnection* weakConnection = assistantConnection;
+//	assistantConnection.invalidationHandler = ^{
+//		NSLog(@"oops, connection failed: %@", weakConnection);
+//	};
+//	assistantConnection.interruptionHandler = ^{
+//		NSLog(@"oops, connection interrupted: %@", weakConnection);
+//	};
+//	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+//
+//	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+//	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+//	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+//
+//	assistantConnection.exportedObject = self;
+//	assistantConnection.exportedInterface = exportedInterface;
+//
+//	[assistantConnection resume];
+//
+//	// send message to get the service started by launchd
+//	[[assistantConnection remoteObjectProxy] pingService:^{
+//		PtpLog(@"pong received.");
+//	}];
 	
 }
 
