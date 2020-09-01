@@ -4,7 +4,7 @@
 <dict>
 	<key>CMIOHardwareAssistantServiceNames</key>
 	<array>
-		<string>org.ptpwebcam.PtpWebcamSimpleAssistant</string>
+		<string>org.ptpwebcam.PtpWebcamAssistant</string>
 	</array>
     <key>NoCMIOHardwarePlugInLazyLoadingInfo</key>
     <array>

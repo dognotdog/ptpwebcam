@@ -9,14 +9,17 @@
 	</dict>
 	<key>ProcessType</key>
 	<string>Interactive</string>
-	<key>Program</key>
-	<string>/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Frameworks/PtpWebcamSimpleAssistant</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources/PtpWebcamSimpleAssistant</string>
+	</array>
 	<key>Label</key>
 	<string>org.ptpwebcam.PtpWebcamAssistant</string>
 	<key>StandardErrorPath</key>
 	<string>/Library/Logs/org.ptpwebcam.PtpWebcamAssistant.stderr.log</string>
 	<key>StandardOutPath</key>
 	<string>/Library/Logs/org.ptpwebcam.PtpWebcamAssistant.stdout.log</string>
-
+    <key>Debug</key>
+    <true/>
 </dict>
 </plist>

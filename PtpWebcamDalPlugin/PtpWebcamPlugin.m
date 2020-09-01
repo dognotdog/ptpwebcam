@@ -88,7 +88,9 @@
 - (OSStatus) initialize
 {
 #ifdef XPC_ASSISTANT_ENABLED
-	[self connectToAssistantService];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			[self connectToAssistantService];
+	});
 #else
 	deviceBrowser = [[ICDeviceBrowser alloc] init];
 	deviceBrowser.delegate = self;
@@ -383,8 +385,77 @@ typedef enum {
 	}
 }
 
+- (void) setupMachPorts
+{
+	kern_return_t err = 0;
+	name_t assistantServiceName = "org.ptpwebcam.PtpWebcamAssistant";
+	
+//	mach_port_t recvPort = MACH_PORT_NULL;
+//	err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &recvPort);
+
+//	mach_port_t notificationPort = MACH_PORT_NULL;
+//	err = mach_port_request_notification(mach_task_self(), sendPort, MACH_NOTIFY_NO_SENDERS, 1, sendPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &notificationPort);
+//
+//	err = mach_port_move_member(mach_task_self(), sendPort, GetPortSet());
+
+//	mach_port_t assistantServicePort = MACH_PORT_NULL;
+//	err = bootstrap_look_up(bootstrap_port, assistantServiceName, &assistantServicePort);
+
+	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: [NSString stringWithCString: assistantServiceName encoding: NSUTF8StringEncoding]];
+//	assistantPort = [NSMachPort portWithMachPort: assistantServicePort options: NSMachPortDeallocateNone];
+	receivePort = [NSMachPort port];
+
+	if (!assistantPort)
+	{
+		NSLog(@"Plugin could not create assistant Mach port.");
+	}
+
+	assistantPort.delegate = self;
+	receivePort.delegate = self;
+	[[NSRunLoop currentRunLoop] addPort: receivePort forMode: NSRunLoopCommonModes];
+
+	[self pingAssistant];
+
+}
+
+- (void) setupXpc
+{
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: NSXPCConnectionPrivileged];
+
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistant"];
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
+
+	__weak NSXPCConnection* weakConnection = assistantConnection;
+	assistantConnection.invalidationHandler = ^{
+		NSLog(@"oops, connection failed: %@", weakConnection);
+	};
+	assistantConnection.interruptionHandler = ^{
+		NSLog(@"oops, connection interrupted: %@", weakConnection);
+	};
+	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+
+	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+
+	assistantConnection.exportedObject = self;
+	assistantConnection.exportedInterface = exportedInterface;
+
+	[assistantConnection resume];
+
+	// send message to get the service started by launchd
+	[[assistantConnection remoteObjectProxy] pingService:^{
+		PtpLog(@"pong received.");
+	}];
+
+}
+
 - (void) connectToAssistantService
 {
+	[self setupXpc];
+	return;
+	
 //	NSString* agentPortName = [NSString stringWithFormat: @"org.ptpwebcam.PtpWebcamAssistant"];
 //
 //	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: agentPortName];
@@ -399,38 +470,39 @@ typedef enum {
 //
 //	[self pingAssistant];
 
-	mach_port_t assistantServicePort = MACH_PORT_NULL;
-	name_t assistantServiceName = "org.ptpwebcam.PtpWebcamSimpleAssistant";
-	kern_return_t err = bootstrap_look_up(bootstrap_port, assistantServiceName, &assistantServicePort);
-	if (BOOTSTRAP_SUCCESS != err)
-	{
-		// Create an URL to SampleAssistant that resides at "/Library/CoreMediaIO/Plug-Ins/DAL/Sample.plugin/Contents/Resources/SampleAssistant"
-		CFURLRef assistantURL = CFURLCreateWithFileSystemPath(NULL, CFSTR("/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Frameworks/PtpWebcamSimpleAssistant"), kCFURLPOSIXPathStyle, false);
+//	mach_port_t assistantServicePort = MACH_PORT_NULL;
+//	name_t assistantServiceName = "org.ptpwebcam.PtpWebcamAssistant";
+//	kern_return_t err = bootstrap_look_up(bootstrap_port, assistantServiceName, &assistantServicePort);
+//	if (BOOTSTRAP_SUCCESS != err)
+//	{
+//		// Create an URL to SampleAssistant that resides at "/Library/CoreMediaIO/Plug-Ins/DAL/Sample.plugin/Contents/Resources/SampleAssistant"
+//		CFURLRef assistantURL = CFURLCreateWithFileSystemPath(NULL, CFSTR("/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources/PtpWebcamSimpleAssistant"), kCFURLPOSIXPathStyle, false);
+//
+//		uint8_t path[2048] = "";
+//
+//
+//		// Get the file system representation
+//		CFURLGetFileSystemRepresentation(assistantURL, true, path, sizeof(path));
+//
+//		mach_port_t assistantServerPort = MACH_PORT_NULL;
+//		err = bootstrap_create_server(bootstrap_port, (char*)path, getuid(), true, &assistantServerPort);
+//		// KERN_RPC_CONTINUE_ORPHAN
+//		char* errName = bootstrap_strerror(err);
+//		assert(BOOTSTRAP_SUCCESS == err);
+//
+//		err = bootstrap_check_in(assistantServerPort, assistantServiceName, &assistantServicePort);
+//
+//		// The server port is no longer needed so get rid of it
+//		(void) mach_port_deallocate(mach_task_self(), assistantServerPort);
+//
+//		// Make sure the call to bootstrap_create_service() succeeded
+//		assert(BOOTSTRAP_SUCCESS == err);
+//
+//	}
+//	PtpLog(@"opened assistant mach service port.");
 
-		uint8_t path[2048] = "";
-		
-
-		// Get the file system representation
-		CFURLGetFileSystemRepresentation(assistantURL, true, path, sizeof(path));
-
-		mach_port_t assistantServerPort = MACH_PORT_NULL;
-		err = bootstrap_create_server(bootstrap_port, (char*)path, getuid(), true, &assistantServerPort);
-		// KERN_RPC_CONTINUE_ORPHAN
-		char* errName = bootstrap_strerror(err);
-		assert(BOOTSTRAP_SUCCESS == err);
-
-		err = bootstrap_check_in(assistantServerPort, assistantServiceName, &assistantServicePort);
-
-		// The server port is no longer needed so get rid of it
-		(void) mach_port_deallocate(mach_task_self(), assistantServerPort);
-
-		// Make sure the call to bootstrap_create_service() succeeded
-		assert(BOOTSTRAP_SUCCESS == err);
-
-	}
-	
 	mach_port_t recvPort = MACH_PORT_NULL;
-	err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &recvPort);
+	kern_return_t err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &recvPort);
 
 //	mach_port_t notificationPort = MACH_PORT_NULL;
 //	err = mach_port_request_notification(mach_task_self(), sendPort, MACH_NOTIFY_NO_SENDERS, 1, sendPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &notificationPort);
@@ -438,7 +510,7 @@ typedef enum {
 //	err = mach_port_move_member(mach_task_self(), sendPort, GetPortSet());
 
 
-	assistantPort = [NSMachPort portWithMachPort: assistantServicePort options: NSMachPortDeallocateNone];
+//	assistantPort = [NSMachPort portWithMachPort: assistantServicePort options: NSMachPortDeallocateNone];
 	receivePort = [NSMachPort portWithMachPort: recvPort options: NSMachPortDeallocateNone];
 
 	if (!assistantPort)
