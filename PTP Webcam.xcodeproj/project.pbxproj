@@ -25,7 +25,6 @@
 		DA45A4E224FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
 		DA45A4E324FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
 		DA45A4E424FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
-		DA45A4E524FDB30000B14412 /* PtpWebcamAssistant.app in Copy to Frameworks */ = {isa = PBXBuildFile; fileRef = DAAACCC124CF651200E0B44C /* PtpWebcamAssistant.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA45A4E624FDB4C300B14412 /* PtpCamera.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD824CFDEA600E0B44C /* PtpCamera.m */; };
 		DA45A4EA24FDB55E00B14412 /* PtpWebcamAlerts_noGui.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E724FDB55E00B14412 /* PtpWebcamAlerts_noGui.m */; };
 		DA45A4EC24FDB5E700B14412 /* org.ptpwebcam.PtpWebcamAssistant.plist in Copy LaunchDaemon plist */ = {isa = PBXBuildFile; fileRef = DAAACCBB24CF5F3100E0B44C /* org.ptpwebcam.PtpWebcamAssistant.plist */; };
@@ -42,7 +41,6 @@
 		DAAACC9324C9FDF700E0B44C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DAAACC9224C9FDF700E0B44C /* Assets.xcassets */; };
 		DAAACC9624C9FDF700E0B44C /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DAAACC9424C9FDF700E0B44C /* MainMenu.xib */; };
 		DAAACC9924C9FDF700E0B44C /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACC9824C9FDF700E0B44C /* main.m */; };
-		DAAACCA624CA0A6E00E0B44C /* PtpWebcamAgent.app in Copy to Frameworks */ = {isa = PBXBuildFile; fileRef = DAAACC8D24C9FDF500E0B44C /* PtpWebcamAgent.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DAAACCAA24CAAA3000E0B44C /* PtpWebcamAssistantService.xpc in Copy XPC Services */ = {isa = PBXBuildFile; fileRef = DAAACC7024C918C500E0B44C /* PtpWebcamAssistantService.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DAAACCAF24CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
 		DAAACCB024CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
@@ -145,8 +143,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				DA45A4E524FDB30000B14412 /* PtpWebcamAssistant.app in Copy to Frameworks */,
-				DAAACCA624CA0A6E00E0B44C /* PtpWebcamAgent.app in Copy to Frameworks */,
 			);
 			name = "Copy to Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1190,9 +1186,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 20;
+				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				DSTROOT = /;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAgent/Info.plist;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1201,6 +1200,7 @@
 				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
 			};
 			name = Debug;
 		};
@@ -1212,9 +1212,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 20;
+				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				DSTROOT = /;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PtpWebcamAgent/Info.plist;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1223,6 +1226,7 @@
 				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
 			};
 			name = Release;
 		};
@@ -1234,9 +1238,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 20;
+				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				DSTROOT = /;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1245,6 +1252,7 @@
 				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
 			};
 			name = Debug;
 		};
@@ -1256,9 +1264,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 20;
+				DEPLOYMENT_LOCATION = YES;
 				DEVELOPMENT_TEAM = ZYF8X9Z6M2;
+				DSTROOT = /;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = PtpWebcamAssistant/Info.plist;
+				INSTALL_PATH = "/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1267,6 +1278,7 @@
 				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
 			};
 			name = Release;
 		};
