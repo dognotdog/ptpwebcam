@@ -12,12 +12,21 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@protocol PtpWebcamMachAssistantDaemonProtocol <NSObject>
+
+- (void) cameraReady: (PtpCamera*) camera;
+//- (void) camera: (PtpCamera*) camera propertyChanged: (NSDictionary*) propertyInfo;
+- (void) camera: (PtpCamera*) camera didReceiveLiveViewJpegImage: (NSData*) jpegData withInfo: (NSDictionary*) info;
+- (void) cameraLiveViewReady: (PtpCamera*) camera;
+
+@end
+
 @class PtpWebcamAssistantService;
 
 @interface PtpCameraMachAssistant : NSObject <PtpCameraDelegate, NSPortDelegate>
 
 @property PtpCamera* camera;
-@property PtpWebcamAssistantService* service;
+@property id <PtpWebcamMachAssistantDaemonProtocol> service;
 
 @end
 

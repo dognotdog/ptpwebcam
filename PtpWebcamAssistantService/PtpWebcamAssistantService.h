@@ -8,6 +8,7 @@
 
 #import <Foundation/Foundation.h>
 #import "PtpWebcamAssistantServiceProtocol.h"
+#import "PtpCameraMachAssistant.h"
 
 #import <ImageCaptureCore/ICDeviceBrowser.h>
 
@@ -18,7 +19,7 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...);
 
 
 // This object implements the protocol which we have defined. It provides the actual behavior for the service. It is 'exported' by the service to make it available to the process hosting the service over an NSXPCConnection.
-@interface PtpWebcamAssistantService : NSObject <PtpWebcamAssistantServiceProtocol, ICDeviceBrowserDelegate, ICDeviceDelegate, NSXPCListenerDelegate>
+@interface PtpWebcamAssistantService : NSObject <PtpWebcamMachAssistantDaemonProtocol, PtpWebcamAssistantServiceProtocol, ICDeviceBrowserDelegate, ICDeviceDelegate, NSXPCListenerDelegate>
 
 @property NSDictionary* devices;
 

@@ -15,6 +15,8 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...)
 	NSString* message = [[NSString alloc] initWithFormat: format arguments: args];
 	va_end(args);
 	
+	NSLog(@"PtpWebcamShowDeviceAlert %@", message);
+
 //	NSLog(@"PtpWebcamDalPlugin process name: %@", [[NSProcessInfo processInfo] processName]);
 //	NSLog(@"PtpWebcamDalPlugin experienced a catastrophic failure: %@", message);
 //
@@ -38,6 +40,8 @@ void PtpWebcamShowDeviceAlert(NSString* format, ...)
 	NSString* message = [[NSString alloc] initWithFormat: format arguments: args];
 	va_end(args);
 	
+	NSLog(@"PtpWebcamShowDeviceAlert %@", message);
+
 //	NSLog(@"PtpWebcamDalPlugin process name: %@", [[NSProcessInfo processInfo] processName]);
 //	NSLog(@"PtpWebcamDalPlugin experienced a device failure: %@", message);
 //
@@ -60,6 +64,8 @@ void PtpWebcamShowInfoAlert(NSString* title, NSString* format, ...)
     va_start(args, format);
 	NSString* message = [[NSString alloc] initWithFormat: format arguments: args];
 	va_end(args);
+	
+	NSLog(@"PtpWebcamShowInfoAlert %@", message);
 		
 //	if (!PtpWebcamIsProcessGuiBlacklisted())
 //	{
@@ -72,4 +78,9 @@ void PtpWebcamShowInfoAlert(NSString* title, NSString* format, ...)
 //			[alert runModal];
 //		});
 //	}
+}
+
+void PTPWebcamShowCameraIssueBlockingAlert(NSString* make, NSString* model)
+{
+	NSLog(@"PTPWebcamShowCameraIssueBlockingAlert %@ %@", make, model);
 }
