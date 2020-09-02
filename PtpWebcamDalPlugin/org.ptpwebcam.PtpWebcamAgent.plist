@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>MachServices</key>
+	<dict>
+		<key>org.ptpwebcam.PtpWebcamAgent</key>
+		<true/>
+	</dict>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Frameworks/PtpWebcamLaunchAgent.app/Contents/MacOS/PtpWebcamLaunchAgent</string>
+	</array>
+	<key>Label</key>
+	<string>org.ptpwebcam.PtpWebcamAgent</string>
+	<key>Debug</key>
+	<true/>
+	<key>LaunchEvents</key>
+	<dict>
+		<key>com.apple.iokit.matching</key>
+		<dict>
+			<key>com.apple.device-attach</key>
+			<dict>
+				<key>idProduct</key>
+				<integer>1066</integer>
+				<key>idVendor</key>
+				<integer>1200</integer>
+				<key>IOProviderClass</key>
+				<string>IOUSBDevice</string>
+				<key>IOMatchLaunchStream</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>KeepAlive</key>
+	<false/>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

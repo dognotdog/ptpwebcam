@@ -13,7 +13,8 @@
 @implementation PtpWebcamAssistantDaemon
 {
 	ICDeviceBrowser* deviceBrowser;
-	
+	NSXPCConnection* agentConnection;
+
 }
 
 - (instancetype) init
@@ -43,6 +44,7 @@
 	listener.delegate = self;
 	[listener resume];
 
+//	[self setupAgentXpc];
 }
 
 - (void) startLiveViewForCamera:(id)cameraId
@@ -244,5 +246,37 @@
 		[[connection remoteObjectProxy] liveViewReadyforCameraWithId: camera.cameraId];
 	}
 }
+
+#pragma mark Agent Comms
+
+- (void) setupAgentXpc
+{
+	agentConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+
+	__weak NSXPCConnection* weakConnection = agentConnection;
+	agentConnection.invalidationHandler = ^{
+		NSLog(@"oops, connection failed: %@", weakConnection);
+	};
+	agentConnection.interruptionHandler = ^{
+		NSLog(@"oops, connection interrupted: %@", weakConnection);
+	};
+	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+
+	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+
+	agentConnection.exportedObject = self;
+	agentConnection.exportedInterface = exportedInterface;
+
+	[agentConnection resume];
+
+	// send message to get the service started by launchd
+	[[agentConnection remoteObjectProxy] pingService:^{
+		PtpLog(@"agent pong received.");
+	}];
+
+}
+
 
 @end

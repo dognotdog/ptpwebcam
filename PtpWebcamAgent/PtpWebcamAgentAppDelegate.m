@@ -17,6 +17,8 @@
 	NSPort* assistantPort;
 	NSPort* agentPort;
 	NSStatusItem* statusItem;
+	
+	NSXPCConnection* assistantConnection;
 }
 
 @end
@@ -101,7 +103,7 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 	exit(0);
 }
 
-- (void)applicationDidFinishLaunching:(NSNotification *)aNotification
+- (void) connectToAssistantXpcService
 {
 	NSArray* args = [[NSProcessInfo processInfo] arguments];
 	
@@ -127,6 +129,45 @@ static NSDictionary* _ptpLiveViewImageSizeNames = nil;
 	}
 	
 	[self connectToAssistantService];
+
+}
+
+- (void) connectToAssistantDaemon
+{
+//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
+	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: NSXPCConnectionPrivileged];
+
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistant"];
+//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
+
+	__weak NSXPCConnection* weakConnection = assistantConnection;
+	assistantConnection.invalidationHandler = ^{
+		NSLog(@"oops, connection failed: %@", weakConnection);
+	};
+	assistantConnection.interruptionHandler = ^{
+		NSLog(@"oops, connection interrupted: %@", weakConnection);
+	};
+	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+
+	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+
+	assistantConnection.exportedObject = self;
+	assistantConnection.exportedInterface = exportedInterface;
+
+	[assistantConnection resume];
+
+	// send message to get the service started by launchd
+	[[assistantConnection remoteObjectProxy] pingService:^{
+		PtpLog(@"assistant pong received.");
+	}];
+
+}
+
+- (void)applicationDidFinishLaunching:(NSNotification *)aNotification
+{
+	[self connectToAssistantXpcService];
 	
 //	// LaunchServices automatically registers a mach service of the same
 //	// name as our bundle identifier.

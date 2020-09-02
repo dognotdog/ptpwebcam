@@ -6,18 +6,18 @@
 //  Copyright © 2020 Doemoetoer Gulyas. All rights reserved.
 //
 
-#import "AppDelegate.h"
+#import "PtpWebcamLaunchAgentAppDelegate.h"
 
-@interface AppDelegate ()
+@interface PtpWebcamLaunchAgentAppDelegate ()
 {
 }
 
 @property (weak) IBOutlet NSWindow *window;
 @end
 
-static AppDelegate* _sharedAppDelegate = nil;
+static PtpWebcamLaunchAgentAppDelegate* _sharedAppDelegate = nil;
 
-@implementation AppDelegate
+@implementation PtpWebcamLaunchAgentAppDelegate
 
 + (instancetype) sharedAppDelegate
 {

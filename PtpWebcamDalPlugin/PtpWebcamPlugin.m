@@ -31,8 +31,10 @@
 	ICDeviceBrowser* deviceBrowser;
 	
 	NSXPCConnection* assistantConnection;
-	
+	NSXPCConnection* agentConnection;
+
 	NSPort* assistantPort;
+	NSPort* agentPort;
 	NSPort* receivePort;
 
 }
@@ -418,7 +420,7 @@ typedef enum {
 
 }
 
-- (void) setupXpc
+- (void) setupAssistantXpc
 {
 //	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
 	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: NSXPCConnectionPrivileged];
@@ -446,14 +448,44 @@ typedef enum {
 
 	// send message to get the service started by launchd
 	[[assistantConnection remoteObjectProxy] pingService:^{
-		PtpLog(@"pong received.");
+		PtpLog(@"assistant pong received.");
+	}];
+
+}
+
+- (void) setupAgentXpc
+{
+	agentConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+
+	__weak NSXPCConnection* weakConnection = agentConnection;
+	agentConnection.invalidationHandler = ^{
+		NSLog(@"oops, connection failed: %@", weakConnection);
+	};
+	agentConnection.interruptionHandler = ^{
+		NSLog(@"oops, connection interrupted: %@", weakConnection);
+	};
+	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+
+	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+
+	agentConnection.exportedObject = self;
+	agentConnection.exportedInterface = exportedInterface;
+
+	[agentConnection resume];
+
+	// send message to get the service started by launchd
+	[[agentConnection remoteObjectProxy] pingService:^{
+		PtpLog(@"agent pong received.");
 	}];
 
 }
 
 - (void) connectToAssistantService
 {
-	[self setupXpc];
+//	[self setupAssistantXpc];
+	[self setupAgentXpc];
 }
 
 - (nullable id) xpcDeviceWithId: (id) cameraId

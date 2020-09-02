@@ -2,19 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CMIOHardwareAssistantServiceNames</key>
-	<array>
-		<string>org.ptpwebcam.PtpWebcamAssistant</string>
-		<string>org.ptpwebcam.PtpWebcamAgent</string>
-	</array>
-    <key>NoCMIOHardwarePlugInLazyLoadingInfo</key>
-    <array>
-        <dict/>
-    </array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconFile</key>
+	<string></string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -24,20 +17,22 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
+	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CFPlugInFactories</key>
-	<dict>
-		<key>B929A70E-8EF3-4ED3-8E8A-BC7E98922A3A</key>
-		<string>PtpWebcamPluginFactory</string>
-	</dict>
-	<key>CFPlugInTypes</key>
-	<dict>
-		<key>30010C1C-93BF-11D8-8B5B-000A95AF9C6A</key>
-		<string>B929A70E-8EF3-4ED3-8E8A-BC7E98922A3A</string>
-	</dict>
+	<string>1</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2020 Doemoetoer Gulyas. All rights reserved.</string>
+	<string>Copyright © 2020 InRobCo. All rights reserved.</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<true/>
+	<key>NSSupportsSuddenTermination</key>
+	<true/>
 </dict>
 </plist>
