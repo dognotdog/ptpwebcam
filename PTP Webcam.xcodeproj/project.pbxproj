@@ -38,6 +38,15 @@
 		DA34C59524FF5AC5008D3CAD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA34C59424FF5AC5008D3CAD /* Assets.xcassets */; };
 		DA34C59824FF5AC5008D3CAD /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA34C59624FF5AC5008D3CAD /* MainMenu.xib */; };
 		DA34C59B24FF5AC5008D3CAD /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA34C59A24FF5AC5008D3CAD /* main.m */; };
+		DA34C5A424FF600E008D3CAD /* PtpCameraSettingsController.m in Sources */ = {isa = PBXBuildFile; fileRef = DA34C5A324FF600E008D3CAD /* PtpCameraSettingsController.m */; };
+		DA34C5A524FF600E008D3CAD /* PtpCameraSettingsController.m in Sources */ = {isa = PBXBuildFile; fileRef = DA34C5A324FF600E008D3CAD /* PtpCameraSettingsController.m */; };
+		DA34C5A624FF62E8008D3CAD /* FoundationExtensions.m in Sources */ = {isa = PBXBuildFile; fileRef = DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */; };
+		DA34C5A724FF62F5008D3CAD /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
+		DA34C5A824FF62F9008D3CAD /* PtpCamera.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCD824CFDEA600E0B44C /* PtpCamera.m */; };
+		DA34C5A924FF62FC008D3CAD /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
+		DA34C5AA24FF62FF008D3CAD /* PtpCameraNikon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */; };
+		DA34C5AB24FF6302008D3CAD /* PtpCameraCanon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */; };
+		DA34C5AC24FF6306008D3CAD /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
 		DA45A4E224FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
 		DA45A4E324FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
 		DA45A4E424FD8ADA00B14412 /* PtpGridTuneView.m in Sources */ = {isa = PBXBuildFile; fileRef = DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */; };
@@ -263,6 +272,8 @@
 		DA34C59924FF5AC5008D3CAD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA34C59A24FF5AC5008D3CAD /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DA34C59C24FF5AC5008D3CAD /* PtpWebcamLaunchAgent.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PtpWebcamLaunchAgent.entitlements; sourceTree = "<group>"; };
+		DA34C5A224FF600E008D3CAD /* PtpCameraSettingsController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraSettingsController.h; sourceTree = "<group>"; };
+		DA34C5A324FF600E008D3CAD /* PtpCameraSettingsController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraSettingsController.m; sourceTree = "<group>"; };
 		DA45A4E024FD8ADA00B14412 /* PtpGridTuneView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpGridTuneView.h; sourceTree = "<group>"; };
 		DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpGridTuneView.m; sourceTree = "<group>"; };
 		DA45A4E724FDB55E00B14412 /* PtpWebcamAlerts_noGui.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PtpWebcamAlerts_noGui.m; path = PtpWebcamAssistant/PtpWebcamAlerts_noGui.m; sourceTree = SOURCE_ROOT; };
@@ -438,6 +449,8 @@
 				DAAACCBA24CE9B5A00E0B44C /* PtpWebcamPtp.h */,
 				DA45A4E024FD8ADA00B14412 /* PtpGridTuneView.h */,
 				DA45A4E124FD8ADA00B14412 /* PtpGridTuneView.m */,
+				DA34C5A224FF600E008D3CAD /* PtpCameraSettingsController.h */,
+				DA34C5A324FF600E008D3CAD /* PtpCameraSettingsController.m */,
 			);
 			path = PtpWebcamDalPlugin;
 			sourceTree = "<group>";
@@ -897,6 +910,7 @@
 				DA26812024884B9E00FF75EF /* PtpWebcamStream.m in Sources */,
 				DA2681172481C4E300FF75EF /* PtpWebcamPluginInterface.m in Sources */,
 				DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */,
+				DA34C5A424FF600E008D3CAD /* PtpCameraSettingsController.m in Sources */,
 				DAAACCB624CD402800E0B44C /* PtpWebcamXpcDevice.m in Sources */,
 				DA26811D24822FEF00FF75EF /* PtpWebcamDevice.m in Sources */,
 				DAAACCDA24D0643800E0B44C /* PtpCamera.m in Sources */,
@@ -953,8 +967,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA34C5A524FF600E008D3CAD /* PtpCameraSettingsController.m in Sources */,
 				DA34C59B24FF5AC5008D3CAD /* main.m in Sources */,
 				DA34C59324FF5AC3008D3CAD /* PtpWebcamLaunchAgentAppDelegate.m in Sources */,
+				DA34C5A624FF62E8008D3CAD /* FoundationExtensions.m in Sources */,
+				DA34C5A724FF62F5008D3CAD /* PtpGridTuneView.m in Sources */,
+				DA34C5A824FF62F9008D3CAD /* PtpCamera.m in Sources */,
+				DA34C5A924FF62FC008D3CAD /* PtpCameraSony.m in Sources */,
+				DA34C5AA24FF62FF008D3CAD /* PtpCameraNikon.m in Sources */,
+				DA34C5AB24FF6302008D3CAD /* PtpCameraCanon.m in Sources */,
+				DA34C5AC24FF6306008D3CAD /* PtpWebcamAlerts.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1088,7 +1110,7 @@
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"XPC_ASSISTANT_ENABLED=1",
+					"XPC_ASSISTANT_DISABLED=1",
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;
