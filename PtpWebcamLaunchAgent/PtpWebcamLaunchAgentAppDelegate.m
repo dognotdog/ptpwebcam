@@ -34,13 +34,25 @@
 	return self;
 }
 
+- (void) startEventStreamHandler
+{
+//	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+	xpc_set_event_stream_handler("com.apple.iokit.matching", NULL, ^(xpc_object_t _Nonnull object) {
+		const char *event = xpc_dictionary_get_string(object, XPC_EVENT_KEY_NAME);
+		NSLog(@"%s", event);
+//		dispatch_semaphore_signal(semaphore);
+	});
+//	dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 1*NSEC_PER_SEC));
+
+}
+
 - (void) startListening
 {
 	NSXPCListener* listener = [[NSXPCListener alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent"];
 	listener.delegate = self;
 	[listener resume];
 	
-//	[self startEventStreamHandler];
+	[self startEventStreamHandler];
 //	[self setupAssistantXpc];
 //
 	[self createStatusItem];
