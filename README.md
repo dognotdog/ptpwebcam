@@ -38,7 +38,12 @@ If the camera is connected, a status bar item with the camera's model number sho
 
 ### Uninstalling
 
-Delete `/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin` to uninstall the plugin.
+Delete the following files and reboot to uninstall PTP Webcam:
+```
+/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin
+/Library/LaunchDaemons/org.ptpwebcam.PtpWebcamAssistant.plist
+/Library/LaunchAgents/org.ptpwebcam.PtpWebcamAgent.plist
+```
 
 ## Supported Cameras over USB
 
@@ -89,6 +94,13 @@ codesign --remove-signature /Applications/Google\ Chrome.app
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper.app
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(GPU\).app
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
+```
+
+### Debug / Crash Logs
+
+The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages and crash traces to
+```
+/tmp/org.ptpwebcam.PtpWebcamAgent.stderr.log
 ```
 
 ### Canon EOS Webcam Utility Incompatibility
