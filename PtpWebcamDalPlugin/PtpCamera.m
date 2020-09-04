@@ -1107,6 +1107,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	uint8_t rw = 0;
 	[data getBytes: &rw range: NSMakeRange(4, sizeof(rw))];
 
+	// FIXME: old assertion, probably ok to remove now
 //	assert((dataType < PTP_DATATYPE_ARRAY_MASK) || (dataType == PTP_DATATYPE_STRING));
 
 	NSData* valuesData = [data subdataWithRange: NSMakeRange( 5, data.length - 5)];
