@@ -42,8 +42,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSDictionary* uiPtpSubProperties; // UI submenu
 
 @property size_t liveViewHeaderLength;
+@property(getter=isLiveViewRequestInProgress) BOOL liveViewRequestInProgress;
 
 @property(getter=isReadyForUse) BOOL readyForUse;
+@property(getter=isInLiveView) BOOL  inLiveView;
+
 
 + (void) registerSupportedCameras: (NSDictionary*) supportedCameras byClass: (Class) aClass;
 
@@ -83,9 +86,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData* _Nullable * _Nullable) remData; // override in subclasses where enum range is non-conforming (looking at you, Canon)
 
 - (void) ptpQueryKnownDeviceProperties;
-- (void) requestSendPtpCommandWithCode: (int) code;
-- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params;
-- (void) requestSendPtpCommandWithCode: (int) code parameters: (nullable NSArray*) params data: (nullable NSData*) data;
+- (uint32_t) requestSendPtpCommandWithCode: (int) code;
+- (uint32_t) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params;
+- (uint32_t) requestSendPtpCommandWithCode: (int) code parameters: (nullable NSArray*) params data: (nullable NSData*) data;
 - (NSData*) ptpCommandWithType: (uint16_t) type code: (uint16_t) code transactionId: (uint32_t) transId parameters: (nullable NSData*) paramData;
 - (void) sendPtpCommand: (NSData*) command withData: (nullable NSData*) data;
 
@@ -98,6 +101,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) stopLiveView;
 - (void) liveViewInterrupted; // called by subclass to indicate temporary problem with video stream, pendant to -cameraDidBecomeReadyForLiveViewStreaming
 - (void) requestLiveViewImage;
+- (BOOL) shouldRequestNewLiveViewImage; // called by subclass
+- (void) liveViewImageReceived; // called by subclass
 - (NSSize) currenLiveViewImageSize;
 - (NSArray*) liveViewImageSizes;
 - (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData;

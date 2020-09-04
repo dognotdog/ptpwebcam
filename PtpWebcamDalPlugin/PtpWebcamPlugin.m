@@ -416,7 +416,8 @@
 	[assistantConnection resume];
 
 	// send message to get the assistant started by launchd
-	[[assistantConnection remoteObjectProxy] ping: @"DalPlugin" withCallback:^(NSString *pongMessage) {
+	NSString* pingName = [NSString stringWithFormat: @"%@-%d", [[NSProcessInfo processInfo] processName], [[NSProcessInfo processInfo] processIdentifier]];
+	[[assistantConnection remoteObjectProxy] ping: pingName withCallback:^(NSString *pongMessage) {
 		PtpLog(@"assistant pong received: %@", pongMessage);
 	}];
 
@@ -458,7 +459,8 @@
 
 	[agentConnection resume];
 
-	[[agentConnection remoteObjectProxy] ping: @"DalPlugin" withCallback:^(NSString *pongMessage) {
+	NSString* pingName = [NSString stringWithFormat: @"%@-%d", [[NSProcessInfo processInfo] processName], [[NSProcessInfo processInfo] processIdentifier]];
+	[[agentConnection remoteObjectProxy] ping: pingName withCallback:^(NSString *pongMessage) {
 		PtpLog(@"agent pong received: %@", pongMessage);
 	}];
 

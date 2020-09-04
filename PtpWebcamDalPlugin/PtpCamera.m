@@ -35,7 +35,6 @@ typedef enum {
 	dispatch_queue_t frameQueue;
 	dispatch_source_t frameTimerSource;
 	id videoActivityToken;
-	BOOL inLiveView;
 }
 
 static NSDictionary* _supportedCameras = nil;
@@ -913,9 +912,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			[self parsePtpPropertyValue: data];
 			break;
 		default:
-			PtpLog(@"     cmd=%@", command);
-			PtpLog(@"    data=%@", data);
-			PtpLog(@" reponse=%@", response);
+			PtpLog(@"cmd=%@, response=%@, data=%@", command, response, data);
 			break;
 	}
 	
@@ -1557,23 +1554,25 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 }
 
-- (void) requestSendPtpCommandWithCode: (int) code
+- (uint32_t) requestSendPtpCommandWithCode: (int) code
 {
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId]];
+	uint32_t transactionId = [self nextTransactionId];
+	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: transactionId];
 	
 	[self.icCamera requestSendPTPCommand: command
 									 outData: nil
 						 sendCommandDelegate: self
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
 								 contextInfo: NULL];
+	return transactionId;
 }
 
-- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params
+- (uint32_t) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params
 {
-	[self requestSendPtpCommandWithCode: code parameters: params data: nil];
+	return [self requestSendPtpCommandWithCode: code parameters: params data: nil];
 }
 
-- (void) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params data: (NSData*) data
+- (uint32_t) requestSendPtpCommandWithCode: (int) code parameters: (NSArray*) params data: (NSData*) data
 {
 	NSMutableData* paramData = [NSMutableData data];
 	for (NSNumber* param in params)
@@ -1582,13 +1581,15 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		[paramData appendBytes: &pval length: sizeof(pval)];
 	}
 
-	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: [self nextTransactionId] parameters: paramData.length ? paramData : nil];
+	uint32_t transactionId = [self nextTransactionId];
+	NSData* command = [self ptpCommandWithType: PTP_TYPE_COMMAND code: code transactionId: transactionId parameters: paramData.length ? paramData : nil];
 	
 	[self.icCamera requestSendPTPCommand: command
 									 outData: data
 						 sendCommandDelegate: self
 					  didSendCommandSelector: @selector(didSendPTPCommand:inData:response:error:contextInfo:)
 								 contextInfo: NULL];
+	return transactionId;
 }
 
 
@@ -1684,7 +1685,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	videoActivityToken = [[NSProcessInfo processInfo] beginActivityWithOptions: (NSActivityLatencyCritical | NSActivityUserInitiated) reason: @"Live Video"];
 	
-	inLiveView = YES;
+	self.inLiveView = YES;
 	
 	
 	if ([self.delegate respondsToSelector: @selector(cameraDidBecomeReadyForLiveViewStreaming:)])
@@ -1710,11 +1711,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	PtpLog(@"");
 	@synchronized (self) {
-		if (inLiveView)
+		if (self.isInLiveView)
 		{
 			if (frameTimerSource)
-				dispatch_suspend(frameTimerSource);
-			inLiveView = NO;
+				dispatch_cancel(frameTimerSource);
+			frameTimerSource = nil;
+			self.inLiveView = NO;
 
 		}
 	}
@@ -1727,11 +1729,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 {
 	PtpLog(@"");
 	@synchronized (self) {
-		if (inLiveView)
+		if (self.isInLiveView)
 		{
 			if (frameTimerSource)
-				dispatch_suspend(frameTimerSource);
-			inLiveView = NO;
+				dispatch_cancel(frameTimerSource);
+			frameTimerSource = nil;
+			self.inLiveView = NO;
 		}
 	}
 }
@@ -1772,6 +1775,33 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	return [liveViewData subdataWithRange: NSMakeRange( offs, jpeglen)];
 	
+}
+
+- (BOOL) shouldRequestNewLiveViewImage
+{
+	@synchronized (self) {
+		if (!self.isLiveViewRequestInProgress)
+		{
+			self.liveViewRequestInProgress = YES;
+			return YES;
+		}
+		else
+			return NO;
+	}
+}
+
+- (void) liveViewImageRequested
+{
+	@synchronized (self) {
+		self.liveViewRequestInProgress = YES;
+	}
+}
+- (void) liveViewImageReceived
+{
+	@synchronized (self) {
+		self.liveViewRequestInProgress = NO;
+	}
+
 }
 
 - (void) requestLiveViewImage

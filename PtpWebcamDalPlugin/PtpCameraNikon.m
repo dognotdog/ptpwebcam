@@ -372,7 +372,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	
 	if (!data) // no data means no image to present
 	{
-		NSLog(@"parsePtpLiveViewImageResponse: no data!");
+		PtpLog(@"parsePtpLiveViewImageResponse: no data!");
 		
 		// restart live view if it got turned off after timeout or error
 		// device busy does not restart, as it does not indicate a permanent error condition that necessitates cycling.
@@ -513,6 +513,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			break;
 		case PTP_CMD_NIKON_GETLIVEVIEWIMG:
 		{
+			[self liveViewImageReceived];
 			[self parsePtpLiveViewImageResponse: response data: data];
 //			if (inLiveView)
 //				[self requestLiveViewImage];
@@ -794,10 +795,13 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_STATUS];
 }
 
+
 - (void) requestLiveViewImage
 {
-	[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETLIVEVIEWIMG];
+	if ([self shouldRequestNewLiveViewImage])
+		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETLIVEVIEWIMG];
 }
+
 - (NSSize) currenLiveViewImageSize
 {
 	NSDictionary* liveViewSizeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];

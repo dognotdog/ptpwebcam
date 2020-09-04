@@ -113,14 +113,15 @@
 	return nil;
 }
 
-- (void) setConnectionInfo: (NSDictionary*) newInfo
+- (void) updateConnectionInfo: (NSDictionary*) newInfo
 {
-	for (NSDictionary* info in self.connections)
+	for (NSDictionary* info in self.connections.copy)
 	{
 		if ([info[@"connection"] isEqual: newInfo[@"connection"]])
 		{
 			self.connections = [self.connections arrayByRemovingObject: info];
 			self.connections = [self.connections arrayByAddingObject: newInfo];
+			break;
 		}
 	}
 
@@ -134,6 +135,7 @@
 	
 	@synchronized (settingsController) {
 		int streamCounter = settingsController.streamCounter;
+		PtpLog(@"streamCounter=%d for %@", streamCounter, [self currentConnectionName]);
 		if (streamCounter == 1)
 			[settingsController.camera stopLiveView];
 		settingsController.streamCounter = MAX(0, streamCounter-1);
@@ -148,8 +150,14 @@
 	
 	@synchronized (settingsController) {
 		int streamCounter = settingsController.streamCounter;
+		PtpLog(@"streamCounter=%d for %@", streamCounter, [self currentConnectionName]);
 		if (streamCounter == 0)
 			[settingsController.camera startLiveView];
+		else if (settingsController.camera.isInLiveView)
+		{
+			[self cameraDidBecomeReadyForLiveViewStreaming: settingsController.camera];
+		}
+			
 		settingsController.streamCounter = streamCounter+1;
 	}
 }
@@ -163,6 +171,8 @@
 		if (connectionInfo)
 			self.connections = [self.connections arrayByRemovingObject: connectionInfo];
 	}
+	
+	PtpLog(@"for %@", connectionInfo[@"clientName"]);
 	
 	// if connection was subscribed to streams, kill them
 	NSSet* liveStreams = connectionInfo[@"liveStreamIds"];
@@ -234,8 +244,20 @@
 
 - (void) ping: (NSString*) pingMessage withCallback: (void (^)(NSString* pongMessage)) pongCallback
 {
+	// set the client name based on the ping message
+	NSXPCConnection* connection = [NSXPCConnection currentConnection];
+	@synchronized (self) {
+		NSDictionary* connectionInfo = [self infoForConnection: connection];
+		connectionInfo = [connectionInfo dictionaryBySettingObject: pingMessage forKey: @"clientName"];
+		[self updateConnectionInfo: connectionInfo];
+	}
 	PtpLog(@"ping received from: %@", pingMessage);
-	pongCallback(@"LaunchAgent");
+	pongCallback([NSString stringWithFormat: @"%@-%d", NSProcessInfo.processInfo.processName, NSProcessInfo.processInfo.processIdentifier]);
+}
+
+- (NSString*) currentConnectionName
+{
+	return [[self infoForConnection: [NSXPCConnection currentConnection]] objectForKey: @"clientName"];
 }
 
 - (void) startLiveViewForCamera:(id)cameraId
@@ -248,7 +270,7 @@
 			liveStreamIds = [NSSet set];
 		liveStreamIds = [liveStreamIds setByAddingObject: cameraId];
 		connectionInfo = [connectionInfo dictionaryBySettingObject: liveStreamIds forKey: @"liveStreamIds"];
-		[self setConnectionInfo: connectionInfo];
+		[self updateConnectionInfo: connectionInfo];
 	}
 		
 	[self incrementStreamCountForCameraId: cameraId];
@@ -264,7 +286,7 @@
 		{
 			liveStreamIds = [liveStreamIds setByRemovingObject: cameraId];
 			connectionInfo = [connectionInfo dictionaryBySettingObject: liveStreamIds forKey: @"liveStreamIds"];
-			[self setConnectionInfo: connectionInfo];
+			[self updateConnectionInfo: connectionInfo];
 		}
 	}
 

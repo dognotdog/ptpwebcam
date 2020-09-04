@@ -336,7 +336,8 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) requestLiveViewImage
 {
-	[self requestSendPtpCommandWithCode: PTP_CMD_CANON_GETVIEWFINDERDATA parameters: @[@(0x00100000)]];
+	if ([self shouldRequestNewLiveViewImage])
+		[self requestSendPtpCommandWithCode: PTP_CMD_CANON_GETVIEWFINDERDATA parameters: @[@(0x00100000)]];
 
 }
 
@@ -1174,6 +1175,7 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 			break;
 		case PTP_CMD_CANON_GETVIEWFINDERDATA:
 		{
+			[self liveViewImageReceived];
 			// ignore frame when we get it initially
 			if (liveViewStatus != LV_STATUS_OFF)
 				[self parsePtpLiveViewImageResponse: response data: data];

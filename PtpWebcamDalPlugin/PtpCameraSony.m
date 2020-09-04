@@ -236,6 +236,7 @@ static NSDictionary* _ptpOperationNames = nil;
 	{
 		case SONY_LV_IMAGE_OBJECTID:
 		{
+			[self liveViewImageReceived];
 			NSData* jpegData = [self extractLiveViewJpegData: data];
 			
 			if (jpegData)
@@ -799,7 +800,8 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) requestLiveViewImage
 {
-	[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECT parameters: @[@(SONY_LV_IMAGE_OBJECTID)]];
+	if ([self shouldRequestNewLiveViewImage])
+		[self requestSendPtpCommandWithCode: PTP_CMD_GETOBJECT parameters: @[@(SONY_LV_IMAGE_OBJECTID)]];
 }
 
 - (int) canAutofocus
