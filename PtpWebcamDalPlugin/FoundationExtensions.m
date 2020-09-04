@@ -148,6 +148,13 @@ void dispatch_coalesce(dispatch_source_t src, double time, void (^block)(void))
 	return a;
 }
 
+- (NSSet*) setByRemovingObject: (id) object
+{
+	NSMutableSet* set = self.mutableCopy;
+	[set removeObject: object];
+	return set;
+}
+
 @end
 
 @implementation NSDictionary (FoundationExtensions)

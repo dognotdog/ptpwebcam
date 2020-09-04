@@ -113,6 +113,19 @@
 	return nil;
 }
 
+- (void) setConnectionInfo: (NSDictionary*) newInfo
+{
+	for (NSDictionary* info in self.connections)
+	{
+		if ([info[@"connection"] isEqual: newInfo[@"connection"]])
+		{
+			self.connections = [self.connections arrayByRemovingObject: info];
+			self.connections = [self.connections arrayByAddingObject: newInfo];
+		}
+	}
+
+}
+
 - (void) decrementStreamCountForCameraId: (id) cameraId
 {
 	PtpCameraSettingsController* settingsController = self.devices[cameraId];
@@ -152,7 +165,7 @@
 	}
 	
 	// if connection was subscribed to streams, kill them
-	NSArray* liveStreams = connectionInfo[@"liveStreamIds"];
+	NSSet* liveStreams = connectionInfo[@"liveStreamIds"];
 	
 	for (id cameraId in liveStreams)
 	{
@@ -227,15 +240,34 @@
 
 - (void) startLiveViewForCamera:(id)cameraId
 {
-//	PtpCamera* camera = [self.devices[cameraId] camera];
-//
-//	[camera startLiveView];
-//
+	NSXPCConnection* connection = [NSXPCConnection currentConnection];
+	@synchronized (self) {
+		NSDictionary* connectionInfo = [self infoForConnection: connection];
+		NSSet* liveStreamIds = connectionInfo[@"liveStreamIds"];
+		if (!liveStreamIds)
+			liveStreamIds = [NSSet set];
+		liveStreamIds = [liveStreamIds setByAddingObject: cameraId];
+		connectionInfo = [connectionInfo dictionaryBySettingObject: liveStreamIds forKey: @"liveStreamIds"];
+		[self setConnectionInfo: connectionInfo];
+	}
+		
 	[self incrementStreamCountForCameraId: cameraId];
 }
 
 - (void) stopLiveViewForCamera:(id)cameraId
 {
+	NSXPCConnection* connection = [NSXPCConnection currentConnection];
+	@synchronized (self) {
+		NSDictionary* connectionInfo = [self infoForConnection: connection];
+		NSSet* liveStreamIds = connectionInfo[@"liveStreamIds"];
+		if (liveStreamIds)
+		{
+			liveStreamIds = [liveStreamIds setByRemovingObject: cameraId];
+			connectionInfo = [connectionInfo dictionaryBySettingObject: liveStreamIds forKey: @"liveStreamIds"];
+			[self setConnectionInfo: connectionInfo];
+		}
+	}
+
 	[self decrementStreamCountForCameraId: cameraId];
 }
 

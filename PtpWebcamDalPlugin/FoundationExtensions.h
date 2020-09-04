@@ -71,6 +71,7 @@ static inline uint32_t one_at_a_time_hash32(const uint8_t *key, size_t len)
 @interface NSSet (FoundationExtensions)
 
 - (NSSet*) xorSetWithSet: (NSSet*) set;
+- (NSSet*) setByRemovingObject: (id) object;
 
 @end
 
