@@ -338,154 +338,171 @@
 
 // MARK: Assistant Service
 
-typedef enum {
-	PTP_WEBCAM_ASSISTANT_MSG_INVALID = 0,
-	PTP_WEBCAM_ASSISTANT_MSG_PING,
-	PTP_WEBCAM_ASSISTANT_MSG_PONG,
-} ptpWebcamAssistantMessageId_t;
-
-- (void) pingAssistant
-{
-	NSArray* components = @[
-		[NSData data],
-	];
-	NSPortMessage* msg = [[NSPortMessage alloc] initWithSendPort: assistantPort receivePort: receivePort components: components];
-	msg.msgid = PTP_WEBCAM_ASSISTANT_MSG_PING;
-	
-	[msg sendBeforeDate: [NSDate distantFuture]];
-
-}
-
-- (void) handlePortMessage: (NSPortMessage*) message
-{
-	// we can send to the agent after we received its first message with the correct port
-//	if (message.sendPort)
-//	{
-//		agentPort = message.sendPort;
-//	}
-
-	switch (message.msgid)
-	{
-		case PTP_WEBCAM_ASSISTANT_MSG_PING:
-		{
-			
-			NSArray* components = @[
-				message.components[0],
-			];
-			
-			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: receivePort components: components];
-			response.msgid = PTP_WEBCAM_ASSISTANT_MSG_PONG;
-			
-			[response sendBeforeDate: [NSDate distantFuture]];
-			break;
-		}
-		default:
-		{
-			PtpLog(@"plugin received unknown message with id %d", message.msgid);
-			break;
-		}
-	}
-}
-
-- (void) setupMachPorts
-{
-	kern_return_t err = 0;
-	name_t assistantServiceName = "org.ptpwebcam.PtpWebcamAssistant";
-	
-//	mach_port_t recvPort = MACH_PORT_NULL;
-//	err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &recvPort);
-
-//	mach_port_t notificationPort = MACH_PORT_NULL;
-//	err = mach_port_request_notification(mach_task_self(), sendPort, MACH_NOTIFY_NO_SENDERS, 1, sendPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &notificationPort);
+//typedef enum {
+//	PTP_WEBCAM_ASSISTANT_MSG_INVALID = 0,
+//	PTP_WEBCAM_ASSISTANT_MSG_PING,
+//	PTP_WEBCAM_ASSISTANT_MSG_PONG,
+//} ptpWebcamAssistantMessageId_t;
 //
-//	err = mach_port_move_member(mach_task_self(), sendPort, GetPortSet());
-
-//	mach_port_t assistantServicePort = MACH_PORT_NULL;
-//	err = bootstrap_look_up(bootstrap_port, assistantServiceName, &assistantServicePort);
-
-	assistantPort = [[NSMachBootstrapServer sharedInstance] servicePortWithName: [NSString stringWithCString: assistantServiceName encoding: NSUTF8StringEncoding]];
-//	assistantPort = [NSMachPort portWithMachPort: assistantServicePort options: NSMachPortDeallocateNone];
-	receivePort = [NSMachPort port];
-
-	if (!assistantPort)
-	{
-		NSLog(@"Plugin could not create assistant Mach port.");
-	}
-
-	assistantPort.delegate = self;
-	receivePort.delegate = self;
-	[[NSRunLoop currentRunLoop] addPort: receivePort forMode: NSRunLoopCommonModes];
-
-	[self pingAssistant];
-
-}
+//- (void) pingAssistant
+//{
+//	NSArray* components = @[
+//		[NSData data],
+//	];
+//	NSPortMessage* msg = [[NSPortMessage alloc] initWithSendPort: assistantPort receivePort: receivePort components: components];
+//	msg.msgid = PTP_WEBCAM_ASSISTANT_MSG_PING;
+//	
+//	[msg sendBeforeDate: [NSDate distantFuture]];
+//
+//}
+//
+//- (void) handlePortMessage: (NSPortMessage*) message
+//{
+//	// we can send to the agent after we received its first message with the correct port
+////	if (message.sendPort)
+////	{
+////		agentPort = message.sendPort;
+////	}
+//
+//	switch (message.msgid)
+//	{
+//		case PTP_WEBCAM_ASSISTANT_MSG_PING:
+//		{
+//			
+//			NSArray* components = @[
+//				message.components[0],
+//			];
+//			
+//			NSPortMessage* response = [[NSPortMessage alloc] initWithSendPort: message.sendPort receivePort: receivePort components: components];
+//			response.msgid = PTP_WEBCAM_ASSISTANT_MSG_PONG;
+//			
+//			[response sendBeforeDate: [NSDate distantFuture]];
+//			break;
+//		}
+//		default:
+//		{
+//			PtpLog(@"plugin received unknown message with id %d", message.msgid);
+//			break;
+//		}
+//	}
+//}
 
 - (void) setupAssistantXpc
 {
-//	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: 0];
 	assistantConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAssistant" options: NSXPCConnectionPrivileged];
 
-//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistant"];
-//	assistantConnection = [[NSXPCConnection alloc] initWithServiceName: @"org.ptpwebcam.PtpWebcamAssistantService"];
-
 	__weak NSXPCConnection* weakConnection = assistantConnection;
+	__weak PtpWebcamPlugin* weakSelf = self;
+	
 	assistantConnection.invalidationHandler = ^{
-		NSLog(@"oops, connection failed: %@", weakConnection);
+		NSXPCConnection* connection = weakConnection;
+		NSLog(@"oops, connection failed: %@", connection);
+		
+		// retry xpc connection after 1 second if it failed
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+			[weakSelf setupAssistantXpc];
+		});
 	};
 	assistantConnection.interruptionHandler = ^{
 		NSLog(@"oops, connection interrupted: %@", weakConnection);
 	};
-	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantXpcProtocol)];
 
-	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
-	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
-	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateXpcProtocol)];
 
 	assistantConnection.exportedObject = self;
 	assistantConnection.exportedInterface = exportedInterface;
 
 	[assistantConnection resume];
 
-	// send message to get the service started by launchd
-	[[assistantConnection remoteObjectProxy] pingService:^{
-		PtpLog(@"assistant pong received.");
+	// send message to get the assistant started by launchd
+	[[assistantConnection remoteObjectProxy] ping: @"DalPlugin" withCallback:^(NSString *pongMessage) {
+		PtpLog(@"assistant pong received: %@", pongMessage);
 	}];
 
 }
 
-- (void) setupAgentXpc
+- (void) setAgentEndpoint: (NSXPCListenerEndpoint*) endpoint
 {
-	agentConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+	[self setupAgentXpcWithEndpoint: endpoint];
+}
+
+- (void) setupAgentXpcWithEndpoint: (NSXPCListenerEndpoint*) endpoint
+{
+	// if we're not getting a valid endpoint, retry in one second
+//	if (![endpoint isKindOfClass: [NSXPCListenerEndpoint class]])
+//	{
+//		[self retryAgentEndpointRequest];
+//		return;
+//	}
+	
+	agentConnection = [[NSXPCConnection alloc] initWithListenerEndpoint: endpoint];
 
 	__weak NSXPCConnection* weakConnection = agentConnection;
+//	__weak PtpWebcamPlugin* weakSelf = self;
+	
 	agentConnection.invalidationHandler = ^{
-		NSLog(@"oops, connection failed: %@", weakConnection);
+		NSXPCConnection* connection = weakConnection;
+		NSLog(@"oops, connection failed: %@", connection);
+//		[weakSelf retryAgentEndpointRequest];
 	};
 	agentConnection.interruptionHandler = ^{
 		NSLog(@"oops, connection interrupted: %@", weakConnection);
 	};
-	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamCameraXpcProtocol)];
 
-	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
-	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
-	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamCameraDelegateXpcProtocol)];
 
 	agentConnection.exportedObject = self;
 	agentConnection.exportedInterface = exportedInterface;
 
 	[agentConnection resume];
 
-	// send message to get the service started by launchd
-	[[agentConnection remoteObjectProxy] pingService:^{
-		PtpLog(@"agent pong received.");
-	}];
+	[[agentConnection remoteObjectProxy] ping: @"DalPlugin" withCallback:^(NSString *pongMessage) {
+	PtpLog(@"agent pong received: %@", pongMessage);
+}];
 
 }
 
+//- (void) setupAgentXpc
+//{
+//	agentConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
+//
+//	__weak NSXPCConnection* weakConnection = agentConnection;
+//	__weak PtpWebcamPlugin* weakSelf = self;
+//
+//	agentConnection.invalidationHandler = ^{
+//		NSXPCConnection* connection = weakConnection;
+//		NSLog(@"oops, connection failed: %@", connection);
+//
+//		// retry xpc connection after 1 second if it failed
+//		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+//			[weakSelf setupAgentXpc];
+//		});
+//	};
+//	agentConnection.interruptionHandler = ^{
+//		NSLog(@"oops, connection interrupted: %@", weakConnection);
+//	};
+//	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+//
+//	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+//
+//	agentConnection.exportedObject = self;
+//	agentConnection.exportedInterface = exportedInterface;
+//
+//	[agentConnection resume];
+//
+//	// send message to get the service started by launchd
+//	[[agentConnection remoteObjectProxy] pingService:^{
+//		PtpLog(@"agent pong received.");
+//	}];
+//
+//}
+
 - (void) connectToAssistantService
 {
-//	[self setupAssistantXpc];
-	[self setupAgentXpc];
+	[self setupAssistantXpc];
+//	[self setupAgentXpc];
 }
 
 - (nullable id) xpcDeviceWithId: (id) cameraId
@@ -522,7 +539,7 @@ typedef enum {
 		self.cmioDevices = devices;
 	}
 	
-	device.xpcConnection = assistantConnection;
+	device.xpcConnection = agentConnection;
 	
 	[device createCmioDeviceWithPluginId: self.objectId];
 	[PtpWebcamObject registerObject: device];
@@ -579,5 +596,10 @@ typedef enum {
 }
 
 
+
+- (void)ping:(NSString *)pingMessage withCallback:(void (^)(NSString *))pongCallback {
+	PtpLog(@"ping received from %@", pingMessage);
+	pongCallback(@"DalPlugin");
+}
 
 @end

@@ -43,6 +43,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property size_t liveViewHeaderLength;
 
+@property(getter=isReadyForUse) BOOL readyForUse;
+
 + (void) registerSupportedCameras: (NSDictionary*) supportedCameras byClass: (Class) aClass;
 
 + (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device;

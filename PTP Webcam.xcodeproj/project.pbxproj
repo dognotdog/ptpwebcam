@@ -66,7 +66,6 @@
 		DAAACC9324C9FDF700E0B44C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DAAACC9224C9FDF700E0B44C /* Assets.xcassets */; };
 		DAAACC9624C9FDF700E0B44C /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DAAACC9424C9FDF700E0B44C /* MainMenu.xib */; };
 		DAAACC9924C9FDF700E0B44C /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACC9824C9FDF700E0B44C /* main.m */; };
-		DAAACCAA24CAAA3000E0B44C /* PtpWebcamAssistantService.xpc in Copy XPC Services */ = {isa = PBXBuildFile; fileRef = DAAACC7024C918C500E0B44C /* PtpWebcamAssistantService.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DAAACCAF24CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
 		DAAACCB024CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
 		DAAACCB124CD165C00E0B44C /* PtpWebcamAlerts.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAACCAE24CD165C00E0B44C /* PtpWebcamAlerts.m */; };
@@ -101,13 +100,6 @@
 			remoteGlobalIDString = DA2681022481BB2100FF75EF;
 			remoteInfo = d800webcamplugin;
 		};
-		DA34C56824FECB1E008D3CAD /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DAAACCC024CF651200E0B44C;
-			remoteInfo = PtpWebcamAssistant;
-		};
 		DA34C56A24FECB27008D3CAD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
@@ -115,33 +107,12 @@
 			remoteGlobalIDString = DA34C55F24FECA8F008D3CAD;
 			remoteInfo = PtpWebcamSimpleAssistant;
 		};
-		DA34C58524FF3442008D3CAD /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DA34C57C24FF328D008D3CAD;
-			remoteInfo = PtpWebcamSimpleAgent;
-		};
 		DA34C5A024FF5B47008D3CAD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = DA34C58E24FF5AC3008D3CAD;
 			remoteInfo = PtpWebcamLaunchAgent;
-		};
-		DAAACC7D24C91D8B00E0B44C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DAAACC6F24C918C500E0B44C;
-			remoteInfo = PtpWebcamAssistantService;
-		};
-		DAAACCA824CAAA1600E0B44C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DA2922CE247EDA5B00794577 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DAAACC8C24C9FDF500E0B44C;
-			remoteInfo = PtpWebcamAgent;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -212,7 +183,6 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
 			dstSubfolderSpec = 16;
 			files = (
-				DAAACCAA24CAAA3000E0B44C /* PtpWebcamAssistantService.xpc in Copy XPC Services */,
 			);
 			name = "Copy XPC Services";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -616,11 +586,7 @@
 			);
 			dependencies = (
 				DA34C5A124FF5B47008D3CAD /* PBXTargetDependency */,
-				DA34C58624FF3442008D3CAD /* PBXTargetDependency */,
 				DA34C56B24FECB27008D3CAD /* PBXTargetDependency */,
-				DA34C56924FECB1E008D3CAD /* PBXTargetDependency */,
-				DAAACCA924CAAA1600E0B44C /* PBXTargetDependency */,
-				DAAACC7E24C91D8B00E0B44C /* PBXTargetDependency */,
 			);
 			name = PTPWebcamDALPlugin;
 			productName = d800webcamplugin;
@@ -1030,35 +996,15 @@
 			target = DA2681022481BB2100FF75EF /* PTPWebcamDALPlugin */;
 			targetProxy = DA26812D248B637100FF75EF /* PBXContainerItemProxy */;
 		};
-		DA34C56924FECB1E008D3CAD /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DAAACCC024CF651200E0B44C /* PtpWebcamAssistant */;
-			targetProxy = DA34C56824FECB1E008D3CAD /* PBXContainerItemProxy */;
-		};
 		DA34C56B24FECB27008D3CAD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DA34C55F24FECA8F008D3CAD /* PtpWebcamSimpleAssistant */;
 			targetProxy = DA34C56A24FECB27008D3CAD /* PBXContainerItemProxy */;
 		};
-		DA34C58624FF3442008D3CAD /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DA34C57C24FF328D008D3CAD /* PtpWebcamSimpleAgent */;
-			targetProxy = DA34C58524FF3442008D3CAD /* PBXContainerItemProxy */;
-		};
 		DA34C5A124FF5B47008D3CAD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DA34C58E24FF5AC3008D3CAD /* PtpWebcamLaunchAgent */;
 			targetProxy = DA34C5A024FF5B47008D3CAD /* PBXContainerItemProxy */;
-		};
-		DAAACC7E24C91D8B00E0B44C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DAAACC6F24C918C500E0B44C /* PtpWebcamAssistantService */;
-			targetProxy = DAAACC7D24C91D8B00E0B44C /* PBXContainerItemProxy */;
-		};
-		DAAACCA924CAAA1600E0B44C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DAAACC8C24C9FDF500E0B44C /* PtpWebcamAgent */;
-			targetProxy = DAAACCA824CAAA1600E0B44C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1110,7 +1056,7 @@
 				DSTROOT = /;
 				EXPORTED_SYMBOLS_FILE = PtpWebcamDalPlugin/webcamplugin.exp;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"XPC_ASSISTANT_DISABLED=1",
+					"XPC_ASSISTANT_ENABLED=1",
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = PtpWebcamDalPlugin/Info.plist;

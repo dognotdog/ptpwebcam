@@ -34,15 +34,24 @@
 	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
 	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", queueAttributes);
 
-	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
-	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
-
-	__weak id weakSelf = self;
-	dispatch_source_set_event_handler(frameTimerSource, ^{
-		[weakSelf asyncGetLiveViewImage];
-	});
-	
 	return self;
+}
+
+- (void) startFrameTimer
+{
+	@synchronized (self) {
+		if (!frameTimerSource)
+		{
+			frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+			dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
+
+			__weak id weakSelf = self;
+			dispatch_source_set_event_handler(frameTimerSource, ^{
+				[weakSelf asyncGetLiveViewImage];
+			});
+			dispatch_resume(frameTimerSource);
+		}
+	}
 }
 
 - (OSStatus) startStream
@@ -57,8 +66,7 @@
 
 - (void) liveViewStreamReady
 {
-	if (frameTimerSource)
-		dispatch_resume(frameTimerSource);
+	[self startFrameTimer];
 	
 //	[self asyncGetLiveViewImage];
 
@@ -66,8 +74,13 @@
 
 - (OSStatus) stopStream
 {
-	if (frameTimerSource)
-		dispatch_suspend(frameTimerSource);
+	@synchronized (self) {
+		if (frameTimerSource)
+		{
+			dispatch_source_cancel(frameTimerSource);
+			frameTimerSource = nil;
+		}
+	}
 
 	isStreaming = NO;
 

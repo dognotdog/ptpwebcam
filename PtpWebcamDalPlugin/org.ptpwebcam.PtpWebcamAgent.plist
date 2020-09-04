@@ -61,8 +61,8 @@
 		</dict>
 	</dict>
 	<key>KeepAlive</key>
-	<false/>
+	<true/>
 	<key>RunAtLoad</key>
-	<false/>
+	<true/>
 </dict>
 </plist>

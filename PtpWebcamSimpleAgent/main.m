@@ -13,7 +13,7 @@
 #import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/FoundationExtensions.h"
 
-@interface PtpWebcamAgent : NSObject <NSXPCListenerDelegate, PtpWebcamAssistantServiceProtocol>
+@interface PtpWebcamAgent : NSObject <NSXPCListenerDelegate, PtpWebcamCameraXpcProtocol>
 
 @property NSArray* connections;
 @property NSDictionary* devices;
@@ -67,10 +67,10 @@
 	assistantConnection.interruptionHandler = ^{
 		NSLog(@"oops, connection interrupted: %@", weakConnection);
 	};
-	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+	assistantConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantXpcProtocol)];
 
 	//	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpCameraProtocol)];
-	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
+	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamCameraDelegateXpcProtocol)];
 	//	[exportedInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
 
 	assistantConnection.exportedObject = self;
@@ -103,11 +103,11 @@
 	    
     // Configure the connection.
     // First, set the interface that the exported object implements.
-    newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
+    newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamCameraXpcProtocol)];
 	
 //	NSXPCInterface* cameraInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpCameraProtocol)];
 	
-	NSXPCInterface* remoteInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantDelegateProtocol)];
+	NSXPCInterface* remoteInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamCameraDelegateXpcProtocol)];
 //	[remoteInterface setInterface: cameraInterface forSelector: @selector(cameraConnected:) argumentIndex: 0 ofReply: NO];
 	
 	
@@ -143,6 +143,21 @@
 {
 	pongCallback();
 }
+
+- (void)requestLiveViewImageForCamera:(id)cameraId { 
+	<#code#>
+}
+
+
+- (void)startLiveViewForCamera:(id)cameraId { 
+	<#code#>
+}
+
+
+- (void)stopLiveViewForCamera:(id)cameraId { 
+	<#code#>
+}
+
 
 - (void) createStatusItem
 {

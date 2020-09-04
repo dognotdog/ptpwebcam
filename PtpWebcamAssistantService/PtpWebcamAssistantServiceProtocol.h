@@ -23,12 +23,24 @@ typedef enum {
 //	PTP_WEBCAM_AGENT_MSG_ERR_CAMERA_INVALID,
 } ptpWebcamAgentMessageId_t;
 
-//@protocol PtpCameraProtocol;
+@protocol PtpWebcamAssistantDelegateXpcProtocol
+
+- (void) setAgentEndpoint: (NSXPCListenerEndpoint*) endpoint;
+
+@end
+
+@protocol PtpWebcamAssistantXpcProtocol <PtpWebcamAssistantDelegateXpcProtocol>
+
+- (void) ping: (NSString*) pingMessage withCallback: (void (^)(NSString* pongMessage)) pongCallback;
+
+@end
+
 
 // The protocol that this service will vend as its API. This header file will also need to be visible to the process hosting the service.
-@protocol PtpWebcamAssistantServiceProtocol
+@protocol PtpWebcamCameraXpcProtocol
 
-- (void) pingService: (void (^)(void)) pongCallback;
+- (void) ping: (NSString*) pingMessage withCallback: (void (^)(NSString* pongMessage)) pongCallback;
+
 - (void) startLiveViewForCamera: (id) cameraId;
 - (void) stopLiveViewForCamera: (id) cameraId;
 
@@ -36,7 +48,7 @@ typedef enum {
 
 @end
 
-@protocol PtpWebcamAssistantDelegateProtocol
+@protocol PtpWebcamCameraDelegateXpcProtocol <PtpWebcamAssistantDelegateXpcProtocol, PtpWebcamAssistantXpcProtocol>
 
 - (void) cameraConnected: (id) cameraId withInfo: (NSDictionary*) info;
 - (void) cameraDisconnected: (id) cameraId;

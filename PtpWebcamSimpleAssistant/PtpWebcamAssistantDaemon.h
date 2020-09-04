@@ -9,19 +9,15 @@
 #import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/FoundationExtensions.h"
 #import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
-#import "../PtpWebcamAssistantService/PtpCameraMachAssistant.h"
 
 #import <Foundation/Foundation.h>
-
-#import <ImageCaptureCore/ICDeviceBrowser.h>
 
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PtpWebcamAssistantDaemon : NSObject <NSXPCListenerDelegate, ICDeviceBrowserDelegate, ICDeviceDelegate, PtpWebcamAssistantServiceProtocol, PtpWebcamMachAssistantDaemonProtocol>
+@interface PtpWebcamAssistantDaemon : NSObject <NSXPCListenerDelegate, PtpWebcamAssistantXpcProtocol>
 
 @property NSArray* connections;
-@property NSDictionary* devices;
 
 - (void) startListening;
 

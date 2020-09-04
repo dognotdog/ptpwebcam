@@ -77,6 +77,7 @@ static inline uint32_t one_at_a_time_hash32(const uint8_t *key, size_t len)
 @interface NSDictionary (FoundationExtensions)
 
 - (NSDictionary*) dictionaryBySettingObject: (id) obj forKey: (id<NSCopying>) key;
+- (NSDictionary*) dictionaryByRemovingObjectForKey: (id<NSCopying>) key;
 
 @end
 

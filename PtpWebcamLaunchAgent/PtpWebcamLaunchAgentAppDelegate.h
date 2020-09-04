@@ -9,10 +9,11 @@
 #import <Cocoa/Cocoa.h>
 
 #import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
-#import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
-#import "../PtpWebcamDalPlugin/FoundationExtensions.h"
+#import "../PtpWebcamDalPlugin/PtpCamera.h"
 
-@interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate,NSXPCListenerDelegate, PtpWebcamAssistantServiceProtocol>
+#import <ImageCaptureCore/ICDeviceBrowser.h>
+
+@interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate, NSXPCListenerDelegate, ICDeviceBrowserDelegate,  ICDeviceDelegate, PtpWebcamCameraXpcProtocol, PtpCameraLiveViewDelegate>
 
 @property NSArray* connections;
 @property NSDictionary* devices;

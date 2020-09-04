@@ -159,6 +159,14 @@ void dispatch_coalesce(dispatch_source_t src, double time, void (^block)(void))
 	return dict;
 }
 
+- (NSDictionary*) dictionaryByRemovingObjectForKey: (id<NSCopying>) key
+{
+	NSMutableDictionary* dict = [self mutableCopy];
+	[dict removeObjectForKey: key];
+	return dict;
+
+}
+
 @end
 
 
