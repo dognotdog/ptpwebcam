@@ -106,6 +106,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(PTP_PROP_SONY_ISO) : @"ISO",
 			@(PTP_PROP_SONY_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_SONY_AUTOFOCUSBUTTON) : @"Autofocus Button",
+			@(PTP_PROP_SONY_SHUTTERBUTTON) : @"Shutter Button",
 		}];
 		_ptpPropertyNames = propertyNames;
 		
@@ -599,6 +600,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		}
 		
 		bool incremental = ([flags unsignedIntValue] & 0x01) == 0;
+		bool button = ([flags unsignedIntValue] & 0x80) != 0;
 		bool rw = ([readwrite unsignedIntValue] == 1);
 
 		NSDictionary* info = @{
@@ -608,6 +610,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			@"rw" : @(rw),
 			@"dataType" : dataType,
 			@"incremental" : @(incremental),
+			@"button" : @(button),
 			@"flags" : flags,
 			@"auto_status" : readwrite,
 		};
@@ -716,10 +719,15 @@ static NSDictionary* _ptpOperationNames = nil;
 		return;
 	
 	bool incremental = [propertyInfo[@"incremental"] boolValue];
-	
+	bool button = [propertyInfo[@"button"] boolValue];
+
 	if (incremental)
 	{
 		[self ptpIncrementProperty: propertyId toValue: value];
+	}
+	else if (button)
+	{
+		[self ptpIncrementProperty: propertyId by: [value intValue]];
 	}
 	else
 	{
@@ -828,6 +836,7 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) performAutofocus
 {
+	PtpLog(@"Sony autofocusing...");
 	if ([self isPtpPropertySupported: PTP_PROP_SONY_AUTOFOCUSBUTTON])
 	{
 		[self ptpGetPropertyDescription: PTP_PROP_SONY_AUTOFOCUSBUTTON];

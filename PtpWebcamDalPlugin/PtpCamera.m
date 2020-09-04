@@ -10,6 +10,7 @@
 #import "PtpCameraNikon.h"
 #import "PtpCameraCanon.h"
 #import "PtpCameraSony.h"
+#import "FoundationExtensions.h"
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
@@ -1890,16 +1891,21 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		else
 			[report appendFormat:@"\t- default: %@\n", [self formatPtpPropertyValue: defaultValue ofProperty: propertyId.intValue withDefaultValue: defaultValue]];
 		
-		if (info[@"flags"])
+		for (NSString* key in [info.allKeys arrayByRemovingObjectsInArray: @[@"value", @"defaultValue", @"range"]])
 		{
-			[report appendFormat:@"\t- flags:       0x%02X\n", [info[@"flags"] unsignedIntValue]];
+			[report appendFormat:@"\t- %@: 0x%04X\n", key, [info[key] unsignedIntValue]];
 
 		}
-		if (info[@"auto_status"])
-		{
-			[report appendFormat:@"\t- auto_status: 0x%02X\n", [info[@"auto_status"] unsignedIntValue]];
-
-		}
+//		if (info[@"flags"])
+//		{
+//			[report appendFormat:@"\t- flags:       0x%02X\n", [info[@"flags"] unsignedIntValue]];
+//
+//		}
+//		if (info[@"auto_status"])
+//		{
+//			[report appendFormat:@"\t- auto_status: 0x%02X\n", [info[@"auto_status"] unsignedIntValue]];
+//
+//		}
 
 		if ([info[@"range"] isKindOfClass: [NSArray class]])
 		{
