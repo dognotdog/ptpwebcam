@@ -459,8 +459,8 @@
 	[agentConnection resume];
 
 	[[agentConnection remoteObjectProxy] ping: @"DalPlugin" withCallback:^(NSString *pongMessage) {
-	PtpLog(@"agent pong received: %@", pongMessage);
-}];
+		PtpLog(@"agent pong received: %@", pongMessage);
+	}];
 
 }
 

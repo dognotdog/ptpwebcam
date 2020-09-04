@@ -15,7 +15,7 @@
 
 @interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate, NSXPCListenerDelegate, ICDeviceBrowserDelegate,  ICDeviceDelegate, PtpWebcamCameraXpcProtocol, PtpCameraLiveViewDelegate>
 
-@property NSArray* connections;
+@property NSArray<NSDictionary*>* connections;
 @property NSDictionary* devices;
 
 @end

@@ -103,6 +103,64 @@
 //	[self createStatusItem];
 }
 
+- (NSDictionary*) infoForConnection: (NSXPCConnection*) connection
+{
+	for (NSDictionary* info in self.connections)
+	{
+		if ([info[@"connection"] isEqual: connection])
+			return info;
+	}
+	return nil;
+}
+
+- (void) decrementStreamCountForCameraId: (id) cameraId
+{
+	PtpCameraSettingsController* settingsController = self.devices[cameraId];
+	if (!settingsController)
+		return;
+	
+	@synchronized (settingsController) {
+		int streamCounter = settingsController.streamCounter;
+		if (streamCounter == 1)
+			[settingsController.camera stopLiveView];
+		settingsController.streamCounter = MAX(0, streamCounter-1);
+	}
+}
+
+- (void) incrementStreamCountForCameraId: (id) cameraId
+{
+	PtpCameraSettingsController* settingsController = self.devices[cameraId];
+	if (!settingsController)
+		return;
+	
+	@synchronized (settingsController) {
+		int streamCounter = settingsController.streamCounter;
+		if (streamCounter == 0)
+			[settingsController.camera startLiveView];
+		settingsController.streamCounter = streamCounter+1;
+	}
+}
+
+
+- (void) connectionDied: (NSXPCConnection*) connection
+{
+	NSDictionary* connectionInfo = nil;
+	@synchronized (self) {
+		connectionInfo = [self infoForConnection: connection];
+		if (connectionInfo)
+			self.connections = [self.connections arrayByRemovingObject: connectionInfo];
+	}
+	
+	// if connection was subscribed to streams, kill them
+	NSArray* liveStreams = connectionInfo[@"liveStreamIds"];
+	
+	for (id cameraId in liveStreams)
+	{
+		[self decrementStreamCountForCameraId: cameraId];
+		
+	}
+}
+
 - (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)newConnection
 {
 	PtpLog(@"incoming connection...");
@@ -128,16 +186,11 @@
 	newConnection.invalidationHandler = ^{
 		PtpLog(@"connection died");
 		NSXPCConnection* connection = weakConnection;
-		if (connection)
-		{
-			@synchronized (self) {
-				self.connections = [self.connections arrayByRemovingObject: connection];
-			}
-		}
+		[self connectionDied: connection];
 	};
 
 	@synchronized (self) {
-		self.connections = [self.connections arrayByAddingObject: newConnection];
+		self.connections = [self.connections arrayByAddingObject: @{@"connection" : newConnection}];
 	}
 
     // Resuming the connection allows the system to deliver more incoming messages.
@@ -174,14 +227,16 @@
 
 - (void) startLiveViewForCamera:(id)cameraId
 {
-	PtpCamera* camera = [self.devices[cameraId] camera];
-	[camera startLiveView];
+//	PtpCamera* camera = [self.devices[cameraId] camera];
+//
+//	[camera startLiveView];
+//
+	[self incrementStreamCountForCameraId: cameraId];
 }
 
 - (void) stopLiveViewForCamera:(id)cameraId
 {
-	PtpCamera* camera = [self.devices[cameraId] camera];
-	[camera stopLiveView];
+	[self decrementStreamCountForCameraId: cameraId];
 }
 
 
@@ -286,8 +341,9 @@
 			}
 			
 			// notify clients that camera is gone
-			for (NSXPCConnection* connection in self.connections)
+			for (NSDictionary* connectionInfo in self.connections)
 			{
+				NSXPCConnection* connection = connectionInfo[@"connection"];
 				[[connection remoteObjectProxy] cameraDisconnected: camera.cameraId];
 			}
 
@@ -328,8 +384,9 @@
 - (void) cameraDidBecomeReadyForUse: (PtpCamera*) camera
 {
 	NSDictionary* cameraInfo = [self cameraConnectionInfo: camera];
-	for (NSXPCConnection* connection in self.connections)
+	for (NSDictionary* connectionInfo in self.connections)
 	{
+		NSXPCConnection* connection = connectionInfo[@"connection"];
 		[[connection remoteObjectProxy] cameraConnected: camera.cameraId withInfo: cameraInfo];
 	}
 }
@@ -343,8 +400,9 @@
 
 - (void) receivedLiveViewJpegImage:(NSData *)jpegData withInfo:(NSDictionary *)info fromCamera:(PtpCamera *)camera
 {
-	for (NSXPCConnection* connection in self.connections)
+	for (NSDictionary* connectionInfo in self.connections)
 	{
+		NSXPCConnection* connection = connectionInfo[@"connection"];
 		[[connection remoteObjectProxy] receivedLiveViewJpegImageData: jpegData withInfo: @{} forCameraWithId: camera.cameraId];
 	}
 
@@ -353,8 +411,9 @@
 - (void) cameraDidBecomeReadyForLiveViewStreaming:(PtpCamera *)camera
 {
 	PtpLog(@"");
-	for (NSXPCConnection* connection in self.connections)
+	for (NSDictionary* connectionInfo in self.connections)
 	{
+		NSXPCConnection* connection = connectionInfo[@"connection"];
 		[[connection remoteObjectProxy] liveViewReadyforCameraWithId: camera.cameraId];
 	}
 }

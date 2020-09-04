@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property PtpCamera* camera;
 @property NSString* name;
+@property int streamCounter;
 
 - (instancetype) initWithCamera: (PtpCamera*) camera;
 
