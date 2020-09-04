@@ -16,11 +16,9 @@
 	<key>Label</key>
 	<string>org.ptpwebcam.PtpWebcamAgent</string>
 	<key>StandardErrorPath</key>
-	<string>/tmp/org.ptpwebcam.PtpWebcamLaunchAgent.stderr.log</string>
+	<string>/tmp/org.ptpwebcam.PtpWebcamAgent.stderr.log</string>
 	<key>StandardOutPath</key>
-	<string>/tmp/org.ptpwebcam.PtpWebcamLaunchAgent.stdout.log</string>
-	<key>Debug</key>
-	<true/>
+	<string>/tmp/org.ptpwebcam.PtpWebcamAgent.stdout.log</string>
 	<key>LaunchEvents</key>
 	<dict>
 		<key>com.apple.iokit.matching</key>
@@ -29,7 +27,7 @@
 			<dict>
 				<key>idProduct</key>
 				<string>*</string>
- 				<key>idVendor</key>
+				<key>idVendor</key>
 				<integer>1193</integer>
 				<key>IOProviderClass</key>
 				<string>IOUSBDevice</string>

@@ -19,7 +19,5 @@
 	<string>/tmp/org.ptpwebcam.PtpWebcamAssistant.stderr.log</string>
 	<key>StandardOutPath</key>
 	<string>/tmp/org.ptpwebcam.PtpWebcamAssistant.stdout.log</string>
-	<key>Debug</key>
-	<true/>
 </dict>
 </plist>

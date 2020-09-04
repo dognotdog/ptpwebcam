@@ -10,6 +10,8 @@
 
 #import "PtpWebcamAlerts.h"
 
+static NSString* agentLogFilePath = @"/tmp/org.ptpwebcam.PtpWebcamAgent.stderr.log";
+
 NSArray* PtpWebcamGuiBlacklistedProcesses(void)
 {
 	// Some processes in which the plugin lives might not have proper UI runloops setup, so things like alerts and the status item might not work right.
@@ -57,8 +59,8 @@ void PtpWebcamShowCatastrophicAlert(NSString* format, ...)
 	{
 		dispatch_async(dispatch_get_main_queue(), ^{
 			NSAlert *alert = [[NSAlert alloc] init];
-			[alert setMessageText: @"The PTP Webcam DAL Plugin has encountered an unrecoverable error:"];
-			[alert setInformativeText: [NSString stringWithFormat: @"%@\n\nPlease file a bug report.", message]];
+			[alert setMessageText: @"PTP Webcam has encountered an unrecoverable error:"];
+			[alert setInformativeText: [NSString stringWithFormat: @"%@\n%@\n\nPlease file a bug report. The log file at %@ may contain relevant information.", NSProcessInfo.processInfo.processName, message, agentLogFilePath]];
 			[alert addButtonWithTitle:@"Bummer."];
 			[alert setAlertStyle: NSAlertStyleCritical];
 			[alert runModal];

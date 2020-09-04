@@ -316,13 +316,25 @@ static NSDictionary* _ptpOperationNames = nil;
 		}
 		case PTP_CMD_SONY_GETPROPERTIES:
 		{
-			if (cameraStatus == CAMERA_STATUS_GETPROPERTIES)
+			if (data)
 			{
-				cameraStatus = CAMERA_STATUS_CONNECTING3;
-				[self requestSendPtpCommandWithCode: PTP_CMD_SONY_CONNECT parameters: @[@(3)]];
+				if (cameraStatus == CAMERA_STATUS_GETPROPERTIES)
+				{
+					cameraStatus = CAMERA_STATUS_CONNECTING3;
+					[self requestSendPtpCommandWithCode: PTP_CMD_SONY_CONNECT parameters: @[@(3)]];
+				}
+				[self parseSonyPropertiesResponse: data];
 			}
-			[self parseSonyPropertiesResponse: data];
+			else
+			{
+				PtpLog(@"PTP_CMD_SONY_GETPROPERTIES returned no data, retrying...");
+				// try again if we didn't get data (seen this happen in a VM)
+				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+					[self requestSendPtpCommandWithCode: PTP_CMD_SONY_GETPROPERTIES parameters: @[@(SONY_GETALLPROPS_MAGICNUMBER)]];
 
+				});
+				[self requestSendPtpCommandWithCode: PTP_CMD_SONY_GETPROPERTIES parameters: @[@(SONY_GETALLPROPS_MAGICNUMBER)]];
+			}
 			break;
 		}
 		case PTP_CMD_SONY_GETPROPDESC:

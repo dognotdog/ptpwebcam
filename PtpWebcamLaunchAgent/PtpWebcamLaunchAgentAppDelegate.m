@@ -385,10 +385,11 @@
 		PtpCameraSettingsController* settingsController = self.devices[cameraId];
 		PtpCamera* camera = settingsController.camera;
 		
-		[settingsController removeStatusItem];
 		
 		if ([icDevice isEqual: camera.icCamera])
 		{
+			[settingsController removeStatusItem];
+
 			// remove camera from devices list
 			@synchronized (self) {
 				self.devices = [self.devices dictionaryByRemovingObjectForKey: cameraId];
