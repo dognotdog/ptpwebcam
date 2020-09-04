@@ -2,15 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CMIOHardwareAssistantServiceNames</key>
-	<array>
-		<string>org.ptpwebcam.PtpWebcamAssistant</string>
-		<string>org.ptpwebcam.PtpWebcamAgent</string>
-	</array>
-    <key>NoCMIOHardwarePlugInLazyLoadingInfo</key>
-    <array>
-        <dict/>
-    </array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
@@ -37,7 +28,16 @@
 		<key>30010C1C-93BF-11D8-8B5B-000A95AF9C6A</key>
 		<string>B929A70E-8EF3-4ED3-8E8A-BC7E98922A3A</string>
 	</dict>
+	<key>CMIOHardwareAssistantServiceNames</key>
+	<array>
+		<string>org.ptpwebcam.PtpWebcamAssistant</string>
+		<string>org.ptpwebcam.PtpWebcamAgent</string>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2020 Doemoetoer Gulyas. All rights reserved.</string>
+	<key>NoCMIOHardwarePlugInLazyLoadingInfo</key>
+	<array>
+		<dict/>
+	</array>
 </dict>
 </plist>
