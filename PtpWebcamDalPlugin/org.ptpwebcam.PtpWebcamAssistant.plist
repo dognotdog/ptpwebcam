@@ -8,7 +8,7 @@
 		<true/>
 	</dict>
 	<key>ProcessType</key>
-	<string>Interactive</string>
+	<string>Adaptive</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Library/CoreMediaIO/Plug-Ins/DAL/PTPWebcamDALPlugin.plugin/Contents/Resources/PtpWebcamSimpleAssistant</string>
@@ -16,10 +16,10 @@
 	<key>Label</key>
 	<string>org.ptpwebcam.PtpWebcamAssistant</string>
 	<key>StandardErrorPath</key>
-	<string>/Library/Logs/org.ptpwebcam.PtpWebcamAssistant.stderr.log</string>
+	<string>/tmp/org.ptpwebcam.PtpWebcamAssistant.stderr.log</string>
 	<key>StandardOutPath</key>
-	<string>/Library/Logs/org.ptpwebcam.PtpWebcamAssistant.stdout.log</string>
-    <key>Debug</key>
-    <true/>
+	<string>/tmp/org.ptpwebcam.PtpWebcamAssistant.stdout.log</string>
+	<key>Debug</key>
+	<true/>
 </dict>
 </plist>
