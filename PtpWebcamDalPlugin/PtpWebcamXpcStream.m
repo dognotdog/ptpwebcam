@@ -8,7 +8,7 @@
 
 #import "PtpWebcamXpcStream.h"
 #import "PtpWebcamXpcDevice.h"
-#import "PtpWebcamAssistantServiceProtocol.h"
+#import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
 #import "PtpWebcamAlerts.h"
 
 #import <CoreMediaIO/CMIOSampleBuffer.h>
