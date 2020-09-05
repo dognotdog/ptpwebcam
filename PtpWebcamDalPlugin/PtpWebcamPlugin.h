@@ -12,7 +12,7 @@
 #import <ImageCaptureCore/ICDeviceBrowser.h>
 
 #import "PtpWebcamObject.h"
-#import "PtpWebcamAssistantServiceProtocol.h"
+#import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
 #import "PtpCamera.h"
 
 NS_ASSUME_NONNULL_BEGIN
