@@ -112,10 +112,40 @@
 	[self checkCameraReportTrigger];
 }
 
+- (void)cameraDidBecomeReadyForUse:(nonnull PtpCamera *)camera {
+	// don't care about this in this class, as this should happen before a settings controller is instantiated
+}
+
+
+- (void)cameraWasRemoved:(nonnull PtpCamera *)camera {
+	// we never get this, as it's handled at a higher level
+}
+
+
 - (void) cameraAutofocusCapabilityChanged: (PtpCamera*) camera
 {
 	[self checkAutofocusAvailability];
 }
+
+- (void)cameraDidBecomeReadyForLiveViewStreaming:(nonnull PtpCamera *)camera {
+	// don't care about this information in this class
+}
+
+
+- (void)cameraFailedToStartLiveView:(nonnull PtpCamera *)camera {
+	// don't care about this information in this class
+}
+
+
+- (void)cameraLiveViewStreamDidBecomeInterrupted:(nonnull PtpCamera *)camera {
+	// don't care about this information in this class
+}
+
+
+- (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera {
+	// don't care about this information in this class
+}
+
 
 
 
