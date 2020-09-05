@@ -98,10 +98,15 @@ codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks
 
 ### Debug / Crash Logs
 
-The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages and crash traces to
+The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages to
 ```
 /tmp/org.ptpwebcam.PtpWebcamAgent.stderr.log
 ```
+and crash logs can be found at 
+```
+~/Library/Logs/DiagnosticReports/
+```
+starting with `PtpWebcamLaunchAgent`
 
 ### Canon EOS Webcam Utility Incompatibility
 
