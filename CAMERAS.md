@@ -108,7 +108,7 @@ The tables below list what features are supported with which camera models. Valu
 | D500          | 1024x768       | YES (Photography Mode) | YES                 | YES                           |
 | ~D3000~       | no LiveView    | -                      | -                   | -                             |
 | D3200         | 640x480        | (NO)                   | (YES)               | ?                             |
-| D3300         | 640x480        | (NO)                   | (YES)               | ?                             |
+| D3300         | 640x480        | NO                     | (YES)               | ?                             |
 | D3400         | 640x480        | NO                     | YES                 | YES (fixed during LiveView)   |
 | D3500         | (640x480)      | (NO)                   | (YES)               | (YES) (fixed during LiveView) |
 | D5100         | 640x480        | NO                     | (YES)               | ?                             |
