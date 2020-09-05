@@ -492,11 +492,10 @@
 	NSDictionary* ptpPropertyNames = [self.camera ptpPropertyNames];
 
 	{
-		NSString *processName = [[NSProcessInfo processInfo] processName];
 		
-		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"controlled from \"%@\"", processName] action: NULL keyEquivalent: @""];
+		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"About PTP Webcam…"] action: NULL keyEquivalent: @""];
 		menuItem.target = self;
-//		menuItem.action =  @selector(nopAction:);
+		menuItem.action =  @selector(aboutAction:);
 		[menu addItem: menuItem];
 
 		// add report command
@@ -751,6 +750,13 @@
 		}
 	}
 
+}
+
+- (IBAction) aboutAction:(NSMenuItem*)sender
+{
+	NSString* aboutLink = [NSString stringWithFormat: @"https://ptpwebcam.org/"];
+	
+	[[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString: aboutLink]];
 }
 
 
