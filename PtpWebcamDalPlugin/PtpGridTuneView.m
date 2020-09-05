@@ -11,6 +11,9 @@
 #define CELL_SIZE	16.0
 
 @implementation PtpGridTuneView
+{
+	id highlightedValue;
+}
 
 @synthesize tag=_tag;
 
@@ -41,6 +44,12 @@
 							 alpha: 1.0] set];
 		[[NSBezierPath bezierPathWithRect: CGRectMake(origin.x, origin.y, size.width, size.height)] fill];
 
+		if (highlightedValue && (i == [highlightedValue intValue]))
+		{
+			[[NSColor whiteColor] set];
+			[[NSBezierPath bezierPathWithRect: CGRectMake(origin.x, origin.y, size.width, size.height)] stroke];
+		}
+
 		y = y + (x+1)/_gridSize;
 		x = (x+1) % _gridSize;
 	}
@@ -68,6 +77,19 @@
 
 }
 
+- (void) highlightCellAtPoint:(CGPoint) point
+{
+	long x = CLAMP(point.x - 1.0, 0, _gridSize*(CELL_SIZE+1)) / (CELL_SIZE+1);
+	long y = CLAMP(point.y - 1.0, 0, _gridSize*(CELL_SIZE+1)) / (CELL_SIZE+1);
+	
+	long val = x + y * _gridSize;
+	
+	highlightedValue = @(val);
+	
+	[self setNeedsDisplay: YES];
+
+}
+
 - (BOOL)acceptsFirstMouse:(NSEvent *)theEvent
 {
     return YES;
@@ -76,25 +98,47 @@
 - (void) mouseDown:(NSEvent *)event
 {
 	CGPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
-	[self selectCellAtPoint: point];
+	[self highlightCellAtPoint: point];
 
 }
 
 - (void) mouseDragged:(NSEvent *)event
 {
 	CGPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
-	[self selectCellAtPoint: point];
+
+	bool mouseInRect = CGRectContainsPoint( self.bounds, point);
+
+	if (mouseInRect)
+	{
+		[self highlightCellAtPoint: point];
+	}
+	else
+	{
+		highlightedValue = nil;
+		[self setNeedsDisplay: YES];
+	}
 
 }
 
 - (void) mouseUp:(NSEvent *)event
 {
 	CGPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
-	[self selectCellAtPoint: point];
+	[self highlightCellAtPoint: point];
 	
-	if (self.action && self.target)
-		((void (*)(id, SEL, id))[self.target methodForSelector: self.action])(self.target, self.action, self);
-
+	bool mouseUpInRect = CGRectContainsPoint( self.bounds, point);
+	if (mouseUpInRect)
+	{
+		self.representedObject = highlightedValue;
+		highlightedValue = nil;
+		[self setNeedsDisplay: YES];
+		if (self.action && self.target)
+			((void (*)(id, SEL, id))[self.target methodForSelector: self.action])(self.target, self.action, self);
+	}
+	else
+	{
+		highlightedValue = nil;;
+		[self setNeedsDisplay: YES];
+	}
 }
 
 - (void) updateSize
