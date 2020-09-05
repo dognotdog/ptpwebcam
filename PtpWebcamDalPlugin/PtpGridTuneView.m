@@ -13,6 +13,7 @@
 @implementation PtpGridTuneView
 {
 	id highlightedValue;
+	NSTrackingArea* trackingArea;
 }
 
 @synthesize tag=_tag;
@@ -99,7 +100,6 @@
 {
 	CGPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
 	[self highlightCellAtPoint: point];
-
 }
 
 - (void) mouseDragged:(NSEvent *)event
@@ -140,6 +140,30 @@
 		[self setNeedsDisplay: YES];
 	}
 }
+
+- (void) updateTrackingAreas
+{
+	[super updateTrackingAreas];
+
+	if (!trackingArea)
+	{
+		trackingArea = [[NSTrackingArea alloc] initWithRect: self.bounds options: NSTrackingMouseEnteredAndExited | NSTrackingEnabledDuringMouseDrag | NSTrackingActiveAlways owner: self userInfo: nil];
+		[self addTrackingArea: trackingArea];
+	}
+
+}
+
+- (void) mouseExited:(NSEvent *)event
+{
+	highlightedValue = nil;;
+	[self setNeedsDisplay: YES];
+}
+
+- (void) mouseEntered:(NSEvent *)event
+{
+	[self mouseMoved: event];
+}
+
 
 - (void) updateSize
 {
