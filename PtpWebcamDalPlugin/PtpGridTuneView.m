@@ -68,6 +68,11 @@
 
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent *)theEvent
+{
+    return YES;
+}
+
 - (void) mouseDown:(NSEvent *)event
 {
 	CGPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
