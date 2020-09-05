@@ -18,7 +18,7 @@ The tables below list what features are supported with which camera models. Valu
 | EOS 5D Mark II    | ?              | ?                      | ?                   | ?                |
 | EOS 5D Mark III   | ?              | ?                      | ?                   | ?                |
 | EOS 5D Mark IV    | ?              | ?                      | ?                   | ?                |
-| EOS 6D            | 960x640        | YES (Movie Mode)       | YES                 | YES              |
+| EOS 6D            | 640x480        | YES (Movie Mode)       | YES                 | YES              |
 | EOS 6D Mark II    | ?              | ?                      | ?                   | ?                |
 | EOS R             | ?              | ?                      | ?                   | ?                |
 | EOS R2            | ?              | ?                      | ?                   | ?                |
