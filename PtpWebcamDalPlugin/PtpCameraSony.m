@@ -152,6 +152,8 @@ static NSDictionary* _ptpOperationNames = nil;
 		@(PTP_PROP_EXPOSURETIME),
 		@(PTP_PROP_SONY_SHUTTERSPEED),
 		@(PTP_PROP_WHITEBALANCE),
+		@(PTP_PROP_SONY_WB_GREENMAGENTA),
+		@(PTP_PROP_SONY_WB_AMBERBLUE),
 		@(PTP_PROP_EXPOSUREBIAS),
 		@(PTP_PROP_FOCUSMODE),
 		@(PTP_PROP_SONY_LV_STATUS),
@@ -471,6 +473,12 @@ static NSDictionary* _ptpOperationNames = nil;
 				return @"Unknown";
 			else
 				return [NSString stringWithFormat: @"%.0f %%", [value doubleValue]];
+		}
+		case PTP_PROP_SONY_WB_GREENMAGENTA:
+		case PTP_PROP_SONY_WB_AMBERBLUE:
+		{
+			return [NSString stringWithFormat: @"%d", [value intValue] - [defaultValue intValue]];
+			break;
 		}
 		default:
 		{
