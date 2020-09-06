@@ -17,7 +17,7 @@
 {
 	dispatch_source_t frameTimerSource;
 	dispatch_queue_t frameQueue;
-	BOOL isStreaming;
+//	BOOL isStreaming;
 }
 @end
 
@@ -58,7 +58,7 @@
 {
 	[[self.xpcDevice.xpcConnection remoteObjectProxy] startLiveViewForCamera: self.xpcDevice.cameraId];
 	
-	isStreaming = YES;
+	self.isStreaming = YES;
 	
 	
 	return kCMIOHardwareNoError;
@@ -82,7 +82,7 @@
 		}
 	}
 
-	isStreaming = NO;
+	self.isStreaming = NO;
 
 	[[self.xpcDevice.xpcConnection remoteObjectProxy] stopLiveViewForCamera: self.xpcDevice.cameraId];
 

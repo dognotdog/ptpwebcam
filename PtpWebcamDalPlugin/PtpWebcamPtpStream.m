@@ -34,13 +34,6 @@
 
 	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", DISPATCH_QUEUE_SERIAL);
 		
-	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
-	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
-
-	__weak id weakSelf = self;
-	dispatch_source_set_event_handler(frameTimerSource, ^{
-		[weakSelf asyncGetLiveViewImage];
-	});
 	
 	return self;
 }
@@ -51,6 +44,20 @@
 		dispatch_suspend(frameTimerSource);
 }
 
+- (void) startFrameTimer
+{
+	if (!frameTimerSource)
+	{
+		frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+		dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
+
+		__weak id weakSelf = self;
+		dispatch_source_set_event_handler(frameTimerSource, ^{
+			[weakSelf asyncGetLiveViewImage];
+		});
+		dispatch_resume(frameTimerSource);
+	}
+}
 
 - (void) asyncGetLiveViewImage
 {
@@ -94,8 +101,7 @@
 	@synchronized (self) {
 		if (isStreaming && !liveViewShouldBeEnabled)
 		{
-			if (frameTimerSource)
-				dispatch_resume(frameTimerSource);
+			[self startFrameTimer];
 			liveViewShouldBeEnabled = YES;
 		}
 
@@ -109,7 +115,8 @@
 		if (liveViewShouldBeEnabled)
 		{
 			if (frameTimerSource)
-				dispatch_suspend(frameTimerSource);
+				dispatch_cancel(frameTimerSource);
+			frameTimerSource = nil;
 			liveViewShouldBeEnabled = NO;
 		}
 
@@ -123,7 +130,8 @@
 	// only suspend frame timer if it has been resumed when camera signalled ready, otherwise the suspend count is too high and it won't resume next time (eg. when the camera could not start live view because of an error condition)
 	@synchronized (self) {
 		if (frameTimerSource && liveViewShouldBeEnabled)
-			dispatch_suspend(frameTimerSource);
+			dispatch_cancel(frameTimerSource);
+		frameTimerSource = nil;
 		
 		liveViewShouldBeEnabled = NO;
 		isStreaming = NO;

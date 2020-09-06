@@ -16,6 +16,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property PtpWebcamXpcDevice* xpcDevice;
 
+@property BOOL isStreaming;
+
 - (void) receivedLiveViewJpegImageData: (NSData*) jpegData withInfo: (NSDictionary*) info;
 - (void) liveViewStreamReady;
 

@@ -266,6 +266,13 @@
 	@synchronized (self) {
 		NSDictionary* connectionInfo = [self infoForConnection: connection];
 		NSSet* liveStreamIds = connectionInfo[@"liveStreamIds"];
+		
+		// check if this connection alreadys started stream
+		// as it might happen when camera was disconnected
+		// and the stream is automatically restarted from the client
+		if ([liveStreamIds containsObject: cameraId])
+			return;
+		
 		if (!liveStreamIds)
 			liveStreamIds = [NSSet set];
 		liveStreamIds = [liveStreamIds setByAddingObject: cameraId];

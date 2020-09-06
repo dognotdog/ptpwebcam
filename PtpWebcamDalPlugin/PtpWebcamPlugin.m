@@ -14,6 +14,7 @@
 #import "PtpWebcamDummyDevice.h"
 #import "PtpWebcamDummyStream.h"
 #import "PtpWebcamAlerts.h"
+#import "FoundationExtensions.h"
 
 #import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
 #import "../PtpWebcamAssistantService/PtpCameraProtocol.h"
@@ -36,6 +37,8 @@
 	NSPort* assistantPort;
 	NSPort* agentPort;
 	NSPort* receivePort;
+	
+	NSSet* interruptedStreamCameraIds;
 
 }
 @end
@@ -49,6 +52,8 @@
 	
 	self.cmioDevices = @[];
 	self.cameras = @[];
+	
+	interruptedStreamCameraIds = [NSSet set];
 	
 	return self;
 }
@@ -437,15 +442,17 @@
 //		return;
 //	}
 	
-	agentConnection = [[NSXPCConnection alloc] initWithListenerEndpoint: endpoint];
+	@synchronized (self) {
+		agentConnection = [[NSXPCConnection alloc] initWithListenerEndpoint: endpoint];
+	}
 
 	__weak NSXPCConnection* weakConnection = agentConnection;
-//	__weak PtpWebcamPlugin* weakSelf = self;
+	__weak PtpWebcamPlugin* weakSelf = self;
 	
 	agentConnection.invalidationHandler = ^{
 		NSXPCConnection* connection = weakConnection;
 		NSLog(@"oops, connection failed: %@", connection);
-//		[weakSelf retryAgentEndpointRequest];
+		[weakSelf agentDied: connection];
 	};
 	agentConnection.interruptionHandler = ^{
 		NSLog(@"oops, connection interrupted: %@", weakConnection);
@@ -466,40 +473,40 @@
 
 }
 
-//- (void) setupAgentXpc
-//{
-//	agentConnection = [[NSXPCConnection alloc] initWithMachServiceName: @"org.ptpwebcam.PtpWebcamAgent" options: 0];
-//
-//	__weak NSXPCConnection* weakConnection = agentConnection;
-//	__weak PtpWebcamPlugin* weakSelf = self;
-//
-//	agentConnection.invalidationHandler = ^{
-//		NSXPCConnection* connection = weakConnection;
-//		NSLog(@"oops, connection failed: %@", connection);
-//
-//		// retry xpc connection after 1 second if it failed
-//		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-//			[weakSelf setupAgentXpc];
-//		});
-//	};
-//	agentConnection.interruptionHandler = ^{
-//		NSLog(@"oops, connection interrupted: %@", weakConnection);
-//	};
-//	agentConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(PtpWebcamAssistantServiceProtocol)];
-//
-//	NSXPCInterface* exportedInterface = [NSXPCInterface interfaceWithProtocol: @protocol(PtpWebcamAssistantDelegateProtocol)];
-//
-//	agentConnection.exportedObject = self;
-//	agentConnection.exportedInterface = exportedInterface;
-//
-//	[agentConnection resume];
-//
-//	// send message to get the service started by launchd
-//	[[agentConnection remoteObjectProxy] pingService:^{
-//		PtpLog(@"agent pong received.");
-//	}];
-//
-//}
+- (void) agentDied: (NSXPCConnection*) connection
+{
+	PtpLog(@"agent died");
+	
+	NSMutableArray<PtpWebcamXpcDevice*>* removedXpcDevices = [NSMutableArray array];
+	@synchronized (self) {
+		if (connection != agentConnection)
+		{
+			return;
+		}
+		else
+		{
+			agentConnection = nil;
+			// remove XPC devices if agent died
+			for (PtpWebcamDevice* device in self.cmioDevices.copy)
+			{
+				if ([device isKindOfClass: [PtpWebcamXpcDevice class]])
+				{
+					[removedXpcDevices addObject: (id)device];
+					PtpWebcamXpcStream* stream = (id)device.stream;
+					if (stream.isStreaming)
+						interruptedStreamCameraIds = [interruptedStreamCameraIds setByAddingObject: stream.xpcDevice.cameraId];
+				}
+			}
+			self.cmioDevices = [self.cmioDevices arrayByRemovingObjectsInArray: removedXpcDevices];
+		}
+	}
+	
+	for (PtpWebcamXpcDevice* device in removedXpcDevices)
+	{
+
+		[device unplugDevice];
+	}
+}
 
 - (void) connectToAssistantService
 {
@@ -530,15 +537,20 @@
 	PtpWebcamXpcDevice* device = [[PtpWebcamXpcDevice alloc] initWithCameraId: cameraId info: cameraInfo pluginInterface: self.pluginInterfaceRef];
 	
 	// checking and adding to self.devices must happen atomically, hence the @sync block
+	bool streamWasInterrupted = false;
 	@synchronized (self) {
 		// do nothing if we already know of the camera
 		if ([self xpcDeviceWithId: cameraId])
 			return;
 		
 		// add to devices list
-		NSMutableArray* devices = self.cmioDevices.mutableCopy;
-		[devices addObject: device];
-		self.cmioDevices = devices;
+		self.cmioDevices = [self.cmioDevices arrayByAddingObject: device];
+		
+		if ([interruptedStreamCameraIds containsObject: cameraId])
+		{
+			interruptedStreamCameraIds = [interruptedStreamCameraIds setByRemovingObject: cameraId];
+			streamWasInterrupted = true;
+		}
 	}
 	
 	device.xpcConnection = agentConnection;
@@ -555,6 +567,10 @@
 	[device publishCmioDevice];
 	[stream publishCmioStream];
 	
+	if (streamWasInterrupted)
+	{
+		[device startStream: stream.objectId];
+	}
 	
 }
 
@@ -571,7 +587,13 @@
 		NSMutableArray* devices = self.cmioDevices.mutableCopy;
 		[devices removeObject: device];
 		self.cmioDevices = devices;
+		
+		PtpWebcamXpcStream* stream = (id)device.stream;
+		if (stream.isStreaming)
+			interruptedStreamCameraIds = [interruptedStreamCameraIds setByAddingObject: cameraId];
 	}
+	
+	
 	
 	[device unplugDevice];
 	
