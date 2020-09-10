@@ -568,7 +568,9 @@
 
 	{
 		
-		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"About PTP Webcam…"] action: NULL keyEquivalent: @""];
+		NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
+
+		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"About PTP Webcam v%@…", version] action: NULL keyEquivalent: @""];
 		menuItem.target = self;
 		menuItem.action =  @selector(aboutAction:);
 		[menu addItem: menuItem];
