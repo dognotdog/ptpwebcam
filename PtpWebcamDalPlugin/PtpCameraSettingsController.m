@@ -746,6 +746,9 @@
 	uint32_t propertyId = (uint32_t)sender.tag;
 
 	[self.camera ptpIncrementProperty: propertyId by: 1];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			[self.camera ptpGetPropertyDescription: propertyId];
+	});
 }
 
 

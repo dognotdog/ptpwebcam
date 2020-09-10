@@ -408,6 +408,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		case PTP_CMD_SONY_SETPROPABS:
 		case PTP_CMD_SONY_SETPROPSTEP:
 		{
+			[self didSetPropertyWithCommand: command response: response responseData: data];
 			break;
 		}
 		default:
@@ -416,6 +417,24 @@ static NSDictionary* _ptpOperationNames = nil;
 			break;
 	}
 
+}
+
+- (void) didSetPropertyWithCommand: (NSData*) command response: (NSData*) response responseData: (NSData*) responseData
+{
+	uint16_t cmd = 0;
+	[command getBytes: &cmd range: NSMakeRange(6, 2)];
+	
+	uint32_t param0 = 0;
+	if (command.length >= 12+4)
+		[command getBytes: &param0 range: NSMakeRange(12, sizeof(param0))];
+	uint32_t param1 = 0;
+	if (command.length >= 16+4)
+		[command getBytes: &param1 range: NSMakeRange(16, sizeof(param1))];
+	uint32_t param2 = 0;
+	if (command.length >= 20+4)
+		[command getBytes: &param2 range: NSMakeRange(20, sizeof(param2))];
+
+//	PtpLog(@"command=%@ response=%@ data=%@", command, response, responseData);
 }
 
 - (NSDictionary*) ptpOperationNames
@@ -489,7 +508,7 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) parseSonyPropertyDescriptionResponse: (NSData*) data
 {
-	
+	PtpLog(@"data=%@", data);
 }
 
 - (void) parseSonyAllPropertyDataResponse: (NSData*) data
@@ -713,7 +732,10 @@ static NSDictionary* _ptpOperationNames = nil;
 	else if ([self isPtpOperationSupported: PTP_CMD_GETPROPDESC])
 		[self requestSendPtpCommandWithCode: PTP_CMD_GETPROPDESC parameters:@[@(property)]];
 	else if ([self isPtpOperationSupported: PTP_CMD_SONY_GETALLPROPDATA])
+	{
+//		PtpLog(@"requesting all properties, though only interested in 0x%04X", property);
 		[self requestSendPtpCommandWithCode: PTP_CMD_SONY_GETALLPROPDATA];
+	}
 //	else
 //		assert(0);
 
@@ -767,6 +789,7 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) ptpIncrementProperty: (uint32_t) propertyId by: (int32_t) increment
 {
+	PtpLog(@"incrementing propertyId=0x%04X by %d", propertyId, (int)increment);
 	[self requestSendPtpCommandWithCode: PTP_CMD_SONY_SETPROPSTEP parameters: @[@(propertyId)] data: [self encodePtpDataOfType: PTP_DATATYPE_EOS_SINT32 fromValue: @(increment)]];
 }
 
@@ -788,6 +811,8 @@ static NSDictionary* _ptpOperationNames = nil;
 	{
 		case PTP_EVENT_SONY_PROPVALCHANGED:
 		{
+//			PtpLog(@"value changed param = 0x%08X %@", eventParam, eventData);
+//			PtpLog(@"description was %@", self.ptpPropertyInfos[@(eventParam)]);
 			// if a device property changed that's shown in the UI, update its value
 			if (_ptpPropertyNames[@(eventParam)])
 				[self ptpGetPropertyDescription: eventParam];
