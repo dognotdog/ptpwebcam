@@ -27,7 +27,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void) removeStatusItem;
 
-- (void) incrementStreamCount;
+- (BOOL) incrementStreamCount;
 - (void) decrementStreamCount;
 
 

@@ -146,7 +146,9 @@
 		return;
 	PtpLog(@"streamCounter=%d for %@", settingsController.streamCounter, [self currentConnectionName]);
 
-	[settingsController incrementStreamCount];
+	BOOL inLiveView = [settingsController incrementStreamCount];
+	if (inLiveView)
+		[self cameraDidBecomeReadyForLiveViewStreaming: settingsController.camera];
 }
 
 
@@ -470,6 +472,11 @@
 		NSXPCConnection* connection = connectionInfo[@"connection"];
 		[[connection remoteObjectProxy] liveViewReadyforCameraWithId: camera.cameraId];
 	}
+	
+	PtpCameraSettingsController* settingsController = self.devices[camera.cameraId];
+	
+	[settingsController cameraDidBecomeReadyForLiveViewStreaming: camera];
+
 }
 
 - (void)cameraAutofocusCapabilityChanged:(nonnull PtpCamera *)camera {

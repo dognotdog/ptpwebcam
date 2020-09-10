@@ -12,6 +12,7 @@
 #import "PtpGridTuneView.h"
 #import "PtpWebcamStreamView.h"
 
+
 @implementation PtpCameraSettingsController
 {
 	NSStatusItem* statusItem;
@@ -133,8 +134,12 @@
 	[self checkAutofocusAvailability];
 }
 
-- (void)cameraDidBecomeReadyForLiveViewStreaming:(nonnull PtpCamera *)camera {
-	// don't care about this information in this class
+- (void)cameraDidBecomeReadyForLiveViewStreaming:(nonnull PtpCamera *)camera
+{
+	if (shouldShowPreview)
+	{
+		[self startFrameTimer];
+	}
 }
 
 
@@ -147,6 +152,27 @@
 	// don't care about this information in this class
 }
 
+- (void) createPreviewWindowWithSize: (CGSize) size
+{
+	self.streamPreviewWindow = [[NSWindow alloc] initWithContentRect: CGRectMake(0, 0, size.width, size.height) styleMask: NSWindowStyleMaskBorderless | NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView backing: NSBackingStoreBuffered defer: NO];
+	self.streamPreviewWindow.level = NSFloatingWindowLevel;
+	NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
+	self.streamPreviewWindow.title = [NSString stringWithFormat: @"PTP Webcam v%@ - %@", version, self.name];
+	self.streamPreviewWindow.titlebarAppearsTransparent = YES;
+	self.streamPreviewWindow.delegate = self;
+	self.streamPreviewWindow.releasedWhenClosed = NO;
+	[self.streamPreviewWindow center];
+	
+	self.streamView = [[PtpWebcamStreamView alloc] initWithFrame: CGRectMake(0, 0, size.width, size.height)];
+	self.streamView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+		
+	[self.streamPreviewWindow.contentView addSubview: self.streamView];
+
+
+	
+	[self.streamPreviewWindow makeKeyAndOrderFront: self];
+
+}
 
 - (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera
 {
@@ -159,19 +185,7 @@
 		
 		if (!self.streamPreviewWindow)
 		{
-			self.streamPreviewWindow = [[NSWindow alloc] initWithContentRect: CGRectMake(0, 0, image.size.width, image.size.height) styleMask: NSWindowStyleMaskBorderless | NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView backing: NSBackingStoreBuffered defer: NO];
-			self.streamPreviewWindow.level = NSFloatingWindowLevel;
-			self.streamPreviewWindow.title = [NSString stringWithFormat: @"PTP Webcam - %@", self.name];
-			self.streamPreviewWindow.titlebarAppearsTransparent = YES;
-			self.streamPreviewWindow.delegate = self;
-			self.streamPreviewWindow.releasedWhenClosed = NO;
-			[self.streamPreviewWindow center];
-			
-			self.streamView = [[PtpWebcamStreamView alloc] initWithFrame: CGRectMake(0, 0, image.size.width, image.size.height)];
-			
-			self.streamPreviewWindow.contentView = self.streamView;
-			
-			[self.streamPreviewWindow makeKeyAndOrderFront: self];
+			[self createPreviewWindowWithSize: image.size];
 		}
 		[self.streamView setImage: image];
 	});
@@ -851,19 +865,25 @@
 	}
 }
 
-- (void) incrementStreamCount
+- (BOOL) incrementStreamCount
 {
+	BOOL alreadyInLiveView = NO;
 	@synchronized (self) {
 		int streamCounter = self.streamCounter;
 		if (streamCounter == 0)
+		{
+			PtpLog(@"starting LiveView...");
 			[self.camera startLiveView];
+		}
 		else if (self.camera.isInLiveView)
 		{
-			[self cameraDidBecomeReadyForLiveViewStreaming: self.camera];
+			alreadyInLiveView = YES;
 		}
 			
 		self.streamCounter = streamCounter+1;
 	}
+	
+	return alreadyInLiveView;
 
 }
 - (void) decrementStreamCount
@@ -871,7 +891,10 @@
 	@synchronized (self) {
 		int streamCounter = self.streamCounter;
 		if (streamCounter == 1)
+		{
+			PtpLog(@"stopping LiveView...");
 			[self.camera stopLiveView];
+		}
 		self.streamCounter = MAX(0, streamCounter-1);
 	}
 }
@@ -879,12 +902,15 @@
 
 - (IBAction) previewAction:(NSMenuItem*)sender
 {
+	shouldShowPreview = YES;
+
 	if (!self.streamPreviewWindow)
 	{
-		[self incrementStreamCount];
-		[self startFrameTimer];
+		BOOL alreadyInLiveView = [self incrementStreamCount];
+		if (alreadyInLiveView)
+			[self cameraDidBecomeReadyForLiveViewStreaming: self.camera];
+
 	}
-	shouldShowPreview = YES;
 	
 	[self.streamPreviewWindow center];
 	[self.streamPreviewWindow makeKeyAndOrderFront: self];
