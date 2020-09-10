@@ -12,6 +12,7 @@
 #import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 #import "../PtpWebcamDalPlugin/FoundationExtensions.h"
 #import "../PtpWebcamDalPlugin/PtpCameraSettingsController.h"
+#import "PtpWebcamStreamView.h"
 
 @interface PtpWebcamLaunchAgentAppDelegate ()
 
@@ -133,13 +134,9 @@
 	if (!settingsController)
 		return;
 	
-	@synchronized (settingsController) {
-		int streamCounter = settingsController.streamCounter;
-		PtpLog(@"streamCounter=%d for %@", streamCounter, [self currentConnectionName]);
-		if (streamCounter == 1)
-			[settingsController.camera stopLiveView];
-		settingsController.streamCounter = MAX(0, streamCounter-1);
-	}
+	PtpLog(@"streamCounter=%d for %@", settingsController.streamCounter, [self currentConnectionName]);
+	
+	[settingsController decrementStreamCount];
 }
 
 - (void) incrementStreamCountForCameraId: (id) cameraId
@@ -147,19 +144,9 @@
 	PtpCameraSettingsController* settingsController = self.devices[cameraId];
 	if (!settingsController)
 		return;
-	
-	@synchronized (settingsController) {
-		int streamCounter = settingsController.streamCounter;
-		PtpLog(@"streamCounter=%d for %@", streamCounter, [self currentConnectionName]);
-		if (streamCounter == 0)
-			[settingsController.camera startLiveView];
-		else if (settingsController.camera.isInLiveView)
-		{
-			[self cameraDidBecomeReadyForLiveViewStreaming: settingsController.camera];
-		}
-			
-		settingsController.streamCounter = streamCounter+1;
-	}
+	PtpLog(@"streamCounter=%d for %@", settingsController.streamCounter, [self currentConnectionName]);
+
+	[settingsController incrementStreamCount];
 }
 
 
@@ -467,7 +454,12 @@
 		NSXPCConnection* connection = connectionInfo[@"connection"];
 		[[connection remoteObjectProxy] receivedLiveViewJpegImageData: jpegData withInfo: @{} forCameraWithId: camera.cameraId];
 	}
+	
+	PtpCameraSettingsController* settingsController = self.devices[camera.cameraId];
+	
+	[settingsController receivedLiveViewJpegImage: jpegData withInfo: info fromCamera: camera];
 
+//	[self.streamView setJpegData: jpegData];
 }
 
 - (void) cameraDidBecomeReadyForLiveViewStreaming:(PtpCamera *)camera

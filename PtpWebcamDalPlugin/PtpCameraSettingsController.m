@@ -10,6 +10,7 @@
 
 #import "PtpWebcamAlerts.h"
 #import "PtpGridTuneView.h"
+#import "PtpWebcamStreamView.h"
 
 @implementation PtpCameraSettingsController
 {
@@ -18,6 +19,11 @@
 	BOOL isPropertyExplorerEnabled;
 	BOOL triggerReportGenerationWhenPropertiesComplete;
 	NSMutableDictionary* propertyMenuItemLookupTable; // used for changing values shown in property menu items without rebuilding whole menu
+	
+	dispatch_source_t frameTimerSource;
+	dispatch_queue_t frameQueue;
+	BOOL shouldShowPreview;
+
 }
 
 - (instancetype) initWithCamera: (PtpCamera*) camera
@@ -142,8 +148,33 @@
 }
 
 
-- (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera {
-	// don't care about this information in this class
+- (void)receivedLiveViewJpegImage:(nonnull NSData *)jpegData withInfo:(nonnull NSDictionary *)info fromCamera:(nonnull PtpCamera *)camera
+{
+	NSImage* image = [[NSImage alloc] initWithData: jpegData];
+	
+	if (!image || !shouldShowPreview)
+		return;
+	
+	dispatch_async(dispatch_get_main_queue(), ^{
+		
+		if (!self.streamPreviewWindow)
+		{
+			self.streamPreviewWindow = [[NSWindow alloc] initWithContentRect: CGRectMake(0, 0, image.size.width, image.size.height) styleMask: NSWindowStyleMaskBorderless | NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView backing: NSBackingStoreBuffered defer: NO];
+			self.streamPreviewWindow.level = NSFloatingWindowLevel;
+			self.streamPreviewWindow.title = [NSString stringWithFormat: @"PTP Webcam - %@", self.name];
+			self.streamPreviewWindow.titlebarAppearsTransparent = YES;
+			self.streamPreviewWindow.delegate = self;
+			self.streamPreviewWindow.releasedWhenClosed = NO;
+			[self.streamPreviewWindow center];
+			
+			self.streamView = [[PtpWebcamStreamView alloc] initWithFrame: CGRectMake(0, 0, image.size.width, image.size.height)];
+			
+			self.streamPreviewWindow.contentView = self.streamView;
+			
+			[self.streamPreviewWindow makeKeyAndOrderFront: self];
+		}
+		[self.streamView setImage: image];
+	});
 }
 
 
@@ -591,16 +622,23 @@
 	autofocusMenuItem.target = self;
 	autofocusMenuItem.action =  @selector(autofocusAction:);
 
+	// preview
+	{
+		[menu addItem: [NSMenuItem separatorItem]];
+		NSMenuItem* item = [[NSMenuItem alloc] init];
+		item.title =  @"Preview Video Stream…";
+		item.target = self;
+		item.action = @selector(previewAction:);
+		[menu addItem: item];
+	}
+
 	// add autofocus command
 	int afCapability = [self checkAutofocusAvailability];
 	if (afCapability != PTPCAM_AF_NONE)
 	{
-		[menu addItem: [NSMenuItem separatorItem]];
 		[menu addItem: autofocusMenuItem];
 	}
 	
-	
-
 	// camera properties
 	if (isPropertyExplorerEnabled)
 	{
@@ -781,6 +819,89 @@
 	}
 
 }
+
+- (void) startFrameTimer
+{
+	@synchronized (self) {
+		if (!frameTimerSource)
+		{
+			frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+			dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/30.0*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
+
+			__weak PtpCameraSettingsController* weakSelf = self;
+			dispatch_source_set_event_handler(frameTimerSource, ^{
+				[weakSelf.camera requestLiveViewImage];
+			});
+			dispatch_resume(frameTimerSource);
+		}
+	}
+}
+- (void) stopFrameTimer
+{
+	@synchronized (self) {
+		if (frameTimerSource)
+		{
+			dispatch_cancel(frameTimerSource);
+			frameTimerSource = nil;
+
+		}
+	}
+}
+
+- (void) incrementStreamCount
+{
+	@synchronized (self) {
+		int streamCounter = self.streamCounter;
+		if (streamCounter == 0)
+			[self.camera startLiveView];
+		else if (self.camera.isInLiveView)
+		{
+			[self cameraDidBecomeReadyForLiveViewStreaming: self.camera];
+		}
+			
+		self.streamCounter = streamCounter+1;
+	}
+
+}
+- (void) decrementStreamCount
+{
+	@synchronized (self) {
+		int streamCounter = self.streamCounter;
+		if (streamCounter == 1)
+			[self.camera stopLiveView];
+		self.streamCounter = MAX(0, streamCounter-1);
+	}
+}
+
+
+- (IBAction) previewAction:(NSMenuItem*)sender
+{
+	if (!self.streamPreviewWindow)
+	{
+		[self incrementStreamCount];
+		[self startFrameTimer];
+	}
+	shouldShowPreview = YES;
+	
+	[self.streamPreviewWindow center];
+	[self.streamPreviewWindow makeKeyAndOrderFront: self];
+	
+}
+
+- (void) windowWillClose:(NSNotification *)notification
+{
+	if (notification.object == self.streamPreviewWindow)
+	{
+		shouldShowPreview = NO;
+		
+		[self stopFrameTimer];
+		[self decrementStreamCount];
+		
+		self.streamPreviewWindow = nil;
+		self.streamView = nil;
+	}
+}
+
 
 - (IBAction) aboutAction:(NSMenuItem*)sender
 {

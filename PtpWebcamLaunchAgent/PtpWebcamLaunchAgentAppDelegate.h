@@ -13,10 +13,15 @@
 
 #import <ImageCaptureCore/ICDeviceBrowser.h>
 
+@class PtpWebcamStreamView;
+
 @interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate, NSXPCListenerDelegate, ICDeviceBrowserDelegate,  ICDeviceDelegate, PtpWebcamCameraXpcProtocol, PtpCameraLiveViewDelegate>
 
 @property NSArray<NSDictionary*>* connections;
 @property NSDictionary* devices;
+
+@property IBOutlet PtpWebcamStreamView* streamView;
+@property IBOutlet NSWindow* streamWindow;
 
 @end
 
