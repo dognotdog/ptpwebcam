@@ -24,7 +24,8 @@
 	dispatch_source_t frameTimerSource;
 	dispatch_queue_t frameQueue;
 	BOOL shouldShowPreview;
-
+	
+	NSString* latestVersionString;
 }
 
 - (instancetype) initWithCamera: (PtpCamera*) camera
@@ -49,6 +50,9 @@
 	
 	// build the status item
 //	[self rebuildStatusItem];
+	
+	// download release info every time a camera is connected
+	[self downloadReleaseInfo];
 	
 	return self;
 }
@@ -228,6 +232,31 @@
 				[self.camera ptpGetPropertyDescription: [propertyId unsignedIntValue]];
 		}
 	}
+}
+
+- (void) downloadReleaseInfo
+{
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
+		NSData* releaseInfoData = [NSData dataWithContentsOfURL: [NSURL URLWithString: @"https://ptpwebcam.org/latestRelease.json"]];
+								 
+		NSError* error = nil;
+		NSDictionary* info = [NSJSONSerialization JSONObjectWithData: releaseInfoData options: 0 error: &error];
+		if (error)
+		{
+			PtpLog(@"error occured trying to parse release info json: %@", error);
+		}
+		
+		if (info)
+		{
+			PtpLog(@"relase info: %@", info);
+			self->latestVersionString = info[@"versionString"];
+			
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[self rebuildStatusItem];
+			});
+		}
+	});
+	
 }
 
 
@@ -570,7 +599,29 @@
 		
 		NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
 
-		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"About PTP Webcam v%@…", version] action: NULL keyEquivalent: @""];
+		id title = nil;
+		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: @"camera" action: NULL keyEquivalent: @""];
+
+		if (latestVersionString && ![version isEqualToString: latestVersionString])
+		{
+//			NSFont* font = [NSFont menuFontOfSize: 0];
+
+			title = [NSString stringWithFormat: @"New PTP Webcam version %@ available…", latestVersionString];
+
+			menuItem.image = [NSImage imageNamed: NSImageNameFollowLinkFreestandingTemplate];
+//			menuItem.image = [NSImage imageNamed: NSImageNameStatusPartiallyAvailable];
+//			menuItem.image = [NSImage imageNamed: NSImageNameRefreshTemplate];
+			menuItem.attributedTitle = [[NSAttributedString alloc] initWithString: title attributes: @{
+//				NSFontAttributeName : font,
+//				NSForegroundColorAttributeName : NSColor.systemRedColor,
+//				NSUnderlineStyleAttributeName : @(1)
+			}];
+		}
+		else
+		{
+			title = [NSString stringWithFormat: @"About PTP Webcam v%@…", version];
+			menuItem.title = title;
+		}
 		menuItem.target = self;
 		menuItem.action =  @selector(aboutAction:);
 		[menu addItem: menuItem];
