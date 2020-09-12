@@ -801,7 +801,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 {
 	NSDictionary* liveViewSizeInfo = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
 	NSNumber* liveViewImageSize = liveViewSizeInfo[@"value"];
-	if (!liveViewSizeInfo || !liveViewImageSize)
+	if (!liveViewSizeInfo || (nil == liveViewImageSize))
 		return NSMakeSize(640, 480);
 	
 	switch(liveViewImageSize.intValue)

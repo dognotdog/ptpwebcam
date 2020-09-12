@@ -80,7 +80,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (ptpDataType_t) getPtpPropertyType: (uint32_t) propertyId; // use in subclasses only
 - (nullable NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value;
 - (nullable NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;
-- (id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
+- (nullable id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
 - (void) parsePtpDeviceInfoResponse: (NSData*) eventData; // to be overriden in subclass
 - (NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData* _Nullable * _Nullable) remData; // override in subclasses where enum range is non-conforming (looking at you, Canon)
 
@@ -103,7 +103,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL) shouldRequestNewLiveViewImage; // called by subclass
 - (void) liveViewImageReceived; // called by subclass
 - (NSSize) currenLiveViewImageSize;
-- (NSArray*) liveViewImageSizes;
+- (nullable NSArray*) liveViewImageSizes;
 - (nullable NSData*) extractLiveViewJpegData: (NSData*) liveViewData;
 
 

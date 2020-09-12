@@ -250,8 +250,10 @@ static NSDictionary* _ptpOperationNames = nil;
 	{
 		case PTP_DATATYPE_SINT8_RAW:
 			dataType = PTP_DATATYPE_SINT16_RAW;
+			break;
 		case PTP_DATATYPE_UINT8_RAW:
 			dataType = PTP_DATATYPE_UINT16_RAW;
+			break;
 	}
 	
 	NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
@@ -1126,11 +1128,10 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 			else
 				[self createFrameWatchdog];
 		}
+
+		if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
+			[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
 	}
-	
-	if ([self.delegate respondsToSelector: @selector(receivedLiveViewJpegImage:withInfo:fromCamera:)])
-		[(id <PtpCameraLiveViewDelegate>)self.delegate receivedLiveViewJpegImage: jpegData withInfo: @{} fromCamera: self];
-	
 }
 
 - (void)didSendPTPCommand:(NSData*)command inData:(NSData*)data response:(NSData*)response error:(NSError*)error contextInfo:(void*)contextInfo

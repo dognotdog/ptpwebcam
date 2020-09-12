@@ -552,7 +552,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	[data appendBytes: &type length: 2];
 	[data appendBytes: &code length: 2];
 	[data appendBytes: &transId length: 4];
-	[data appendData: paramData];
+	if (paramData)
+		[data appendData: paramData];
 	
 	return data;
 }
