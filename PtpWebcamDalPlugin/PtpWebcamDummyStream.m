@@ -46,7 +46,8 @@
 
 - (void) dealloc
 {
-	dispatch_suspend(frameTimerSource);
+	if (frameTimerSource)
+		dispatch_source_cancel(frameTimerSource);
 }
 
 - (OSStatus) startStream
@@ -58,7 +59,8 @@
 
 - (OSStatus) stopStream
 {
-	dispatch_suspend(frameTimerSource);
+	if (frameTimerSource)
+		dispatch_source_cancel(frameTimerSource);
 
 	return kCMIOHardwareNoError;
 }

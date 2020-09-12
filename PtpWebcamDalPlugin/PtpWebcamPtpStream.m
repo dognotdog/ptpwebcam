@@ -41,7 +41,7 @@
 - (void) dealloc
 {
 	if (frameTimerSource)
-		dispatch_suspend(frameTimerSource);
+		dispatch_source_cancel(frameTimerSource);
 }
 
 - (void) startFrameTimer

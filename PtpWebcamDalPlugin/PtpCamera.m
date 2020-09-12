@@ -427,7 +427,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (void) dealloc
 {
 	if (frameTimerSource)
-		dispatch_suspend(frameTimerSource);
+		dispatch_source_cancel(frameTimerSource);
 }
 
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)device
