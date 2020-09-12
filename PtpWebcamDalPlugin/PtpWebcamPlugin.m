@@ -209,15 +209,6 @@
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)icCamera
 {
 	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", icCamera);
-		
-	PtpCamera* camera = [PtpCamera cameraWithIcCamera: icCamera delegate: self];
-	
-	@synchronized (self) {
-		NSMutableArray* cameras = self.cameras.mutableCopy;
-		[cameras addObject: camera];
-		self.cameras = cameras;
-	}
-	
 }
 
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
@@ -282,17 +273,15 @@
 		return;
 	}
 	
-	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)device];
-	Class cameraClass = cameraInfo[@"Class"];
+//	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)device];
+//	Class cameraClass = cameraInfo[@"Class"];
 	
-	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
+//	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
 	{
 		PtpCamera* camera = [PtpCamera cameraWithIcCamera: (id)device delegate: self];
 		
 		@synchronized (self) {
-			NSMutableArray* cameras = self.cameras.mutableCopy;
-			[cameras addObject: camera];
-			self.cameras = cameras;
+			self.cameras = [self.cameras arrayByAddingObject: camera];
 		}
 
 	}

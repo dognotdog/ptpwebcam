@@ -312,10 +312,10 @@
 		return;
 	}
 	
-	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)icCamera];
-	Class cameraClass = cameraInfo[@"Class"];
+//	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)icCamera];
+//	Class cameraClass = cameraInfo[@"Class"];
 	
-	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
+	// if (![cameraClass enumeratesContentCatalogOnSessionOpen])
 	{
 		PtpCamera* camera = [PtpCamera cameraWithIcCamera: (id)icCamera delegate: self];
 
@@ -338,20 +338,6 @@
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *) icCamera
 {
 	PtpLog(@"");
-		
-	PtpCamera* camera = [PtpCamera cameraWithIcCamera: icCamera delegate: self];
-	
-	if (!camera)
-	{
-		PtpWebcamShowCatastrophicAlert(@"Camera with USB Vendor ID 0x%04X, Product ID 0x%04X could not be instantiated.", icCamera.usbVendorID, icCamera.usbProductID);
-		return;
-	}
-	
-	PtpCameraSettingsController* deviceController = [[PtpCameraSettingsController alloc] initWithCamera: camera];
-
-	@synchronized (self) {
-		self.devices = [self.devices dictionaryBySettingObject: deviceController forKey: camera.cameraId];
-	}
 }
 
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing

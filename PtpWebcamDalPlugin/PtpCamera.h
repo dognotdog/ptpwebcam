@@ -51,7 +51,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (void) registerSupportedCameras: (NSDictionary*) supportedCameras byClass: (Class) aClass;
 
 + (nullable NSDictionary*) isDeviceSupported: (ICDevice*) device;
-+ (BOOL) enumeratesContentCatalogOnSessionOpen;
 
 //+ (NSDictionary*) ptpStandardProgramModeNames;
 //+ (NSDictionary*) ptpStandardWhiteBalanceModeNames;

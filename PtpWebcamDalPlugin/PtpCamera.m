@@ -224,11 +224,6 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	return cameraInfo;
 }
 
-+ (BOOL) enumeratesContentCatalogOnSessionOpen
-{
-	[self doesNotRecognizeSelector: _cmd];
-	return NO;
-}
 
 + (NSDictionary*) mergePropertyValueDictionary: (NSDictionary*) dict0 withDictionary: (NSDictionary*) dict1
 {
@@ -416,6 +411,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	self.model = cameraInfo[@"model"];
 	self.cameraId = [NSString stringWithFormat: @"ptpwebcam-%@-%@-%@", self.make, self.model, camera.serialNumberString];
 	self.ptpPropertyInfos = @{};
+	
+//	PtpLog(@"initialized camera with ID %@", self.cameraId);
 	
 	camera.delegate = self;
 	
@@ -839,7 +836,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 - (NSData*) encodePtpProperty: (uint32_t) propertyId fromValue: (id) value
 {
 	ptpDataType_t dataType = [self getPtpPropertyType: propertyId];
-	return [self encodePtpDataOfType: dataType fromValue: value];
+	NSData* encodedData = [self encodePtpDataOfType: dataType fromValue: value];
+	if (!encodedData)
+	{
+		PtpLog(@"could not encode property 0x%04X (%@) from value %@", propertyId, self.ptpPropertyNames[@(propertyId)], value);
+	}
+	return encodedData;
 }
 
 - (void) ptpSetProperty: (uint32_t) property toValue: (id) value

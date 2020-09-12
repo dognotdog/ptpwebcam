@@ -167,10 +167,6 @@ static NSDictionary* _ptpOperationNames = nil;
 	}
 }
 
-+ (BOOL) enumeratesContentCatalogOnSessionOpen
-{
-	return NO;
-}
 
 - (instancetype) initWithIcCamera: (ICCameraDevice*) camera delegate: (id <PtpCameraDelegate>) delegate cameraInfo: (NSDictionary*) cameraInfo
 {
