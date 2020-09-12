@@ -237,7 +237,15 @@
 - (void) downloadReleaseInfo
 {
 	dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
-		NSData* releaseInfoData = [NSData dataWithContentsOfURL: [NSURL URLWithString: @"https://ptpwebcam.org/latestRelease.json"]];
+		NSError* downloadError = nil;
+		NSData* releaseInfoData = [NSData dataWithContentsOfURL: [NSURL URLWithString: @"https://ptpwebcam.org/latestRelease.json"] options: NSDataReadingUncached error: &downloadError];
+		
+		// NSJSONSerialization needs non-nil data
+		if (!releaseInfoData)
+		{
+			PtpLog(@"error occured trying to download release info json: %@", downloadError);
+			return;
+		}
 								 
 		NSError* error = nil;
 		NSDictionary* info = [NSJSONSerialization JSONObjectWithData: releaseInfoData options: 0 error: &error];
