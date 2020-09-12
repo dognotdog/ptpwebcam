@@ -273,7 +273,7 @@ static NSDictionary* _ptpOperationNames = nil;
 	@synchronized (self) {
 		if (eventPollTimer)
 		{
-			dispatch_suspend(eventPollTimer);
+			dispatch_source_cancel(eventPollTimer);
 //			dispatch_source_set_event_handler(eventPollTimer, nil);
 			eventPollTimer = nil;
 		}
