@@ -14,7 +14,7 @@ break command add -s python -o "return any('SafeGetElement' in f.name for f in f
 
 #import <Foundation/Foundation.h>
 
-#import <CoreMediaIo/CMIOHardwarePlugIn.h>
+#import <CoreMediaIO/CMIOHardwarePlugIn.h>
 
 #import "PtpWebcamPlugin.h"
 #import "PtpWebcamDevice.h"

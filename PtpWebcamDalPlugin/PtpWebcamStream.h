@@ -8,7 +8,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import <CoreMediaIo/CMIOHardwarePlugIn.h>
+#import <CoreMediaIO/CMIOHardwarePlugIn.h>
 
 #import "PtpWebcamObject.h"
 

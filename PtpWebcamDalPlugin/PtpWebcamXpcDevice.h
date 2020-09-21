@@ -8,7 +8,7 @@
 
 #import "PtpWebcamDevice.h"
 
-#import <CoreMediaIo/CMIOHardwarePlugIn.h>
+#import <CoreMediaIO/CMIOHardwarePlugIn.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
