@@ -10,7 +10,7 @@
 
 #import "PtpWebcamPlugin.h"
 
-#import <CoreMediaIo/CMIOHardwarePlugIn.h>
+#import <CoreMediaIO/CMIOHardwarePlugIn.h>
 #import "PtpCamera.h"
 
 
