@@ -26,7 +26,6 @@ typedef enum {
 
 	dispatch_queue_t eventPollQueue;
 	dispatch_source_t eventPollTimer;
-	
 }
 
 static NSDictionary* _ptpPropertyNames = nil;
@@ -201,8 +200,11 @@ static NSDictionary* _ptpOperationNames = nil;
 	eventPollQueue = dispatch_queue_create("PtpWebcamCanonEventPollingQueue", queueAttributes);
 	eventPollTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, eventPollQueue);
 	dispatch_source_set_timer(eventPollTimer, DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC, 1 * NSEC_PER_MSEC);
+	
+	// suspecting that the crash in -didRemoveDevice: is actually caused by ARC getting confused with the eventPollTimer and possibly cancelling the dispatch source releases this object for some weird reason
+	__weak PtpCameraCanon* weakSelf = self;
 	dispatch_source_set_event_handler(eventPollTimer, ^{
-		[self queryCanonEvents];
+		[weakSelf queryCanonEvents];
 	});
 	dispatch_resume(eventPollTimer);
 
@@ -827,6 +829,11 @@ static NSDictionary* _ptpOperationNames = nil;
 
 - (void) canonSetProperty: (uint32_t) propertyId toValue: (id) value
 {
+	if (!self.ptpPropertyInfos[@(propertyId)])
+	{
+		PtpLog(@"attempting to set property 0x%04X for which we do not have a property description to value %@.", propertyId, value);
+		return;
+	}
 	NSData* dataBlock = [self encodeCanonPropertyBlock: propertyId fromValue: value];
 	
 	[self requestSendPtpCommandWithCode: PTP_CMD_CANON_SETPROPVAL_EX parameters: nil data: dataBlock];
@@ -915,8 +922,10 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		PtpLog(@"creating watchdog timer");
 		frameWatchdogTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
 		dispatch_source_set_timer(frameWatchdogTimer, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), DISPATCH_TIME_FOREVER, 1 * NSEC_PER_SEC);
+		
+		__weak PtpCameraCanon* weakSelf = self;
 		dispatch_source_set_event_handler(frameWatchdogTimer, ^{
-			[self restartLiveView];
+			[weakSelf restartLiveView];
 		});
 		dispatch_resume(frameWatchdogTimer);
 	}
@@ -1164,6 +1173,20 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		}
 		case PTP_CMD_CANON_SETEVENTMODE:
 		{
+			// some cameras (eg. 80D) do not self-report property descriptions after connect, so we need to query them
+			// query the properties in the UI plus the ones necessary to start live view
+			// TODO: what happens when a property is not supported for a given camera?
+			NSArray* propertiesToQuery = [@[
+				@(PTP_PROP_CANON_EVF_OUTPUTDEVICE),
+				@(PTP_PROP_CANON_EVF_MODE),
+//				@(PTP_PROP_CANON_LV_TYPESELECT),
+			] arrayByAddingObjectsFromArray: self.uiPtpProperties];
+			
+			for (id propertyId in propertiesToQuery)
+			{
+				[self ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+			}
+			
 			[self cameraDidBecomeReadyForUse];
 			break;
 		}
