@@ -82,7 +82,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSData*) encodePtpDataOfType: (uint32_t) dataType fromValue: (id) value;
 - (nullable id) parsePtpItem: (NSData*) data ofType: (int) dataType remainingData: (NSData*_Nullable* _Nullable) remainingData;
 - (void) parsePtpDeviceInfoResponse: (NSData*) eventData; // to be overriden in subclass
-- (NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData* _Nullable * _Nullable) remData; // override in subclasses where enum range is non-conforming (looking at you, Canon)
+- (nullable NSArray*) parsePtpRangeEnumData: (NSData*) data ofType: (int) dataType remainingData: (NSData* _Nullable * _Nullable) remData; // override in subclasses where enum range is non-conforming (looking at you, Canon)
 
 - (void) ptpQueryKnownDeviceProperties;
 - (uint32_t) requestSendPtpCommandWithCode: (int) code;

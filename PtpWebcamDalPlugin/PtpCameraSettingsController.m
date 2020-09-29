@@ -919,9 +919,8 @@
 	@synchronized (self) {
 		if (frameTimerSource)
 		{
-			dispatch_cancel(frameTimerSource);
+			dispatch_source_cancel(frameTimerSource);
 			frameTimerSource = nil;
-
 		}
 	}
 }

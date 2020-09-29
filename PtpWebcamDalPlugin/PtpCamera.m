@@ -1078,7 +1078,14 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSMutableArray* enumValues = [NSMutableArray arrayWithCapacity: enumCount];
 	for (size_t i = 0; i < enumCount; ++i)
 	{
-		[enumValues addObject: [self parsePtpItem: data ofType: dataType remainingData: &data]];
+		id value = [self parsePtpItem: data ofType: dataType remainingData: &data];
+		if (value)
+			[enumValues addObject: value];
+		else
+		{
+			PtpLog(@"could not parse enum value in property description with dataType: 0x%04X", dataType);
+			return nil;
+		}
 	}
 	if (remData)
 		*remData = data;
@@ -1114,7 +1121,16 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSData* valuesData = [data subdataWithRange: NSMakeRange( 5, data.length - 5)];
 	
 	id defaultValue = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+	if (!defaultValue)
+	{
+		PtpLog(@"could not parse default value in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+	}
 	id value = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
+	if (!value)
+	{
+		PtpLog(@"could not parse current value in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+	}
+
 	NSNumber* formFlag = [self parsePtpUint8: valuesData remainingData: &valuesData];
 
 	
@@ -1122,7 +1138,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		return;
 	
 	
-	id form = @[];
+	id form = nil;
 	
 	switch(formFlag.unsignedIntValue)
 	{
@@ -1132,19 +1148,38 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			id rmax = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
 			id rstep = [self parsePtpItem: valuesData ofType: dataType remainingData: &valuesData];
 			
-			form = @{@"min" : rmin, @"max" : rmax, @"step" : rstep};
+			if (!rmin)
+			{
+				PtpLog(@"could not parse range minimum in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+			}
+			else if (!rmax)
+			{
+				PtpLog(@"could not parse range maximum in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+			}
+			else if (!rstep)
+			{
+				PtpLog(@"could not parse range step in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+			}
+			else // can only create dict without crashing if all values present
+				form = @{@"min" : rmin, @"max" : rmax, @"step" : rstep};
+			
 			break;
 		}
 		case 0x02: // enum
 		{
 			form = [self parsePtpRangeEnumData: valuesData ofType: dataType remainingData: &valuesData];
+			if (!form)
+			{
+				PtpLog(@"could not parse range enum in property description for property 0x%04X with dataType: 0x%04X, data: %@", property, dataType, data);
+
+			}
 			break;
 		}
 	}
 	
 //	NSLog(@"0x%04X is %@ in %@", property, value, form);
 	
-	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : form, @"rw": @(rw), @"dataType" : @(dataType)};
+	NSDictionary* info = @{@"defaultValue" : defaultValue, @"value" : value, @"range" : (form ? form : @[]), @"rw": @(rw), @"dataType" : @(dataType)};
 	
 	NSDictionary* oldInfo = self.ptpPropertyInfos[@(property)];
 	@synchronized (self) {
@@ -1718,7 +1753,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		if (self.isInLiveView)
 		{
 			if (frameTimerSource)
-				dispatch_cancel(frameTimerSource);
+				dispatch_source_cancel(frameTimerSource);
 			frameTimerSource = nil;
 			self.inLiveView = NO;
 
@@ -1736,7 +1771,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		if (self.isInLiveView)
 		{
 			if (frameTimerSource)
-				dispatch_cancel(frameTimerSource);
+				dispatch_source_cancel(frameTimerSource);
 			frameTimerSource = nil;
 			self.inLiveView = NO;
 		}

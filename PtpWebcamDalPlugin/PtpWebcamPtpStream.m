@@ -115,7 +115,7 @@
 		if (liveViewShouldBeEnabled)
 		{
 			if (frameTimerSource)
-				dispatch_cancel(frameTimerSource);
+				dispatch_source_cancel(frameTimerSource);
 			frameTimerSource = nil;
 			liveViewShouldBeEnabled = NO;
 		}
@@ -130,7 +130,7 @@
 	// only suspend frame timer if it has been resumed when camera signalled ready, otherwise the suspend count is too high and it won't resume next time (eg. when the camera could not start live view because of an error condition)
 	@synchronized (self) {
 		if (frameTimerSource && liveViewShouldBeEnabled)
-			dispatch_cancel(frameTimerSource);
+			dispatch_source_cancel(frameTimerSource);
 		frameTimerSource = nil;
 		
 		liveViewShouldBeEnabled = NO;
