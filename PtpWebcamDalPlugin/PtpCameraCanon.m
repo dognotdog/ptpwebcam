@@ -1184,7 +1184,12 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 			
 			for (id propertyId in propertiesToQuery)
 			{
-				[self ptpGetPropertyDescription: [propertyId unsignedIntValue]];
+				if ([propertyId isKindOfClass: [NSString class]])
+				{
+					
+				}
+				else
+					[self ptpGetPropertyDescription: [propertyId unsignedIntValue]];
 			}
 			
 			[self cameraDidBecomeReadyForUse];
