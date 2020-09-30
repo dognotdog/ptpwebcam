@@ -131,7 +131,7 @@ The tables below list what features are supported with which camera models. Valu
 
 | Camera        | max resolution | Exposure Preview       | Exposure Correction | Aperture Control |
 | ------------- | -------------- | ---------------------- | ------------------- | ---------------- |
-| A7S           | 640x480        | camera button          | camera dial         | on camera        |
+| A7S           | 1024x768       | camera button          | camera dial         | on camera        |
 | A7R           | ?              | ?                      | ?                   | ?                |
 | A7R II        | ?              | ?                      | ?                   | ?                |
 | A7S II        | ?              | ?                      | ?                   | ?                |

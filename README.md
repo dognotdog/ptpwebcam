@@ -30,6 +30,8 @@ Opening _Quicktime Player_ and creating a _New Movie Recording_ via `File -> New
 
 _Quicktime Player_ works because it has _Library Validation_ disabled out-of-the-box, unlike eg. _Photo Booth_, which has the capability to use different video sources, but is prevented from doing so because _Library Validation_ is enabled.
 
+**Note:** video quality in the camera selection drop-down menu must be set to **Maximum** to get a video resolution higher than 640x480.
+
 #### What it should look like
 
 If the camera is connected, a status bar item with the camera's model number should appear and can be used to change settings.
