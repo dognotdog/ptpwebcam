@@ -1133,8 +1133,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 	NSNumber* formFlag = [self parsePtpUint8: valuesData remainingData: &valuesData];
 
-	
-	if (PTP_DATATYPE_INVALID == dataType)
+	// if we couldn't parse the values, don't continue
+	if (!value || !defaultValue)
 		return;
 	
 	
@@ -1183,9 +1183,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	NSDictionary* oldInfo = self.ptpPropertyInfos[@(property)];
 	@synchronized (self) {
-		NSMutableDictionary* dict = self.ptpPropertyInfos.mutableCopy;
-		dict[@(property)] = info;
-		self.ptpPropertyInfos = dict;
+		self.ptpPropertyInfos = [self.ptpPropertyInfos dictionaryBySettingObject: info forKey: @(property)];
 	}
 	
 	[self receivedProperty: info oldProperty: oldInfo withId: @(property)];
