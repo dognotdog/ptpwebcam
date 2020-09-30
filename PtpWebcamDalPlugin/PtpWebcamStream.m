@@ -275,20 +275,67 @@
 - (CVPixelBufferRef) createPixelBufferWithNSImage:(NSImage*)image
 {
     CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
-    NSDictionary* pixelBufferProperties = @{(id)kCVPixelBufferCGImageCompatibilityKey:@YES, (id)kCVPixelBufferCGBitmapContextCompatibilityKey:@YES};
+	if (!colorSpace)
+	{
+		PtpLog(@"failed to create color space for pixel buffer.");
+		return NULL;
+	}
+	
+	NSDictionary* pixelBufferProperties = @{(id)kCVPixelBufferCGImageCompatibilityKey:@YES, (id)kCVPixelBufferCGBitmapContextCompatibilityKey:@YES};
     CVPixelBufferRef pixelBuffer = NULL;
-    CVPixelBufferCreate(kCFAllocatorDefault, [image size].width, [image size].height, k32ARGBPixelFormat, (__bridge CFDictionaryRef)pixelBufferProperties, &pixelBuffer);
-    CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+    CVReturn createResult = CVPixelBufferCreate(kCFAllocatorDefault, [image size].width, [image size].height, k32ARGBPixelFormat, (__bridge CFDictionaryRef)pixelBufferProperties, &pixelBuffer);
+	
+	if (!pixelBuffer || (createResult != kCVReturnSuccess))
+	{
+		PtpLog(@"failed to create pixel buffer for image sized %f by %f with error code %d.", [image size].width, [image size].height, createResult);
+		
+		CGColorSpaceRelease(colorSpace);
+		return NULL;
+	}
+	
+    CVReturn lockResult = CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+	if (lockResult != kCVReturnSuccess)
+	{
+		PtpLog(@"failed to lock pixel buffer for image sized %f by %f with error code %d.", [image size].width, [image size].height, lockResult);
+		CGColorSpaceRelease(colorSpace);
+		CVPixelBufferRelease(pixelBuffer);
+		return NULL;
+	}
+	
     void* baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
     CGContextRef context = CGBitmapContextCreate(baseAddress, [image size].width, [image size].height, 8, bytesPerRow, colorSpace, kCGImageAlphaNoneSkipFirst);
+	
+	if (!context)
+	{
+		PtpLog(@"failed to allocate CGContext for image sized %f by %f.", [image size].width, [image size].height);
+
+		CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+		CVPixelBufferRelease(pixelBuffer);
+		CGColorSpaceRelease(colorSpace);
+		return NULL;
+	}
+	
     NSGraphicsContext* imageContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
+	
+	if (!imageContext)
+	{
+		PtpLog(@"failed to allocate NSGraphicsContext for image sized %f by %f.", [image size].width, [image size].height);
+
+		CFRelease(context);
+		CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+		CVPixelBufferRelease(pixelBuffer);
+		CGColorSpaceRelease(colorSpace);
+		return NULL;
+	}
+
+	
     [NSGraphicsContext saveGraphicsState];
     [NSGraphicsContext setCurrentContext:imageContext];
 	[image drawInRect: NSMakeRect(0.0, 0.0, image.size.width, image.size.height)];
     [NSGraphicsContext restoreGraphicsState];
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
     CFRelease(context);
+	CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
     CGColorSpaceRelease(colorSpace);
     return pixelBuffer;
 }
