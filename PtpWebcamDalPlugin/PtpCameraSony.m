@@ -57,6 +57,7 @@ static NSDictionary* _ptpOperationNames = nil;
 			@(0x054C) : @{
 				@(0x079B) : @[@"Sony", @"A68"],
 				@(0x079C) : @[@"Sony", @"A6300"],
+				//@(0x0641) : @[@"Sony", @"SLT-A99V"], //PTP connection works but does not support Live Preview. Even in Sony own's software https://support.d-imaging.sony.co.jp/app/imagingedge/en/devices/#amount
 				@(0x079E) : @[@"Sony", @"A99-II"],
 				@(0x07A4) : @[@"Sony", @"A6500"],
 				@(0x0953) : @[@"Sony", @"A77-II"],
@@ -70,6 +71,7 @@ static NSDictionary* _ptpOperationNames = nil;
 				@(0x0C34) : @[@"Sony", @"A7S-III"], // A7 III second entry
 				@(0x0CAA) : @[@"Sony", @"A6400"],
 				@(0x0CCC) : @[@"Sony", @"A7R-IV"],
+				@(0x0CAE) : @[@"Sony", @"DSC-RX100M7"],
 			},
 		};
 		
