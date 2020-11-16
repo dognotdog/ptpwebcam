@@ -91,6 +91,16 @@ codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
 ```
 
+#### Microsoft Teams workaround
+
+```
+codesign --remove-signature "/Applications/Microsoft Teams.app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper.app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (GPU).app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (Plugin).app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (Renderer).app"
+```
+
 ### Canon EOS Webcam Utility Incompatibility
 
 PTP Webam is incompatible with Canon's EOS Webcam Utility software, is Canon's software prevents PTP Webcam from accessing any attached camera. Therefore, `/Library/CoreMediaIO/Plug-Ins/DAL/EOSWebcam.plugin` has to be removed or deleted before PTP Webcam can work.
