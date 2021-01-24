@@ -583,7 +583,7 @@
 		}
 		default:
 		{
-			autofocusMenuItem.title = @"Autofocus unavailable (N/A)…";
+			autofocusMenuItem.title = @"Autofocus status unknown…";
 			break;
 		}
 	}
@@ -795,7 +795,8 @@
 
 - (IBAction) autofocusAction:(NSMenuItem*)sender
 {
-	if ([self.camera canAutofocus])
+	// will attempt to autofocus except for PTPCAM_AF_NONE
+	if (PTPCAM_AF_NONE != [self.camera canAutofocus])
 		[self.camera performAutofocus];
 }
 
