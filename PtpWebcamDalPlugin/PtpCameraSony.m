@@ -67,7 +67,7 @@ static NSDictionary* _ptpOperationNames = nil;
 				@(0x0A71) : @[@"Sony", @"A7S-II"],
 				@(0x0C2A) : @[@"Sony", @"A9"],
 				@(0x0C33) : @[@"Sony", @"A7R-III"],
-				@(0x0C34) : @[@"Sony", @"A7S-III"], // A7 III second entry
+				@(0x0C34) : @[@"Sony", @"A7-III"], // A7 III second entry
 				@(0x0CAA) : @[@"Sony", @"A6400"],
 				@(0x0CCC) : @[@"Sony", @"A7R-IV"],
 			},
@@ -111,6 +111,9 @@ static NSDictionary* _ptpOperationNames = nil;
 		_ptpPropertyNames = propertyNames;
 		
 		NSDictionary* propertyValueNames = @{
+			@(PTP_PROP_SONY_ISO) : @{
+				@(0xFFFFFF) : @"Auto ISO",
+			},
 			@(PTP_PROP_WHITEBALANCE) : @{
 				@(0x8001) : @"Flourescent Warm White",
 				@(0x8002) : @"Flourescent Cool White",
@@ -520,7 +523,7 @@ static NSDictionary* _ptpOperationNames = nil;
 	if (data.length < 8)
 	{
 		
-		PtpWebcamShowCatastrophicAlertOnce(@"Could not parse Property Descriptions because the data buffer is too small.");
+		PtpLog(@"Could not parse Sony All Property Descriptions Response because the data buffer is too small (This probably means this operation is not supported on this camera).");
 		return;
 	}
 	

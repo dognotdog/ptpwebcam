@@ -925,6 +925,7 @@ static uint32_t _canonDataTypeToArrayDataType(uint32_t canonDataType)
 		
 		__weak PtpCameraCanon* weakSelf = self;
 		dispatch_source_set_event_handler(frameWatchdogTimer, ^{
+			PtpLog(@"frame watchdog timer triggered, restarting LiveView…");
 			[weakSelf restartLiveView];
 		});
 		dispatch_resume(frameWatchdogTimer);
