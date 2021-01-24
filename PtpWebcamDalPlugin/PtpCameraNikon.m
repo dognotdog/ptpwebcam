@@ -124,7 +124,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_WBTUNE_FLTYPE) : @"WB Flourescent Type",
 			@(PTP_PROP_NIKON_WBTUNE_COLORTEMP) : @"Color Temp Tune",
 			@(PTP_PROP_NIKON_ISOAUTOCONTROL) : @"Auto ISO",
-			@(PTP_PROP_NIKON_LV_MODE) : @"LiveView AF Miror Mode",
+			@(PTP_PROP_NIKON_LV_MODE) : @"LiveView AF Mirror Mode",
 			@(PTP_PROP_NIKON_LV_STATUS) : @"LiveView Status",
 			@(PTP_PROP_NIKON_LV_ZOOM) : @"LiveView Zoom",
 			@(PTP_PROP_NIKON_LV_PROHIBIT) : @"LiveView Prohibit Condition",
