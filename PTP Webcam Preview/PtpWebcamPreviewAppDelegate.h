@@ -10,7 +10,7 @@
 
 #import <ImageCaptureCore/ImageCaptureCore.h>
 
-@interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate>
+@interface PtpWebcamPreviewAppDelegate : NSObject <NSApplicationDelegate>
 {
 }
 

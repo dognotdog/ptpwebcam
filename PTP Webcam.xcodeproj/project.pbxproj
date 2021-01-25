@@ -17,7 +17,6 @@
 		DA26812024884B9E00FF75EF /* PtpWebcamStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DA26811F24884B9E00FF75EF /* PtpWebcamStream.m */; };
 		DA26812324893DB700FF75EF /* PtpWebcamObject.m in Sources */ = {isa = PBXBuildFile; fileRef = DA26812224893DB700FF75EF /* PtpWebcamObject.m */; };
 		DA268127248B5C8300FF75EF /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA268126248B5C8300FF75EF /* AVKit.framework */; };
-		DA2922DB247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922DA247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.m */; };
 		DA2922DD247EDA5E00794577 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DC247EDA5E00794577 /* Assets.xcassets */; };
 		DA2922E0247EDA5E00794577 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA2922DE247EDA5E00794577 /* MainMenu.xib */; };
 		DA2922E3247EDA5E00794577 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DA2922E2247EDA5E00794577 /* main.m */; };
@@ -87,6 +86,7 @@
 		DAAE16C224D11C6700DE2B9F /* PtpCameraNikon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */; };
 		DAAE16C624D1325600DE2B9F /* PtpCameraCanon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */; };
 		DAAE16C724D1325600DE2B9F /* PtpCameraCanon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */; };
+		DACAB6C425BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */; };
 		DAD0A37E248C85AB0029D4FB /* PtpWebcamDummyDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */; };
 		DAD0A381248C85D70029D4FB /* PtpWebcamDummyStream.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD0A380248C85D70029D4FB /* PtpWebcamDummyStream.m */; };
 /* End PBXBuildFile section */
@@ -218,8 +218,6 @@
 		DA268124248B15D700FF75EF /* webcamplugin.exp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.exports; path = webcamplugin.exp; sourceTree = "<group>"; };
 		DA268126248B5C8300FF75EF /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		DA2922D6247EDA5B00794577 /* PTP Webcam Preview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PTP Webcam Preview.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		DA2922D9247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamLaunchAgentAppDelegate.h; sourceTree = "<group>"; };
-		DA2922DA247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamLaunchAgentAppDelegate.m; sourceTree = "<group>"; };
 		DA2922DC247EDA5E00794577 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DA2922DF247EDA5E00794577 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		DA2922E1247EDA5E00794577 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -303,6 +301,8 @@
 		DAAE16BE24D1166800DE2B9F /* PtpCameraNikon.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraNikon.m; sourceTree = "<group>"; };
 		DAAE16C324D1325600DE2B9F /* PtpCameraCanon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraCanon.h; sourceTree = "<group>"; };
 		DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraCanon.m; sourceTree = "<group>"; };
+		DACAB6C225BF634D00D2B12E /* PtpWebcamPreviewAppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PtpWebcamPreviewAppDelegate.h; sourceTree = "<group>"; };
+		DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamPreviewAppDelegate.m; sourceTree = "<group>"; };
 		DAD0A37C248C85AB0029D4FB /* PtpWebcamDummyDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyDevice.h; sourceTree = "<group>"; };
 		DAD0A37D248C85AB0029D4FB /* PtpWebcamDummyDevice.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamDummyDevice.m; sourceTree = "<group>"; };
 		DAD0A37F248C85D70029D4FB /* PtpWebcamDummyStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpWebcamDummyStream.h; sourceTree = "<group>"; };
@@ -473,8 +473,8 @@
 		DA2922D8247EDA5B00794577 /* PTP Webcam Preview */ = {
 			isa = PBXGroup;
 			children = (
-				DA2922D9247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.h */,
-				DA2922DA247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.m */,
+				DACAB6C225BF634D00D2B12E /* PtpWebcamPreviewAppDelegate.h */,
+				DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */,
 				DA2922DC247EDA5E00794577 /* Assets.xcassets */,
 				DA2922DE247EDA5E00794577 /* MainMenu.xib */,
 				DA2922E1247EDA5E00794577 /* Info.plist */,
@@ -914,7 +914,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA2922E3247EDA5E00794577 /* main.m in Sources */,
-				DA2922DB247EDA5B00794577 /* PtpWebcamLaunchAgentAppDelegate.m in Sources */,
+				DACAB6C425BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

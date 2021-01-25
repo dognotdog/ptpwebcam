@@ -6,7 +6,7 @@
 //  Copyright © 2020 Doemoetoer Gulyas. All rights reserved.
 //
 
-#import "PtpWebcamLaunchAgentAppDelegate.h"
+#import "PtpWebcamPreviewAppDelegate.h"
 
 #import <objc/runtime.h>
 
@@ -36,7 +36,7 @@ int _printMethods(Class class)
 	return 0;
 }
 
-@interface PtpWebcamLaunchAgentAppDelegate ()
+@interface PtpWebcamPreviewAppDelegate ()
 {
 }
 
@@ -44,9 +44,9 @@ int _printMethods(Class class)
 
 @end
 
-static PtpWebcamLaunchAgentAppDelegate* _sharedAppDelegate = nil;
+static PtpWebcamPreviewAppDelegate* _sharedAppDelegate = nil;
 
-@implementation PtpWebcamLaunchAgentAppDelegate
+@implementation PtpWebcamPreviewAppDelegate
 
 + (instancetype) sharedAppDelegate
 {
