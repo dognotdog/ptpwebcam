@@ -430,6 +430,28 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 		dispatch_source_cancel(frameTimerSource);
 }
 
+- (void) startFrameTimer
+{
+	if (frameTimerSource)
+		return;
+	
+	
+	dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
+
+	frameQueue = dispatch_queue_create("PtpWebcamStreamFrameQueue", queueAttributes);
+
+	frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
+	dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1000u*NSEC_PER_SEC);
+
+	__weak id weakSelf = self;
+	dispatch_source_set_event_handler(frameTimerSource, ^{
+		[weakSelf requestLiveViewImage];
+	});
+	
+	dispatch_resume(frameTimerSource);
+
+}
+
 - (void) deviceDidBecomeReadyWithCompleteContentCatalog:(ICCameraDevice *)device
 {
 	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", device);
@@ -1720,6 +1742,8 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 
 - (void) cameraDidBecomeReadyForLiveViewStreaming
 {
+	PtpLog(@"PtpCamera");
+
 	videoActivityToken = [[NSProcessInfo processInfo] beginActivityWithOptions: (NSActivityLatencyCritical | NSActivityUserInitiated) reason: @"Live Video"];
 	
 	self.inLiveView = YES;
@@ -1731,8 +1755,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	[self requestLiveViewImage];
 	
-	if (frameTimerSource)
-		dispatch_resume(frameTimerSource);
+	[self startFrameTimer];
 
 }
 

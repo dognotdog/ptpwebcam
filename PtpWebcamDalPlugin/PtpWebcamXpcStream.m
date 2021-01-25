@@ -47,7 +47,8 @@
 
 			__weak id weakSelf = self;
 			dispatch_source_set_event_handler(frameTimerSource, ^{
-				[weakSelf asyncGetLiveViewImage];
+				// FIXME: creates a huge backlog of messages on launch agent
+//				[weakSelf asyncGetLiveViewImage];
 			});
 			dispatch_resume(frameTimerSource);
 		}
