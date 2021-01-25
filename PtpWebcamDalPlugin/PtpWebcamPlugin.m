@@ -7,8 +7,8 @@
 //
 
 #import "PtpWebcamPlugin.h"
-#import "PtpWebcamPtpDevice.h"
-#import "PtpWebcamPtpStream.h"
+//#import "PtpWebcamPtpDevice.h"
+//#import "PtpWebcamPtpStream.h"
 #import "PtpWebcamXpcDevice.h"
 #import "PtpWebcamXpcStream.h"
 #import "PtpWebcamDummyDevice.h"
@@ -169,38 +169,38 @@
 
 }
 
-- (void) cameraDidBecomeReadyForUse:(PtpCamera *)camera
-{
-	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithCamera: camera pluginInterface: self.pluginInterfaceRef];
-	[device createCmioDeviceWithPluginId: self.objectId];
-	[PtpWebcamObject registerObject: device];
-	
-	PtpWebcamPtpStream* stream = [[PtpWebcamPtpStream alloc] initWithPluginInterface: self.pluginInterfaceRef];
-	stream.ptpDevice = device;
-	[stream createCmioStreamWithDevice: device];
-	[PtpWebcamObject registerObject: stream];
+//- (void) cameraDidBecomeReadyForUse:(PtpCamera *)camera
+//{
+//	PtpWebcamPtpDevice* device = [[PtpWebcamPtpDevice alloc] initWithCamera: camera pluginInterface: self.pluginInterfaceRef];
+//	[device createCmioDeviceWithPluginId: self.objectId];
+//	[PtpWebcamObject registerObject: device];
+//
+//	PtpWebcamPtpStream* stream = [[PtpWebcamPtpStream alloc] initWithPluginInterface: self.pluginInterfaceRef];
+//	stream.ptpDevice = device;
+//	[stream createCmioStreamWithDevice: device];
+//	[PtpWebcamObject registerObject: stream];
+//
+//	// then publish stream and device
+//	[device publishCmioDevice];
+//	[stream publishCmioStream];
+//
+//	@synchronized (self) {
+//		NSMutableArray* devices = self.cmioDevices.mutableCopy;
+//		[devices addObject: device];
+//		self.cmioDevices = devices;
+//	}
+//
+//}
 
-	// then publish stream and device
-	[device publishCmioDevice];
-	[stream publishCmioStream];
-	
-	@synchronized (self) {
-		NSMutableArray* devices = self.cmioDevices.mutableCopy;
-		[devices addObject: device];
-		self.cmioDevices = devices;
-	}
-
-}
-
-- (void) receivedCameraProperty:(NSDictionary *)propertyInfo oldProperty: (NSDictionary*) oldInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
-{
-	// do nothing when receiving camera properties during enumeration
-}
-
-
-- (void)cameraWasRemoved:(nonnull PtpCamera *)camera {
-	// do nothing as deviceBrowser tells us
-}
+//- (void) receivedCameraProperty:(NSDictionary *)propertyInfo oldProperty: (NSDictionary*) oldInfo withId:(NSNumber *)propertyId fromCamera:(PtpCamera *)camera
+//{
+//	// do nothing when receiving camera properties during enumeration
+//}
+//
+//
+//- (void)cameraWasRemoved:(nonnull PtpCamera *)camera {
+//	// do nothing as deviceBrowser tells us
+//}
 
 
 
@@ -211,83 +211,83 @@
 	NSLog(@"deviceDidBecomeReadyWithCompleteContentCatalog %@", icCamera);
 }
 
-- (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
-{
-	//	NSLog(@"add device %@", device);
-	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: camera];
-	if (cameraInfo)
-	{
-		if (![cameraInfo[@"confirmed"] boolValue])
-		{
-			PTPWebcamShowCameraIssueBlockingAlert(cameraInfo[@"make"], cameraInfo[@"model"]);
-		}
-		//		NSLog(@"camera capabilities %@", camera.capabilities);
-		camera.delegate = self;
-		[camera requestOpenSession];
-		
-	}
-}
+//- (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
+//{
+//	//	NSLog(@"add device %@", device);
+//	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: camera];
+//	if (cameraInfo)
+//	{
+//		if (![cameraInfo[@"confirmed"] boolValue])
+//		{
+//			PTPWebcamShowCameraIssueBlockingAlert(cameraInfo[@"make"], cameraInfo[@"model"]);
+//		}
+//		//		NSLog(@"camera capabilities %@", camera.capabilities);
+//		camera.delegate = self;
+//		[camera requestOpenSession];
+//
+//	}
+//}
 
-- (void)deviceBrowser:(nonnull ICDeviceBrowser *)browser didRemoveDevice:(nonnull ICDevice *)icDevice moreGoing:(BOOL)moreGoing
-{
-	NSLog(@"remove device %@", icDevice);
-	
-	for(PtpWebcamDevice* device in self.cmioDevices.copy)
-	{
-		if ([device isKindOfClass: [PtpWebcamPtpDevice class]])
-		{
-			PtpWebcamPtpDevice* ptpDevice = (id)device;
-			if ([icDevice isEqual: ptpDevice.camera.icCamera])
-			{
-				//				[ptpDevice unplugDevice];
-				@synchronized (self) {
-					NSMutableArray* devices = self.cmioDevices.mutableCopy;
-					[devices removeObject: device];
-					self.cmioDevices = devices;
-				}
-			}
-		}
-	}
-	for (PtpCamera* camera in self.cameras.copy)
-	{
-		if ([icDevice isEqual: camera.icCamera])
-		{
-			@synchronized (self) {
-				NSMutableArray* cameras = self.cameras.mutableCopy;
-				[cameras removeObject: cameras];
-				self.cameras = cameras;
-			}
-		}
-	}
-}
+//- (void)deviceBrowser:(nonnull ICDeviceBrowser *)browser didRemoveDevice:(nonnull ICDevice *)icDevice moreGoing:(BOOL)moreGoing
+//{
+//	NSLog(@"remove device %@", icDevice);
+//	
+//	for(PtpWebcamDevice* device in self.cmioDevices.copy)
+//	{
+//		if ([device isKindOfClass: [PtpWebcamPtpDevice class]])
+//		{
+//			PtpWebcamPtpDevice* ptpDevice = (id)device;
+//			if ([icDevice isEqual: ptpDevice.camera.icCamera])
+//			{
+//				//				[ptpDevice unplugDevice];
+//				@synchronized (self) {
+//					NSMutableArray* devices = self.cmioDevices.mutableCopy;
+//					[devices removeObject: device];
+//					self.cmioDevices = devices;
+//				}
+//			}
+//		}
+//	}
+//	for (PtpCamera* camera in self.cameras.copy)
+//	{
+//		if ([icDevice isEqual: camera.icCamera])
+//		{
+//			@synchronized (self) {
+//				NSMutableArray* cameras = self.cameras.mutableCopy;
+//				[cameras removeObject: cameras];
+//				self.cameras = cameras;
+//			}
+//		}
+//	}
+//}
 
 
-- (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
-{
-	NSLog(@"device didOpenSession");
-	
-	
-	if (error)
-	{
-		NSLog(@"device could not open session because %@", error);
-		return;
-	}
-	
-//	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)device];
-//	Class cameraClass = cameraInfo[@"Class"];
-	
-//	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
-	{
-		PtpCamera* camera = [PtpCamera cameraWithIcCamera: (id)device delegate: self];
-		
-		@synchronized (self) {
-			self.cameras = [self.cameras arrayByAddingObject: camera];
-		}
-
-	}
-
-	
-}
+//- (void) device:(ICDevice *)device didOpenSessionWithError:(NSError *)error
+//{
+//	NSLog(@"device didOpenSession");
+//	
+//	
+//	if (error)
+//	{
+//		NSLog(@"device could not open session because %@", error);
+//		return;
+//	}
+//	
+////	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: (id)device];
+////	Class cameraClass = cameraInfo[@"Class"];
+//	
+////	if (![cameraClass enumeratesContentCatalogOnSessionOpen])
+//	{
+//		PtpCamera* camera = [PtpCamera cameraWithIcCamera: (id)device delegate: self];
+//		
+//		@synchronized (self) {
+//			self.cameras = [self.cameras arrayByAddingObject: camera];
+//		}
+//
+//	}
+//
+//	
+//}
 
 - (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(nonnull NSError *)error {
 }
