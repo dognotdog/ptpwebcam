@@ -13,19 +13,37 @@
 #import "../PtpWebcamDalPlugin/FoundationExtensions.h"
 #import "../PtpWebcamDalPlugin/PtpCameraSettingsController.h"
 #import "PtpWebcamStreamView.h"
+#import "../PtpWebcamDalPlugin/FoundationExtensions.h"
+
+#import "UvcCamera.h"
+#import "UvcCameraSettingsController.h"
+
+#import <AVKit/AVKit.h>
+
+#import <IOKit/IOKitLib.h>
+#import <IOKit/usb/IOUSBLib.h>
+
 
 @interface PtpWebcamLaunchAgentAppDelegate ()
 
 @property (weak) IBOutlet NSWindow *window;
+
 @end
 
 @implementation PtpWebcamLaunchAgentAppDelegate
 {
 	NSStatusItem* statusItem;
+	NSMenu* statusMenu;
+	NSString* latestVersionString;
+	size_t numCameraItems;
+
 	NSXPCConnection* assistantConnection;
 	ICDeviceBrowser* deviceBrowser;
 	NSXPCListener* agentListener;
 	NSXPCListener* anonListener;
+	
+	NSTimeInterval matchTime;
+	dispatch_source_t matchSource;
 }
 
 - (instancetype) init
@@ -34,17 +52,45 @@
 		return nil;
 	
 	self.devices = @{};
+	self.controlOnlyDevices = @{};
 	self.connections = @[];
 	
+	// timestamp so that we'd do scans in intervals for ~10s after an attach event
+	// and a coalescing dispatch source so that multiple events don't trigger many scans for no reason
+	matchTime = [NSDate date].timeIntervalSinceReferenceDate;
+    matchSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_OR, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(matchSource, ^{
+        [self scanForUvcDevices];
+
+		// dispatch more checks
+		NSTimeInterval now = [NSDate date].timeIntervalSinceReferenceDate;
+
+		if (now - self->matchTime < 10.0)
+		{
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+				dispatch_source_merge_data(self->matchSource, 1);
+			});
+
+		}
+	});
+    dispatch_resume(matchSource);
+
 	return self;
 }
 
 - (void) startEventStreamHandler
 {
+
 //	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 	xpc_set_event_stream_handler("com.apple.iokit.matching", NULL, ^(xpc_object_t _Nonnull object) {
 		const char *event = xpc_dictionary_get_string(object, XPC_EVENT_KEY_NAME);
 		NSLog(@"%s", event);
+		
+		self->matchTime = [NSDate date].timeIntervalSinceReferenceDate;
+        dispatch_source_merge_data(self->matchSource, 1);
+
+		
+
 //		dispatch_semaphore_signal(semaphore);
 	});
 //	dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 1*NSEC_PER_SEC));
@@ -101,7 +147,8 @@
 	[self startEventStreamHandler];
 	[self setupAssistantXpc];
 //
-//	[self createStatusItem];
+	[self createStatusItem];
+	[self downloadReleaseInfo];
 }
 
 - (NSDictionary*) infoForConnection: (NSXPCConnection*) connection
@@ -325,7 +372,7 @@
 			return;
 		}
 
-		PtpCameraSettingsController* deviceController = [[PtpCameraSettingsController alloc] initWithCamera: camera];
+		PtpCameraSettingsController* deviceController = [[PtpCameraSettingsController alloc] initWithCamera: camera delegate: self];
 
 		@synchronized (self) {
 			self.devices = [self.devices dictionaryBySettingObject: deviceController forKey: camera.cameraId];
@@ -452,7 +499,7 @@
 
 - (void) cameraDidBecomeReadyForLiveViewStreaming:(PtpCamera *)camera
 {
-	PtpLog(@"");
+	PtpLog(@"PtpWebcamLaunchAgentAppDelegate");
 	for (NSDictionary* connectionInfo in self.connections)
 	{
 		NSXPCConnection* connection = connectionInfo[@"connection"];
@@ -480,17 +527,179 @@
 }
 
 
-#pragma mark Various
+#pragma mark Status Item
+
+- (IBAction) aboutAction:(NSMenuItem*)sender
+{
+	NSString* aboutLink = [NSString stringWithFormat: @"https://ptpwebcam.org/"];
+	
+	[[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString: aboutLink]];
+}
+
+- (void) downloadReleaseInfo
+{
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
+		NSError* downloadError = nil;
+		NSData* releaseInfoData = [NSData dataWithContentsOfURL: [NSURL URLWithString: @"https://ptpwebcam.org/latestRelease.json"] options: NSDataReadingUncached error: &downloadError];
+		
+		// NSJSONSerialization needs non-nil data
+		if (!releaseInfoData)
+		{
+			PtpLog(@"error occured trying to download release info json: %@", downloadError);
+			return;
+		}
+								 
+		NSError* error = nil;
+		NSDictionary* info = [NSJSONSerialization JSONObjectWithData: releaseInfoData options: 0 error: &error];
+		if (error)
+		{
+			PtpLog(@"error occured trying to parse release info json: %@", error);
+		}
+		
+		if (info)
+		{
+			PtpLog(@"relase info: %@", info);
+			self->latestVersionString = info[@"versionString"];
+			
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[self rebuildStatusItem];
+			});
+		}
+	});
+	
+}
+
+- (void) addInfoItemsToMenu: (NSMenu*) menu
+{
+	NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
+
+	id title = nil;
+	NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: @"camera" action: NULL keyEquivalent: @""];
+
+	if (latestVersionString && ![version isEqualToString: latestVersionString])
+	{
+//			NSFont* font = [NSFont menuFontOfSize: 0];
+
+		title = [NSString stringWithFormat: @"New PTP Webcam version %@ available…", latestVersionString];
+
+		menuItem.image = [NSImage imageNamed: NSImageNameFollowLinkFreestandingTemplate];
+//			menuItem.image = [NSImage imageNamed: NSImageNameStatusPartiallyAvailable];
+//			menuItem.image = [NSImage imageNamed: NSImageNameRefreshTemplate];
+		menuItem.attributedTitle = [[NSAttributedString alloc] initWithString: title attributes: @{
+//				NSFontAttributeName : font,
+//				NSForegroundColorAttributeName : NSColor.systemRedColor,
+//				NSUnderlineStyleAttributeName : @(1)
+		}];
+	}
+	else
+	{
+		title = [NSString stringWithFormat: @"About PTP Webcam v%@…", version];
+		menuItem.title = title;
+	}
+	menuItem.target = self;
+	menuItem.action =  @selector(aboutAction:);
+	[menu addItem: menuItem];
+	[menu addItem: [NSMenuItem separatorItem]];
+
+}
+
+- (void) rebuildStatusItem
+{
+	// save camera items to re-add them after rebuilding other menu parts
+	NSArray* cameraItems = [statusMenu.itemArray subarrayWithRange: NSMakeRange(statusMenu.itemArray.count - numCameraItems, numCameraItems)];
+	
+	
+	[statusMenu removeAllItems];
+	
+	[self addInfoItemsToMenu: statusMenu];
+	
+	for (NSMenuItem* item in cameraItems)
+	{
+		[statusMenu addItem: item];
+	}
+}
 
 - (void) createStatusItem
 {
 
 	if (!statusItem)
+	{
 		statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
 
-	// The text that will be shown in the menu bar
-	statusItem.button.title = @"LA";
+		// The text that will be shown in the menu bar
+		
+		NSImage *image = [[NSBundle mainBundle] imageForResource: @"ptpwebcam-logo-22x22"];
+		statusItem.button.image = image;
+		statusItem.button.imagePosition = NSImageLeft;
+		statusItem.button.imageHugsTitle = YES;
+		statusItem.button.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
+
+		statusMenu = [[NSMenu alloc] init];
+		
+		statusItem.menu = statusMenu;
+	}
+
+}
+
+#pragma mark Camera Controller Delegate
+
+- (void) showCameraStatusItem:(NSMenuItem *)menuItem {
+	[self createStatusItem];
+	++numCameraItems;
+	statusItem.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
+	[statusMenu addItem: menuItem];
+}
+
+- (void) removeCameraStatusItem:(NSMenuItem *)menuItem {
+	// if the menu item is not in the menu in the first place, ignore it
+	if ([statusMenu indexOfItem: menuItem] == -1)
+		return;
 	
+	--numCameraItems;
+	statusItem.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
+	[statusMenu removeItem: menuItem];
+}
+
+
+- (void) scanForUvcDevices
+{
+	NSArray* devices = [AVCaptureDevice devicesWithMediaType: AVMediaTypeVideo];
+	NSMutableArray* validIds = [NSMutableArray array];
+	
+	for (AVCaptureDevice* device in devices)
+	{
+		[validIds addObject: device.uniqueID];
+		
+		// skip if device already exists
+		if (self.controlOnlyDevices[device.uniqueID])
+		{
+			NSLog(@"%@ already in UVC list, not adding", device.localizedName);
+			continue;
+		}
+		
+		UvcCamera* camera = [[UvcCamera alloc] initWithCaptureDevice: device];
+		if (camera)
+		{
+			NSLog(@"found UVC camera %@", device.localizedName);
+
+			UvcCameraSettingsController* deviceController = [[UvcCameraSettingsController alloc] initWithCamera: camera delegate: self];
+			
+			@synchronized (self) {
+				self.controlOnlyDevices = [self.controlOnlyDevices dictionaryBySettingObject: deviceController forKey: device.uniqueID];
+			}
+		}
+	}
+	
+	// remove invalid Ids
+	@synchronized (self) {
+		NSArray* invalidIds = [self.controlOnlyDevices.allKeys arrayByRemovingObjectsInArray: validIds];
+		for (id uniqueId in invalidIds)
+		{
+			[self.controlOnlyDevices[uniqueId] removeStatusItem];
+			self.controlOnlyDevices = [self.controlOnlyDevices dictionaryByRemovingObjectForKey: uniqueId];
+		}
+	}
+
 
 }
 
@@ -506,8 +715,28 @@
 
 	[deviceBrowser start];
 
+	
+	// UVC cameras
+	[self scanForUvcDevices];
+
+	
 }
 
+static void usbDeviceDetached(void * refcon, io_iterator_t iterator)
+{
+	NSLog(@"usbDeviceDetached");
+	// consume iterator, we don't really care about it
+	io_object_t obj = 0;
+	while ((obj = IOIteratorNext(iterator))) {
+		IOObjectRelease(obj);
+		
+	};
+	
+	PtpWebcamLaunchAgentAppDelegate* self = (__bridge id)refcon;
+	
+	self->matchTime = [NSDate date].timeIntervalSinceReferenceDate;
+	dispatch_source_merge_data(self->matchSource, 1);
+}
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification {
 	// Insert code here to tear down your application

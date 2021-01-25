@@ -14,6 +14,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class PtpWebcamStreamView;
 
+@protocol PtpCameraSettingsControllerDelegate <NSObject>
+
+- (void) showCameraStatusItem: (NSMenuItem*) menuItem;
+- (void) removeCameraStatusItem: (NSMenuItem*) menuItem;
+
+@end
+
 @interface PtpCameraSettingsController : NSObject <PtpCameraLiveViewDelegate, NSWindowDelegate>
 
 @property PtpCamera* camera;
@@ -23,7 +30,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nullable) NSWindow* streamPreviewWindow;
 @property(nullable) PtpWebcamStreamView* streamView;
 
-- (instancetype) initWithCamera: (PtpCamera*) camera;
+@property(nullable) id <PtpCameraSettingsControllerDelegate> delegate;
+
+- (instancetype) initWithCamera: (PtpCamera*) camera delegate: (nullable id <PtpCameraSettingsControllerDelegate>) delegate;
 
 - (void) removeStatusItem;
 

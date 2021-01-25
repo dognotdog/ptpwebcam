@@ -23,6 +23,17 @@
 	<dict>
 		<key>com.apple.iokit.matching</key>
 		<dict>
+			<key>com.apple.device-attach.any</key>
+			<dict>
+				<key>idProduct</key>
+				<string>*</string>
+				<key>idVendor</key>
+				<string>*</string>
+				<key>IOProviderClass</key>
+				<string>IOUSBDevice</string>
+				<key>IOMatchLaunchStream</key>
+				<true/>
+			</dict>
 			<key>com.apple.device-attach.canon</key>
 			<dict>
 				<key>idProduct</key>

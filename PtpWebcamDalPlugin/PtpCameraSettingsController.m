@@ -15,7 +15,7 @@
 
 @implementation PtpCameraSettingsController
 {
-	NSStatusItem* statusItem;
+	NSMenuItem* statusItem;
 	NSMenuItem* autofocusMenuItem;
 	BOOL isPropertyExplorerEnabled;
 	BOOL triggerReportGenerationWhenPropertiesComplete;
@@ -25,14 +25,15 @@
 	dispatch_queue_t frameQueue;
 	BOOL shouldShowPreview;
 	
-	NSString* latestVersionString;
+//	NSString* latestVersionString;
 }
 
-- (instancetype) initWithCamera: (PtpCamera*) camera
+- (instancetype) initWithCamera: (PtpCamera*) camera delegate: (nullable id<PtpCameraSettingsControllerDelegate>)delegate
 {
 	if (!(self = [super init]))
 		return nil;
-		
+	
+	self.delegate = delegate;
 	self.camera = camera;
 		
 	self.name = camera.model;
@@ -52,7 +53,7 @@
 //	[self rebuildStatusItem];
 	
 	// download release info every time a camera is connected
-	[self downloadReleaseInfo];
+//	[self downloadReleaseInfo];
 	
 	return self;
 }
@@ -234,38 +235,6 @@
 	}
 }
 
-- (void) downloadReleaseInfo
-{
-	dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
-		NSError* downloadError = nil;
-		NSData* releaseInfoData = [NSData dataWithContentsOfURL: [NSURL URLWithString: @"https://ptpwebcam.org/latestRelease.json"] options: NSDataReadingUncached error: &downloadError];
-		
-		// NSJSONSerialization needs non-nil data
-		if (!releaseInfoData)
-		{
-			PtpLog(@"error occured trying to download release info json: %@", downloadError);
-			return;
-		}
-								 
-		NSError* error = nil;
-		NSDictionary* info = [NSJSONSerialization JSONObjectWithData: releaseInfoData options: 0 error: &error];
-		if (error)
-		{
-			PtpLog(@"error occured trying to parse release info json: %@", error);
-		}
-		
-		if (info)
-		{
-			PtpLog(@"relase info: %@", info);
-			self->latestVersionString = info[@"versionString"];
-			
-			dispatch_async(dispatch_get_main_queue(), ^{
-				[self rebuildStatusItem];
-			});
-		}
-	});
-	
-}
 
 
 - (void) createStatusItem
@@ -278,10 +247,13 @@
 	// do not create status item if stream isn't running to avoid duplicates for apps with multiple processes accessing DAL plugins
 
 	if (!statusItem)
-		statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength: NSVariableStatusItemLength];
+	{
+		statusItem = [[NSMenuItem alloc] initWithTitle: self.name action: NULL keyEquivalent: @""];
+		[self.delegate showCameraStatusItem: statusItem];
+	}
 
 	// The text that will be shown in the menu bar
-	statusItem.button.title = self.name;
+//	statusItem.button.title = self.name;
 	
 	// we could set an image, but the text somehow makes more sense
 //	NSBundle *otherBundle = [NSBundle bundleWithIdentifier: @"net.monkeyinthejungle.ptpwebcamdalplugin"];
@@ -301,8 +273,10 @@
 
 - (void) removeStatusItem
 {
-	
-	[[NSStatusBar systemStatusBar] removeStatusItem: statusItem];
+	//	[[NSStatusBar systemStatusBar] removeStatusItem: statusItem];
+	[self.delegate removeCameraStatusItem: statusItem];
+//	[statusItem.parentItem.menu removeItem: statusItem];
+//	statusItem.menu = nil;
 	statusItem = nil;
 	
 }
@@ -605,34 +579,34 @@
 
 	{
 		
-		NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
+//		NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey: @"CFBundleShortVersionString"];
 
-		id title = nil;
-		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: @"camera" action: NULL keyEquivalent: @""];
-
-		if (latestVersionString && ![version isEqualToString: latestVersionString])
-		{
-//			NSFont* font = [NSFont menuFontOfSize: 0];
-
-			title = [NSString stringWithFormat: @"New PTP Webcam version %@ available…", latestVersionString];
-
-			menuItem.image = [NSImage imageNamed: NSImageNameFollowLinkFreestandingTemplate];
-//			menuItem.image = [NSImage imageNamed: NSImageNameStatusPartiallyAvailable];
-//			menuItem.image = [NSImage imageNamed: NSImageNameRefreshTemplate];
-			menuItem.attributedTitle = [[NSAttributedString alloc] initWithString: title attributes: @{
-//				NSFontAttributeName : font,
-//				NSForegroundColorAttributeName : NSColor.systemRedColor,
-//				NSUnderlineStyleAttributeName : @(1)
-			}];
-		}
-		else
-		{
-			title = [NSString stringWithFormat: @"About PTP Webcam v%@…", version];
-			menuItem.title = title;
-		}
-		menuItem.target = self;
-		menuItem.action =  @selector(aboutAction:);
-		[menu addItem: menuItem];
+//		id title = nil;
+//		NSMenuItem* menuItem = [[NSMenuItem alloc] initWithTitle: @"camera" action: NULL keyEquivalent: @""];
+//
+//		if (latestVersionString && ![version isEqualToString: latestVersionString])
+//		{
+////			NSFont* font = [NSFont menuFontOfSize: 0];
+//
+//			title = [NSString stringWithFormat: @"New PTP Webcam version %@ available…", latestVersionString];
+//
+//			menuItem.image = [NSImage imageNamed: NSImageNameFollowLinkFreestandingTemplate];
+////			menuItem.image = [NSImage imageNamed: NSImageNameStatusPartiallyAvailable];
+////			menuItem.image = [NSImage imageNamed: NSImageNameRefreshTemplate];
+//			menuItem.attributedTitle = [[NSAttributedString alloc] initWithString: title attributes: @{
+////				NSFontAttributeName : font,
+////				NSForegroundColorAttributeName : NSColor.systemRedColor,
+////				NSUnderlineStyleAttributeName : @(1)
+//			}];
+//		}
+//		else
+//		{
+//			title = [NSString stringWithFormat: @"About PTP Webcam v%@…", version];
+//			menuItem.title = title;
+//		}
+//		menuItem.target = self;
+//		menuItem.action =  @selector(aboutAction:);
+//		[menu addItem: menuItem];
 
 		// add report command
 		if (YES)
@@ -789,7 +763,7 @@
 
 	}
 
-	statusItem.menu = menu;
+	statusItem.submenu = menu;
 
 }
 
