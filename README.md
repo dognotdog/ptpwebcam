@@ -98,6 +98,16 @@ codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
 ```
 
+#### Microsoft Teams workaround
+
+```
+codesign --remove-signature "/Applications/Microsoft Teams.app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper.app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (GPU).app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (Plugin).app"
+codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (Renderer).app"
+```
+
 ### Debug / Crash Logs
 
 The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages to
