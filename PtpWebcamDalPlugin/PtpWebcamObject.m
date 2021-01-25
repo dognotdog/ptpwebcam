@@ -36,6 +36,9 @@
 		case kCMIOObjectPropertyListenerAdded:
 		case kCMIOObjectPropertyListenerRemoved:
 			return YES;
+		case kCMIOObjectPropertyOwnedObjects:
+			// just so this unknown property doesn't get logged through default:, as it happens a lot
+			return NO;
 		default:
 			NSLog(@"%@ hasPropertyWithAddress unknown: %@", [self class], [PtpWebcamObject cmioPropertyIdToString: address.mSelector]);
 			return NO;
