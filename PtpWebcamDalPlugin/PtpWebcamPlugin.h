@@ -17,7 +17,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PtpWebcamPlugin : PtpWebcamObject <ICDeviceBrowserDelegate, ICDeviceDelegate, PtpWebcamCameraDelegateXpcProtocol, /*PtpCameraDelegate,*/ NSMachPortDelegate>
+@interface PtpWebcamPlugin : PtpWebcamObject <PtpWebcamCameraDelegateXpcProtocol, /*PtpCameraDelegate,*/ NSMachPortDelegate>
 {
 	CMIOHardwarePlugInInterface* _pluginInterface;
 	dispatch_source_t deviceEventDispatchSource;
