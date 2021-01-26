@@ -17,6 +17,7 @@
 
 
 #import "UvcCamera.h"
+#import "../PtpWebcamDalPlugin/PtpWebcamAlerts.h"
 
 #import <IOKit/usb/IOUSBLib.h>
 #import <IOKit/IOCFPlugIn.h>
@@ -778,7 +779,7 @@ static void _usbDeviceGeneralInterest( void * refcon, io_service_t service, uint
 
 - (void) queryControlInfos
 {
-
+//	PtpLog(@"supported settings %@", self.supportedSettings);
 	for (id setting in self.supportedSettings)
 	{
 		// skip unsupported settings
@@ -1017,7 +1018,11 @@ static void _usbDeviceGeneralInterest( void * refcon, io_service_t service, uint
 		
 		return info;
 	}
-	return 0;
+	else
+	{
+		PtpLog(@"failed to GET_INFO for %@", setting);
+		return 0;
+	}
 }
 
 - (BOOL) sendUsbControlRequest: (IOUSBDevRequest) request
