@@ -89,6 +89,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x0445) : @[@"Nikon", @"D3500"],
 				@(0x0446) : @[@"Nikon", @"D780"],
 				@(0x0447) : @[@"Nikon", @"D6"],
+				@(0x044C) : @[@"Nikon", @"Z6ii"],
 			},
 		};
 		
