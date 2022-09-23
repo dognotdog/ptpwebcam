@@ -438,7 +438,7 @@
 
 
 
-- (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(nonnull NSError *)error {
+- (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(NSError *)error {
 }
 
 

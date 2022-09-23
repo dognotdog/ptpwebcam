@@ -385,7 +385,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	{
 		case PTP_RSP_NIKON_NOTLIVEVIEW:
 		{
-			NSLog(@"camera not in liveview, no image.");
+			PtpLog(@"camera not in liveview, no image.");
 			//			[self asyncGetLiveViewImage];
 			return;
 		}
@@ -627,7 +627,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 					errorName =  @"Card protected.";
 					break;
 				case 19:
-					errorName =  @"Card error.";
+					errorName =  @"Card error: check memory card";
 					break;
 				case 20:  // 0x00100000
 					errorName =  @"Card unformatted.";
@@ -642,7 +642,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 					errorName =  @"Lens retracted: extend lens to remedy problem.";
 					break;
 				case 31:
-					errorName =  @"Exposure Progam Mode not one of PSAM.";
+					errorName =  @"Exposure Progam Mode not one of PSAM: change exposure program mode dial on camera to fix.";
 					break;
 			}
 			if (!errorName)

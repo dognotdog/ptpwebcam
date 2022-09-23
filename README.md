@@ -1,4 +1,4 @@
-#  PTP Webcam – DSLR Live View Video Plugin
+#  PTP Webcam – DSLR Live View Video and Webcam Control
 
 Large sensor digital still cameras can provide an exceptionally good image for video conferencing, compared to most built-in web cameras.
 
@@ -50,6 +50,8 @@ Delete the following files and reboot to uninstall PTP Webcam:
 ## Supported Cameras over USB
 
 The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md). Cameras from Canon, Nikon, and Sony are currently supported.
+
+Additionally many UVC (USB Video Class) cameras can also be controlled.
  
 ## Known Issues
  

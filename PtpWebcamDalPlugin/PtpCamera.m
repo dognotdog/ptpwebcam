@@ -556,7 +556,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 }
 
-- (void)device:(nonnull ICDevice *)device didCloseSessionWithError:(nonnull NSError *)error
+- (void)device:(ICDevice *)device didCloseSessionWithError:(NSError *)error
 {
 }
 

@@ -13,7 +13,7 @@
 
 int _printIvars(id obj)
 {
-	NSUInteger count = 0;
+	unsigned int count = 0;
 	Ivar *vars = class_copyIvarList([obj class], &count);
 	for (NSUInteger i = 0; i < count; i++) {
 		Ivar var = vars[i];

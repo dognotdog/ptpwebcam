@@ -773,13 +773,13 @@ static void _usbDeviceGeneralInterest( void * refcon, io_service_t service, uint
 			infoDict[@"default"] = defaultData;
 	}
 	
-//	NSLog(@"  %@ = %@", setting, infoDict);
+	NSLog(@"  %@ = %@", setting, infoDict);
 	self.settingsInfos[setting] = infoDict;
 }
 
 - (void) queryControlInfos
 {
-//	PtpLog(@"supported settings %@", self.supportedSettings);
+	PtpLog(@"supported settings %@", self.supportedSettings);
 	for (id setting in self.supportedSettings)
 	{
 		// skip unsupported settings
@@ -1191,6 +1191,7 @@ static void _usbDeviceGeneralInterest( void * refcon, io_service_t service, uint
 //	NSLog(@"  IF header type    0x%02X", desc->bDescriptorType);
 //	NSLog(@"  IF header subtype 0x%02X", desc->bDescriptorSubType);
 //	NSLog(@"  IF header total   0x%04X", desc->wTotalLength);
+	NSLog(@"  IF header bcdUVC  0x%02X", desc->bcdUVC);
 
 	size_t offset = desc->bLength;
 	maxLength -= desc->bLength;

@@ -50,7 +50,7 @@ static NSDictionary* _ptpOperationNames = nil;
 				@(0x3215) : @[@"Canon", @"60D"],
 				@(0x3217) : @[@"Canon", @"1100D"],
 				@(0x3218) : @[@"Canon", @"600D"],
-				@(0x3218) : @[@"Canon", @"1DX"],
+				@(0x3219) : @[@"Canon", @"1DX"],
 				@(0x323A) : @[@"Canon", @"5D-III"],
 				@(0x323B) : @[@"Canon", @"650D"],
 				@(0x323D) : @[@"Canon", @"M"],

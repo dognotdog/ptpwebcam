@@ -45,7 +45,7 @@
 			frameTimerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, frameQueue);
 			dispatch_source_set_timer(frameTimerSource, DISPATCH_TIME_NOW, 1.0/WEBCAM_STREAM_FPS*NSEC_PER_SEC, 1u*NSEC_PER_MSEC);
 
-			__weak id weakSelf = self;
+//			__weak id weakSelf = self;
 			dispatch_source_set_event_handler(frameTimerSource, ^{
 				// FIXME: creates a huge backlog of messages on launch agent
 //				[weakSelf asyncGetLiveViewImage];

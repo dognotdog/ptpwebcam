@@ -161,3 +161,11 @@ The tables below list what features are supported with which camera models. Valu
 
 - if Sony cameras have the option, they need to be in "PC Remote" mode for the USB connection, not "Mass Storage" or MTP.
 
+## UVC (USB Video Class) Cameras
+
+Many industrial, security, and web USB cameras are supported through the UVC standard.
+
+| Camera        | max resolution | Exposure               | Image            | Lens    |
+| ------------- | -------------- | ---------------------- | ---------------- | ------- |
+| ELP-USBFHD01M | 1920x1080      | auto / manual          | YES              | NO      |
+| showmewebcam  | various        | auto / manual          | YES              | NO      |
