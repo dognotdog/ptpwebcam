@@ -110,6 +110,12 @@ codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Framewor
 codesign --remove-signature "/Applications/Microsoft Teams.app/Contents/Frameworks/Microsoft Teams Helper (Renderer).app"
 ```
 
+#### Discord workaround
+
+```
+sudo codesign -f -s - /Applications/Discord.app/Contents/Frameworks/Discord\ Helper\ \(Renderer\).app/
+```
+
 ### Debug / Crash Logs
 
 The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages to
