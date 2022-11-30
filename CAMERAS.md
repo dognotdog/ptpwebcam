@@ -52,7 +52,7 @@ The tables below list what features are supported with which camera models. Valu
 | EOS 1000D / Rebel XS | ?        | ?                      | ?                   | ?                |
 | EOS 1100D / Rebel T3 | ?        | ?                      | ?                   | ?                |
 | EOS 1200D / Rebel T5 | ?        | ?                      | ?                   | ?                |
-| EOS 1300D / Rebel T6 | ?        | ?                      | ?                   | ?                |
+| EOS 1300D / Rebel T6 | ?        | ?                      | YES                 | NO               |
 | EOS 1500D / 2000D / Rebel T7 | ? | ?                     | ?                   | ?                |
 | EOS 3000D / 4000D / Rebel T100 | ? | ?                   | ?                   | ?                |
 | EOS M          | ?              | ?                      | ?                   | ?                |
