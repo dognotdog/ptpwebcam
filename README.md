@@ -99,6 +99,15 @@ codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(GPU\).app
 codesign --remove-signature /Applications/Google\ Chrome.app/Contents/Frameworks/Google\ Chrome\ Framework.framework/Helpers/Google\ Chrome\ Helper\ \(Plugin\).app
 ```
+#### Brave workaround
+
+```
+codesign --remove-signature /Applications/Brave\ Browser.app
+codesign --remove-signature /Applications/Brave\ Browser.app/Contents/Frameworks/Brave\ Browser\ Framework.framework/Helpers/Brave\ Browser\ Helper.app
+codesign --remove-signature /Applications/Brave\ Browser.app/Contents/Frameworks/Brave\ Browser\ Framework.framework/Helpers/Brave\ Browser\ Helper\ \(GPU\).app
+codesign --remove-signature /Applications/Brave\ Browser.app/Contents/Frameworks/Brave\ Browser\ Framework.framework/Helpers/Brave\ Browser\ Helper\ \(Plugin\).app
+
+```
 
 #### Microsoft Teams workaround
 
