@@ -12,14 +12,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface PtpGridTuneView : NSView
 
-@property NSDictionary* range;
+//@property NSDictionary* range;
 @property NSInteger gridSize;
-@property id representedObject;
+@property NSMutableDictionary* representedProperty;
 @property(readwrite) NSInteger tag;
 
 @property(nullable) SEL action;
 @property(nullable) id target;
 
+@property(readonly) int intValue;
 
 - (void) updateSize;
 

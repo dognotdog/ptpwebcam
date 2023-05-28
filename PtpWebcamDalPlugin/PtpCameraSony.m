@@ -94,7 +94,7 @@ static NSDictionary* _ptpOperationNames = nil;
 		[propertyNames addEntriesFromDictionary: @{
 			@(0xD200) : @"DPC Compensation",
 			@(0xD201) : @"Dynamic Range Optimization",
-			@(0xD203) : @"Image Size",
+			@(PTP_PROP_SONY_IMAGESIZE) : @"Image Size",
 			@(PTP_PROP_SONY_SHUTTERSPEED) : @"Shutter Speed",
 			@(PTP_PROP_SONY_COLORTEMP) : @"WB Color Temp",
 			@(PTP_PROP_SONY_WB_GREENMAGENTA) : @"WB Tune Green-Magenta",

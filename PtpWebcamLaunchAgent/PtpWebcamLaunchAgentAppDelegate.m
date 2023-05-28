@@ -389,7 +389,6 @@
 
 - (void)deviceBrowser:(ICDeviceBrowser*)browser didAddDevice:(ICDevice*)camera moreComing:(BOOL) moreComing
 {
-//	NSLog(@"add device %@", device);
 	NSDictionary* cameraInfo = [PtpCamera isDeviceSupported: camera];
 	if (cameraInfo)
 	{
@@ -401,6 +400,10 @@
 		camera.delegate = self;
 		[camera requestOpenSession];
 
+	}
+	else
+	{
+		PtpLog(@"Camera is unsupported: %@", camera);
 	}
 }
 
@@ -629,6 +632,7 @@
 		// The text that will be shown in the menu bar
 		
 		NSImage *image = [[NSBundle mainBundle] imageForResource: @"ptpwebcam-logo-22x22"];
+		image.template = YES;
 		statusItem.button.image = image;
 		statusItem.button.imagePosition = NSImageLeft;
 		statusItem.button.imageHugsTitle = YES;

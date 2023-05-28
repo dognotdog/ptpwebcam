@@ -87,12 +87,18 @@ The tables below list what features are supported with which camera models. Valu
 | D800 / D800E  | 640x480        | YES (Photography Mode) | YES                 | YES              |
 | D810 / D810A  | 640x480        | YES (Photography Mode) | YES                 | YES              |
 | D850          | 1024x768       | YES (Photography Mode) | YES                 | YES              |
+| Z5            | 1024x768       | (YES)                  | ?                   | ?                |
 | Z6            | 1024x768       | (YES)                  | ?                   | ?                |
+| Z6 II         | 1024x768       | (YES)                  | ?                   | ?                |
 | Z7            | 1024x768       | (YES)                  | ?                   | ?                |
+| Z7 II         | 1024x768       | (YES)                  | ?                   | ?                |
+| Z8            | 1024x768       | YES (Photography Mode) | YES                 | YES              |
+| Z9            | 1024x768       | (YES)                  | ?                   | ?                |
 
 #### Notes
 
 - D800: LiveView timeout can be set to infinity via `CUSTOM SETTINGS MENU -> c Timers/AE Lock -> c4 Monitor off delay -> Live view`
+- Z8: LiveView cannot be enabled when camera is in "upload-priority" mode.
 
 ### APS-C / DX
 

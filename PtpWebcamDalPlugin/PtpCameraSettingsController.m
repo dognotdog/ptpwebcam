@@ -70,6 +70,9 @@
 		// rebuild menus if this is a newly received UI item
 		if (!item && [self.allUiPropertyIds containsObject: propertyId])
 			[self rebuildStatusItem];
+		// also rebuild if this prop change changes the UI
+		else if (valueChanged && [camera isUiChangingProperty: propertyId])
+			[self rebuildStatusItem];
 		else
 		{
 			if (descriptionChanged)
@@ -201,7 +204,7 @@
 
 - (NSSet*) allUiPropertyIds
 {
-	NSMutableSet* properties = [NSMutableSet setWithArray: self.camera.uiPtpProperties];
+	NSMutableSet* properties = [NSMutableSet setWithArray: self.camera.currentUiPtpProperties];
 
 	for (id parentId in self.camera.uiPtpSubProperties)
 	{
@@ -302,22 +305,27 @@
 - (nullable NSDictionary*) matrixInfoForPropertyId: (NSNumber*) propertyId
 {
 	static NSDictionary* matrixInfos = nil;
-	static dispatch_once_t onceToken;
-	dispatch_once(&onceToken, ^{
-		NSDictionary* nikonWbTuneInfo = @{
-			@"gridSize" : @(13),
-			@"rmin" : @(0),
-			@"rmax" : @(168),
-		};
-		matrixInfos = @{
-			@(PTP_PROP_NIKON_WBTUNE_INCADESCENT) : nikonWbTuneInfo,
-			@(PTP_PROP_NIKON_WBTUNE_FLOURESCENT) : nikonWbTuneInfo,
-			@(PTP_PROP_NIKON_WBTUNE_SUNNY) : nikonWbTuneInfo,
-			@(PTP_PROP_NIKON_WBTUNE_FLASH) : nikonWbTuneInfo,
-			@(PTP_PROP_NIKON_WBTUNE_CLOUDY) : nikonWbTuneInfo,
-			@(PTP_PROP_NIKON_WBTUNE_SHADE) : nikonWbTuneInfo,
-		};
-	});
+	NSDictionary* info = self.camera.ptpPropertyInfos[propertyId];
+	
+	
+	
+	NSDictionary* nikonWbTuneInfo = @{
+		@"gridSize" : @(13),
+	};
+	matrixInfos = @{
+		@(PTP_PROP_NIKON_WBTUNE_INCADESCENT) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_WBTUNE_FLOURESCENT) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_WBTUNE_SUNNY) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_WBTUNE_FLASH) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_WBTUNE_CLOUDY) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_WBTUNE_SHADE) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_INCADESCENT) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_FLOURESCENT) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_SUNNY) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_CLOUDY) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_SHADE) : nikonWbTuneInfo,
+		@(PTP_PROP_NIKON_MOVIE_WBTUNE_COLORTEMP) : nikonWbTuneInfo,
+	};
 	return matrixInfos[propertyId];
 }
 
@@ -359,51 +367,17 @@
 	else
 	{
 		// for non incremental items, add selection submenu listing items or a slider
-		
-		int rmin = [matrixInfo[@"rmin"] intValue];
-		int rmax = [matrixInfo[@"rmax"] intValue];
-		if (([property[@"range"] isKindOfClass: [NSDictionary class]]) && (rmin != rmax) && ([[property[@"range"] objectForKey: @"min"] intValue] == rmin) &&  ([[property[@"range"] objectForKey: @"max"] intValue] == rmax))
+		int gridSize = [matrixInfo[@"gridSize"] intValue];
+		if (([property[@"range"] isKindOfClass: [NSDictionary class]]) && (![property[@"range"][@"min"] isEqual: property[@"range"][@"max"]]) && (gridSize != 0))
 		{
-			int gridSize = [matrixInfo[@"gridSize"] intValue];
 			
-//			NSMutableArray* buttons = [NSMutableArray arrayWithCapacity: values.count];
-//			size_t x = 0, y = 0;
-//			double xmax = 0, ymax = 0;
-//			int step = [[property[@"range"] objectForKey: @"step"] intValue];
-//			for (int i = rmin; i <= rmax; i += step)
-//			{
-//				NSButton* button = [NSButton radioButtonWithTitle: @"" target: self action: nil];
-//				button.tag = propertyId.integerValue;
-//				button.bezelColor = [NSColor redColor];
-//
-//				CGPoint origin = CGPointMake(button.frame.size.width*x, button.frame.size.height*y);
-//
-//				button.frameOrigin = origin;
-//				xmax = MAX(xmax, CGRectGetMaxX(button.frame));
-//				ymax = MAX(ymax, CGRectGetMaxY(button.frame));
-//
-//				if (i == [value intValue])
-//					button.state = NSOnState;
-//
-//				[buttons addObject: button];
-//
-//				y = y + (x+1)/gridSize;
-//				x = (x+1) % gridSize;
-//			}
-//
-//			NSView* view = [[NSView alloc] initWithFrame: CGRectMake(0.0, 0.0, xmax, ymax)];
-//			view.autoresizingMask = NSViewNotSizable;
-//			for (NSButton* button in buttons)
-//			{
-//				[view addSubview: button];
-//			}
-			
+//			PtpLog(@"matrix property 0x%08X: %@", propertyId.unsignedIntValue, property);
+						
 			PtpGridTuneView* view = [[PtpGridTuneView alloc] initWithFrame: CGRectMake(0, 0, 1, 1)];
 			view.autoresizingMask = NSViewNotSizable;
 			view.gridSize = gridSize;
-			view.range = property[@"range"];
-			view.representedObject = value;
-			view.action = @selector(propertySliderAction:);
+			view.representedProperty = property.mutableCopy;
+			view.action = @selector(propertyGridAction:);
 			view.target = self;
 			view.tag = [propertyId intValue];
 			[view updateSize];
@@ -620,7 +594,7 @@
 		[menu addItem: [NSMenuItem separatorItem]];
 	}
 
-	for (id propertyId in self.camera.uiPtpProperties)
+	for (id propertyId in self.camera.currentUiPtpProperties)
 	{
 		
 		if ([propertyId isEqual: @"-"])
@@ -821,6 +795,29 @@
 	NSMenuItem* item = propertyMenuItemLookupTable[@(propertyId)];
 	item.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[@(propertyId)], valStr];
 
+//	PtpLog(@"slider 0x%04X set to %@", propertyId, valStr);
+
+	[self.camera ptpSetProperty: propertyId toValue: @((long)value)];
+
+//	[self.camera ptpQueryKnownDeviceProperties];
+}
+
+- (IBAction) propertyGridAction: (PtpGridTuneView*) sender
+{
+	uint32_t propertyId = (uint32_t)sender.tag;
+	NSDictionary* propertyInfo = sender.representedProperty;
+	
+	NSDictionary* rangeInfo = propertyInfo[@"range"];
+	NSInteger gridSize = sender.gridSize;
+	
+	long value = sender.intValue;
+
+	NSString* valStr = [self.camera formatPtpPropertyValue: @(value) ofProperty: propertyId withDefaultValue: propertyInfo[@"defaultValue"]];
+
+	NSMenuItem* item = propertyMenuItemLookupTable[@(propertyId)];
+	item.title = [NSString stringWithFormat: @"%@ (%@)", self.camera.ptpPropertyNames[@(propertyId)], valStr];
+
+//	PtpLog(@"grid 0x%04X set to %@ from %d", propertyId, valStr, sender.intValue);
 
 	[self.camera ptpSetProperty: propertyId toValue: @((long)value)];
 

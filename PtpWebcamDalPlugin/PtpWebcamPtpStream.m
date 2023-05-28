@@ -256,7 +256,7 @@
 			}
 			else if (dimensions.width == 1024 && dimensions.height == 768)
 			{
-				imageSizeNumber = @(2);
+				imageSizeNumber = @(3);
 			}
 
 			if (nil == imageSizeNumber)

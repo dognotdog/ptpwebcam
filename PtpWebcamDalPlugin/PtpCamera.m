@@ -106,7 +106,13 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0445) : @(YES), // D3500
 //				@(0x0446) : @[@"Nikon", @"D780"],
 //				@(0x0447) : @[@"Nikon", @"D6"],
-				@(0x044C) : @(YES), // Z6ii
+//				@(0x0448) : @(YES), // Z5
+//				@(0x044B) : @(YES), // Z7ii
+//				@(0x044C) : @(YES), // Z6ii
+//				@(0x044F) : @(YES), // Zfc?
+//				@(0x0450) : @(YES), // Z9
+				@(0x0451) : @(YES), // Z8
+//				@(0x0452) : @(YES), // Z30
 			},
 			// Sony
 			@(0x054C) : @{
@@ -122,6 +128,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				// verified that this is not needed for the D3400, as its response to the operations supported contains these operations
 //				@(0x043D) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3400
 				@(0x0445) : @[@(PTP_CMD_NIKON_GETVENDORPROPS), @(PTP_CMD_NIKON_STARTLIVEVIEW), @(PTP_CMD_NIKON_STOPLIVEVIEW), @(PTP_CMD_NIKON_GETLIVEVIEWIMG)], // D3500
+//				@(0x0451) : @[@(PTP_CMD_NIKON_GETVENDORPROPS)], // Z8
 			},
 		};
 
@@ -167,7 +174,12 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 				@(0x0445) : @(384), // D3500
 				@(0x0446) : @(384), // D780
 				@(0x0447) : @(384), // D6
+				@(0x0448) : @(384), // Z5
+				@(0x044B) : @(384), // Z7ii
 				@(0x044C) : @(384), // Z6ii
+				@(0x044F) : @(384), // Zfc?
+				@(0x0450) : @(384), // Z9
+				@(0x0451) : @(384), // Z8
 			},
 		};
 
@@ -332,11 +344,13 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	dispatch_once(&onceToken, ^{
 		_ptpPropertyNames = @{
 			@(PTP_PROP_BATTERYLEVEL) : @"Battery Level",
+			@(PTP_PROP_IMAGEQUALITY) : @"Image Quality",
 			@(PTP_PROP_WHITEBALANCE) : @"White Balance",
 			@(PTP_PROP_FNUM) : @"Aperture",
 			@(PTP_PROP_FLEN) : @"Focal Length",
 			@(PTP_PROP_FOCUSDISTANCE) : @"Focus Distance",
 			@(PTP_PROP_FOCUSMODE) : @"Focus Mode",
+			@(PTP_PROP_EXPOSUREMETERING) : @"Exposure Metering",
 			@(PTP_PROP_EXPOSUREISO) : @"ISO",
 			@(PTP_PROP_EXPOSUREBIAS) : @"Exposure Correction",
 			@(PTP_PROP_EXPOSURETIME) : @"Exposure Time",
@@ -366,7 +380,10 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	NSDictionary* cameraInfo = [[self class] isDeviceSupported: camera];
 
 	if (!cameraInfo)
+	{
+		NSLog(@"Camera is not supported: %@", camera);
 		return nil;
+	}
 	
 	Class cameraClass = cameraInfo[@"Class"];
 	
@@ -424,6 +441,15 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 	
 	return self;
 
+}
+
+- (NSArray*) currentUiPtpProperties
+{
+	return self.uiPtpProperties;
+}
+
+- (BOOL) isUiChangingProperty: (NSNumber*) propertyId {
+	return NO;
 }
 
 - (void) dealloc
@@ -932,7 +958,7 @@ static NSDictionary* _liveViewJpegDataOffsets = nil;
 			break;
 		case PTP_CMD_GETPROPDESC:
 			if (!data)
-				NSLog(@"ooops no data received for property description");
+				NSLog(@"ooops no data received for property description command: %@", command);
 			else
 				[self parsePtpPropertyDescription: data];
 			break;

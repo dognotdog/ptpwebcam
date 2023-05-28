@@ -89,7 +89,12 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x0445) : @[@"Nikon", @"D3500"],
 				@(0x0446) : @[@"Nikon", @"D780"],
 				@(0x0447) : @[@"Nikon", @"D6"],
+				@(0x0448) : @[@"Nikon", @"Z5"],
 				@(0x044C) : @[@"Nikon", @"Z6ii"],
+				@(0x044F) : @[@"Nikon", @"Zfc"],
+				@(0x0450) : @[@"Nikon", @"Z9"],
+				@(0x0451) : @[@"Nikon", @"Z8"],
+				@(0x0452) : @[@"Nikon", @"Z30"],
 			},
 		};
 		
@@ -103,6 +108,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_CMD_NIKON_AFDRIVE) : @"Nikon Autofocus",
 			@(PTP_CMD_NIKON_DEVICEREADY) : @"Nikon Get DeviceReady",
 			@(PTP_CMD_NIKON_GETVENDORPROPS) : @"Nikon Get Vendor Properties",
+			@(PTP_CMD_NIKON_GETVENDORCODES) : @"Nikon Get Vendor Codes",
 			@(PTP_CMD_NIKON_MFDRIVE) : @"Nikon Manual Focus",
 		}];
 		_ptpOperationNames = operationNames;
@@ -120,6 +126,8 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_LV_AFMODE) : @"AF Mode",
 			@(PTP_PROP_NIKON_LV_AF) : @"AF Area Mode",
 			@(PTP_PROP_NIKON_SHUTTERSPEED) : @"Shutter Speed",
+			@(PTP_PROP_NIKON_MOVIE_SHUTTERSPEED) : @"Movie Shutter Speed",
+			@(PTP_PROP_NIKON_MOVIE_FNUM) : @"Movie Aperture",
 			@(PTP_PROP_NIKON_RECORDINGMEDIA) : @"Recording Media",
 			@(PTP_PROP_NIKON_WBTUNE_AUTOTYPE) : @"WB Auto Type",
 			@(PTP_PROP_NIKON_WBTUNE_FLTYPE) : @"WB Flourescent Type",
@@ -131,6 +139,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			@(PTP_PROP_NIKON_LV_PROHIBIT) : @"LiveView Prohibit Condition",
 			@(PTP_PROP_NIKON_LV_APPLYSETTINGS) : @"Exposure Preview",
 			@(PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW) : @"Exposure Preview",
+			@(PTP_PROP_NIKON_LV_SELECTOR) : @"LiveView Selector",
 			@(PTP_PROP_NIKON_LV_IMAGESIZE) : @"Live Image Size",
 		}];
 		_ptpPropertyNames = propertyNames;
@@ -195,6 +204,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				@(0x0000) : @"Mirror-down for AF (hand-held mode)",
 				@(0x0001) : @"Mirror-up for AF (tripod mode)",
 			},
+			@(PTP_PROP_NIKON_LV_SELECTOR) : @{
+				@(0x0000) : @"Still",
+				@(0x0001) : @"Movie",
+			},
 			@(PTP_PROP_NIKON_RECORDINGMEDIA) : @{
 				@(0x0000) : @"Card",
 				@(0x0001) : @"SDRAM",
@@ -234,15 +247,19 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		@(PTP_PROP_BATTERYLEVEL),
 //		@(PTP_PROP_FOCUSDISTANCE),
 		@(PTP_PROP_FLEN),
+		@(PTP_PROP_NIKON_LV_SELECTOR),
 		@(PTP_PROP_NIKON_LV_STATUS),
 		@"-",
 		@(PTP_PROP_EXPOSUREPM),
 		@(PTP_PROP_FNUM),
+		@(PTP_PROP_NIKON_MOVIE_FNUM),
 		@(PTP_PROP_EXPOSUREISO),
 		@(PTP_PROP_NIKON_ISOAUTOCONTROL),
 		@(PTP_PROP_NIKON_SHUTTERSPEED), // show shutter speed instead of exposure time (more accurate)
+		@(PTP_PROP_NIKON_MOVIE_SHUTTERSPEED), // show shutter speed instead of exposure time (more accurate)
 		@(PTP_PROP_WHITEBALANCE),
 		@(PTP_PROP_EXPOSUREBIAS),
+		@(PTP_PROP_NIKON_MOVIE_EXPOSUREBIAS),
 		@(PTP_PROP_NIKON_LV_AFMODE),
 		@(PTP_PROP_NIKON_LV_AF),
 		@(PTP_PROP_NIKON_LV_ZOOM),
@@ -269,6 +286,32 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	return self;
 }
 
+- (NSArray*) currentUiPtpProperties
+{
+	NSSet* movieProperties = [NSSet setWithArray: @[@PTP_PROP_NIKON_MOVIE_FNUM, @PTP_PROP_NIKON_MOVIE_SHUTTERSPEED, @PTP_PROP_NIKON_MOVIE_EXPOSUREBIAS]];
+	NSSet* stillProperties = [NSSet setWithArray: @[@PTP_PROP_FNUM, @PTP_PROP_NIKON_SHUTTERSPEED, @PTP_PROP_EXPOSUREBIAS]];
+	
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_SELECTOR])
+	{
+		// 0 is stills mode, 1 video mode
+		bool inVideoMode = [self.ptpPropertyInfos[@PTP_PROP_NIKON_LV_SELECTOR][@"value"] integerValue] == 1;
+		NSSet* filterSet = inVideoMode ? stillProperties : movieProperties;
+		return [self.uiPtpProperties filteredArrayUsingPredicate: [NSPredicate predicateWithBlock:^BOOL(id  _Nullable evaluatedObject, NSDictionary<NSString *,id> * _Nullable bindings) {
+			return ![filterSet containsObject: evaluatedObject];
+		}]];
+	}
+	
+	return self.uiPtpProperties;
+}
+
+- (BOOL) isUiChangingProperty: (NSNumber*) propertyId {
+	NSUInteger propId = propertyId.unsignedIntegerValue;
+	if (propId == PTP_PROP_NIKON_LV_SELECTOR)
+		return YES;
+	return [super isUiChangingProperty: propertyId];
+}
+
+
 - (NSDictionary*) ptpOperationNames
 {
 	return _ptpOperationNames;
@@ -290,7 +333,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	{
 		case PTP_PROP_NIKON_WB_COLORTEMP:
 			return [NSString stringWithFormat: @"%.0f K", [value doubleValue]];
+		case PTP_PROP_NIKON_MOVIE_FNUM:
+			return [NSString stringWithFormat: @"%.1f", 0.01*[value doubleValue]];
 		case PTP_PROP_NIKON_SHUTTERSPEED:
+		case PTP_PROP_NIKON_MOVIE_SHUTTERSPEED:
 		{
 			uint32_t val = [value unsignedIntValue];
 			uint16_t nom = val >> 16;
@@ -328,11 +374,22 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		case PTP_PROP_NIKON_WBTUNE_CLOUDY:
 		case PTP_PROP_NIKON_WBTUNE_SHADE:
 		case PTP_PROP_NIKON_WBTUNE_COLORTEMP:
-			return [NSString stringWithFormat: @"%.0f", [value doubleValue] - [defaultValue doubleValue]];
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_AUTO:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_INCADESCENT:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_FLOURESCENT:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_SUNNY:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_CLOUDY:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_SHADE:
+		case PTP_PROP_NIKON_MOVIE_WBTUNE_COLORTEMP:
+			return [NSString stringWithFormat: @"%d", [value intValue]];
 		case PTP_PROP_NIKON_LV_STATUS:
 		case PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:
 		{
 			return [value boolValue] ? @"On" : @"Off";
+		}
+		case PTP_PROP_NIKON_LV_APPLYSETTINGS:
+		{
+			return [value boolValue] ? @"Off" : @"On";
 		}
 		default:
 		{
@@ -425,6 +482,10 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	{
 		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORPROPS];
 	}
+	else if ([self isPtpOperationSupported: PTP_CMD_NIKON_GETVENDORCODES])
+	{
+		[self requestSendPtpCommandWithCode: PTP_CMD_NIKON_GETVENDORCODES parameters: @[@0x0D]];
+	}
 	else
 	{
 		// if no further information has to be determined, we're ready to talk to the DAL plugin
@@ -433,6 +494,74 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 
 }
 
+- (void) parseNikonCodesResponse: (NSData*) data
+{
+	// the GetVendorCodes command returns a 4-byte length (number of elements, not bytes)
+	// plus 4-byte values
+	// otherwise it is similar
+	// we assume this is in response to a 0x0D parameter request (Vendor DevicePropCode), not a 0x09 (OperationCode).
+	
+	uint32_t len = 0;
+	[data getBytes: &len range: NSMakeRange(0, sizeof(len))];
+
+	if (len*4+4 > data.length) // length is how many items we have following the header
+	{
+		PtpWebcamShowCatastrophicAlert(@"-parseNikonCodesResponse: expected response data length (%u) exceeds buffer size (%zu).", len*4+4, data.length);
+		return;
+	}
+
+	NSMutableArray* properties = [NSMutableArray arrayWithCapacity: len];
+	for (size_t i = 0; i < len; ++i)
+	{
+		uint32_t propertyId = 0;
+		[data getBytes: &propertyId range: NSMakeRange(4+4*i, sizeof(propertyId))];
+		
+		[properties addObject: @(propertyId)];
+	}
+
+	for (NSNumber* prop in properties)
+	{
+		[self ptpGetPropertyDescription: [prop unsignedIntValue]];
+	}
+
+	@synchronized (self) {
+		NSMutableDictionary* ptpDeviceInfo = self.ptpDeviceInfo.mutableCopy;
+		NSArray* deviceProperties = [ptpDeviceInfo[@"properties"] arrayByAddingObjectsFromArray: properties];
+		
+		ptpDeviceInfo[@"properties"] = deviceProperties;
+		self.ptpDeviceInfo = ptpDeviceInfo;
+
+	}
+	
+	// after receiving the vendor specific property list, we need to query some properties
+	requiredPropertiesForReadiness = [NSMutableSet set];
+	
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_SELECTOR])
+	{
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_SELECTOR)];
+	}
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_IMAGESIZE])
+	{
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_IMAGESIZE)];
+	}
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_PROHIBIT])
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_PROHIBIT)];
+
+	// if there are no properties we need to check, we're ready
+	if (!requiredPropertiesForReadiness.count)
+	{
+		[self initialPtpPropertiesDiscoveryComplete];
+	}
+	else
+	{
+		for (NSNumber* propertyId in requiredPropertiesForReadiness.copy)
+		{
+			[self ptpGetPropertyDescription: propertyId.unsignedIntValue];
+		}
+	}
+
+}
+ 
 - (void) parseNikonPropertiesResponse: (NSData*) data
 {
 	uint32_t len = 0;
@@ -473,6 +602,8 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	// after receiving the vendor specific property list, we need to query some properties
 	requiredPropertiesForReadiness = [NSMutableSet set];
 	
+	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_SELECTOR])
+		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_SELECTOR)];
 	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_IMAGESIZE])
 		[requiredPropertiesForReadiness addObject: @(PTP_PROP_NIKON_LV_IMAGESIZE)];
 	if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_PROHIBIT])
@@ -506,6 +637,9 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 	{
 		case PTP_CMD_NIKON_GETVENDORPROPS:
 			[self parseNikonPropertiesResponse: data];
+			break;
+		case PTP_CMD_NIKON_GETVENDORCODES:
+			[self parseNikonCodesResponse: data];
 			break;
 		case PTP_CMD_NIKON_GETLIVEVIEWIMG:
 		{
@@ -553,6 +687,46 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 		{
 			if (liveViewStatus == LV_STATUS_RESTART_STOPPING)
 				[self startLiveView];
+			break;
+		}
+		case PTP_CMD_NIKON_STARTLIVEVIEW:
+		{
+			uint16_t code = 0;
+			[response getBytes: &code range: NSMakeRange(6, 2)];
+			
+			switch (code)
+			{
+				case PTP_RSP_OK:
+				{
+					break;
+				}
+				case PTP_RSP_NIKON_INVALIDSTATUS:
+				{
+					NSDictionary* _invalidStatusMsgs = @{
+						@"Z8" : @"LiveView cannot be started because of a camera status error. On a Nikon Z8, camera might be in upload-priority mode.",
+					};
+					// eg. Z8 in upload-prio mode
+					if (_invalidStatusMsgs[self.model])
+					{
+						PtpWebcamShowDeviceAlert(@"%@", _invalidStatusMsgs[self.model]);
+					}
+					else
+					{
+						PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of a camera status error.");
+					}
+					break;
+				}
+				default:
+				{
+					PtpLog(@"oops, live view was not started because of code 0x%04X", code);
+//					PtpWebcamShowDeviceAlert(@"LiveView cannot be started because of the following error conditions: %@", [prohibitConditions componentsJoinedByString: @", "]);
+//					liveViewStatus = LV_STATUS_OFF;
+//					if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_PROHIBIT])
+//						[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_PROHIBIT];
+					break;
+				}
+			}
+			
 			break;
 		}
 		default:
@@ -660,10 +834,23 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 
 - (void) receivedProperty: (NSDictionary*) propertyInfo oldProperty: (NSDictionary*) oldInfo withId: (NSNumber*) propertyId
 {
+//	PtpLog(@"reveivedProperty 0x%08X: %@", propertyId.unsignedIntValue, propertyInfo);
 	if (requiredPropertiesForReadiness.count)
 	{
 		if ([requiredPropertiesForReadiness containsObject: propertyId])
 		{
+			// special case image size, as we want to set it to max initially
+			if ([propertyId isEqual: @(PTP_PROP_NIKON_LV_IMAGESIZE)])
+			{
+				// if we have live view image size selection, set to max image size to start with
+				NSDictionary* info = self.ptpPropertyInfos[@(PTP_PROP_NIKON_LV_IMAGESIZE)];
+//				PtpLog(@"image size info %@", info);
+				NSArray* range = info[@"range"];
+		
+				// set it and get value again to make sure UI is up to date
+				[self ptpSetProperty:PTP_PROP_NIKON_LV_IMAGESIZE toValue: range.lastObject];
+				[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_IMAGESIZE];
+			}
 			[requiredPropertiesForReadiness removeObject: propertyId];
 			if (requiredPropertiesForReadiness.count == 0)
 			{
@@ -683,7 +870,7 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 			}
 			else if (!isLiveViewOn)
 			{
-				if ([self isPtpPropertySupported:PTP_PROP_NIKON_LV_PROHIBIT])
+				if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_PROHIBIT])
 					[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_PROHIBIT];
 			}
 			break;
@@ -714,6 +901,17 @@ static NSDictionary* _ptpPropertyValueNames = nil;
 				}
 			}
 
+			break;
+		}
+		case PTP_PROP_EXPOSURETIME:
+		{
+			// Z8 does not seem to update PTP_PROP_NIKON_LV_SELECTOR, but does update PTP_PROP_EXPOSURETIME when LV switch is actuated
+			if ([self isPtpPropertySupported: PTP_PROP_NIKON_LV_SELECTOR])
+			{
+				[self ptpGetPropertyDescription: PTP_PROP_NIKON_LV_SELECTOR];
+				[self ptpGetPropertyDescription: PTP_PROP_NIKON_SHUTTERSPEED];
+				[self ptpGetPropertyDescription: PTP_PROP_NIKON_MOVIE_SHUTTERSPEED];
+			}
 			break;
 		}
 	}
