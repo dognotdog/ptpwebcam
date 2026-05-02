@@ -11,12 +11,13 @@
 #import "../PtpWebcamAssistantService/PtpWebcamAssistantServiceProtocol.h"
 #import "../PtpWebcamDalPlugin/PtpCamera.h"
 #import "../PtpWebcamDalPlugin/PtpCameraSettingsController.h"
+#import "UvcCameraSettingsController.h"
 
 #import <ImageCaptureCore/ICDeviceBrowser.h>
 
 @class PtpWebcamStreamView, UvcCameraSettingsController;
 
-@interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate, NSXPCListenerDelegate, ICDeviceBrowserDelegate,  ICDeviceDelegate, PtpWebcamCameraXpcProtocol, PtpCameraLiveViewDelegate, PtpCameraSettingsControllerDelegate>
+@interface PtpWebcamLaunchAgentAppDelegate : NSObject <NSApplicationDelegate, NSXPCListenerDelegate, ICDeviceBrowserDelegate,  ICDeviceDelegate, PtpWebcamCameraXpcProtocol, PtpCameraLiveViewDelegate, PtpCameraSettingsControllerDelegate, UvcCameraSettingsControllerDelegate>
 
 @property NSArray<NSDictionary*>* connections;
 @property NSDictionary* devices;

@@ -186,6 +186,7 @@ static NSDictionary* settingsSelectors = nil;
 static NSDictionary* settingsLengths = nil;
 static NSDictionary* settingsUiNames = nil;
 static NSDictionary* settingsValueUiNames = nil;
+static NSDictionary* deviceBlacklist = nil;
 
 
 
@@ -500,6 +501,11 @@ static NSDictionary* settingsValueUiNames = nil;
 //			@"regionOfInterest" : 	@(10),
 
 		};
+		deviceBlacklist = @{
+			@(0x534d) : @{
+				@(0x2109) : @(YES), // HDMI input dongle that causes crash
+			},
+		};
 	});
 	
 	uint32_t locationId = 0;
@@ -569,6 +575,15 @@ static NSDictionary* settingsValueUiNames = nil;
 
 		if (currentLocationID == locationId)
 		{
+			// check against device blacklist
+			UInt16 vid, pid;
+			(*deviceInterface)->GetDeviceVendor(deviceInterface, &vid);
+			(*deviceInterface)->GetDeviceProduct(deviceInterface, &pid);
+			if ([deviceBlacklist[@(vid)][@(pid)] boolValue] == YES)
+			{
+				return nil;
+			}
+	
 			self.locationId = locationId;
 			// parse descriptor for usable UVC units/terminals
 			{

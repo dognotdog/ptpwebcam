@@ -10,6 +10,9 @@
 
 #import <objc/runtime.h>
 
+#import <PTP_Webcam_Preview-Swift.h>
+
+@class CameraExtensionSupport;
 
 int _printIvars(id obj)
 {
@@ -41,6 +44,7 @@ int _printMethods(Class class)
 }
 
 @property (weak) IBOutlet NSWindow *window;
+@property CameraExtensionSupport* extsup;
 
 @end
 
@@ -55,6 +59,8 @@ static PtpWebcamPreviewAppDelegate* _sharedAppDelegate = nil;
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
 	_sharedAppDelegate = self;
+
+	self.extsup = [[CameraExtensionSupport alloc] init];
 
 }
 

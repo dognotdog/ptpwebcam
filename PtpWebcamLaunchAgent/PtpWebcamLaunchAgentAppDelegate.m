@@ -650,7 +650,7 @@
 - (void) showCameraStatusItem:(NSMenuItem *)menuItem {
 	[self createStatusItem];
 	++numCameraItems;
-	statusItem.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
+	statusItem.button.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
 	[statusMenu addItem: menuItem];
 }
 
@@ -660,7 +660,7 @@
 		return;
 	
 	--numCameraItems;
-	statusItem.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
+	statusItem.button.title = [NSString stringWithFormat: @"[%zu]", numCameraItems];
 	[statusMenu removeItem: menuItem];
 }
 
