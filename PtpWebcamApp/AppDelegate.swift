@@ -43,16 +43,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		activationRequest.delegate = self
 		OSSystemExtensionManager.shared.submitRequest(activationRequest)
 
-		let service = SMAppService.agent(plistName: "org.ptpwebcam.CameraAgent.plist")
+		let service = SMAppService.agent(plistName: "org.ptpwebcam.PtpCameraAgent.plist")
 
-		async {
-			do {
-				try service.register()
-				print("Successfully registered \(service)")
-			} catch {
-				print("Unable to register \(error)")
-				exit(1)
-			}
+		do {
+			try service.register()
+			print("Successfully registered \(service)")
+		} catch {
+			print("Unable to register \(error)")
 		}
 	}
 
