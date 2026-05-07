@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
+		B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */; };
 		DA1B266E2B1BBCD70075AAAB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */; };
 		DA1B26702B1BBCD80075AAAB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA1B266F2B1BBCD80075AAAB /* Assets.xcassets */; };
 		DA1B26732B1BBCD80075AAAB /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = DA1B26712B1BBCD80075AAAB /* MainMenu.xib */; };
@@ -69,6 +71,8 @@
 		DA47648F24BE504D00F228B4 /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = DA47648E24BE504C00F228B4 /* LICENSE.md */; };
 		DA608DDA24F0736500F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
 		DA608DDB24F0736600F0D9FB /* PtpCameraSony.m in Sources */ = {isa = PBXBuildFile; fileRef = DA608DD824F071F100F0D9FB /* PtpCameraSony.m */; };
+		DA8A7A6A2FAAE277001FB4BC /* PtpCameraAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */; };
+		DA8A7A6C2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8A7A6B2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift */; };
 		DA8DCF9324E0FE9200AB90DE /* CAMERAS.md in Resources */ = {isa = PBXBuildFile; fileRef = DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */; };
 		DA8DCF9724E5A3DD00AB90DE /* FoundationExtensions.m in Sources */ = {isa = PBXBuildFile; fileRef = DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */; };
 		DA8E3A822B1B8D4100C04B4D /* CameraExtensionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8E3A812B1B8D4100C04B4D /* CameraExtensionSupport.swift */; };
@@ -292,6 +296,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpCameraAgent/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
+		64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpWebcamCameraExtension/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
 		DA1B266B2B1BBCD70075AAAB /* PtpWebcamApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PtpWebcamApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		DA1B266F2B1BBCD80075AAAB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -365,6 +371,8 @@
 		DA608DD724F071F100F0D9FB /* PtpCameraSony.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraSony.h; sourceTree = "<group>"; };
 		DA608DD824F071F100F0D9FB /* PtpCameraSony.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraSony.m; sourceTree = "<group>"; };
 		DA8A7A682FAAD015001FB4BC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpCameraAgentProtocol.swift; sourceTree = "<group>"; };
+		DA8A7A6B2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpCameraAgentProtocol.swift; sourceTree = "<group>"; };
 		DA8DCF9224E0FE9200AB90DE /* CAMERAS.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = CAMERAS.md; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = "<none>"; };
 		DA8DCF9424E5A38D00AB90DE /* FoundationExtensions.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FoundationExtensions.m; sourceTree = "<group>"; };
 		DA8DCF9524E5A38E00AB90DE /* FoundationExtensions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FoundationExtensions.h; sourceTree = "<group>"; };
@@ -609,6 +617,7 @@
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
 				DA8A7A682FAAD015001FB4BC /* Info.plist */,
+				DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */,
 			);
 			path = PtpCameraAgent;
 			sourceTree = "<group>";
@@ -699,6 +708,8 @@
 				DA34C59024FF5AC3008D3CAD /* PtpWebcamLaunchAgent */,
 				DA2922D7247EDA5B00794577 /* Products */,
 				DA292328247EF96800794577 /* Frameworks */,
+				59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */,
+				64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -848,6 +859,7 @@
 				DACDC5662B1B877F001F9DFC /* Info.plist */,
 				DACDC5672B1B877F001F9DFC /* PtpWebcamCameraExtension.entitlements */,
 				DAF599502B1B9899008BF64D /* README.md */,
+				DA8A7A6B2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift */,
 			);
 			path = PtpWebcamCameraExtension;
 			sourceTree = "<group>";
@@ -1193,7 +1205,7 @@
 					};
 				};
 			};
-			buildConfigurationList = DA2922D1247EDA5B00794577 /* Build configuration list for PBXProject "PTP Webcam" */;
+			buildConfigurationList = DA2922D1247EDA5B00794577 /* Build configuration list for PBXProject "PTP Webcam Preview" */;
 			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -1408,6 +1420,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA1B26A12B1BC1A20075AAAB /* AppDelegate.swift in Sources */,
+				DA8A7A6A2FAAE277001FB4BC /* PtpCameraAgentProtocol.swift in Sources */,
+				0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1550,6 +1564,8 @@
 			files = (
 				DACDC5652B1B877F001F9DFC /* main.swift in Sources */,
 				DACDC5632B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift in Sources */,
+				DA8A7A6C2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift in Sources */,
+				B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2677,7 +2693,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		DA2922D1247EDA5B00794577 /* Build configuration list for PBXProject "PTP Webcam" */ = {
+		DA2922D1247EDA5B00794577 /* Build configuration list for PBXProject "PTP Webcam Preview" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				DA2922FB247EDA5E00794577 /* Debug */,

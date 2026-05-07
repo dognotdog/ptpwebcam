@@ -17,19 +17,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	@IBOutlet var window: NSWindow!
 
 	func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+		NSLog("PtpWebcamApp: replacing extension %@ -> %@", existing.bundleVersion, ext.bundleVersion)
 		return OSSystemExtensionRequest.ReplacementAction.replace
 	}
-	
+
 	func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-		
+		NSLog("PtpWebcamApp: extension needs user approval")
 	}
-	
+
 	func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-		os_log("loaded system extension with result %{public}i", Int(result.rawValue))
+		NSLog("PtpWebcamApp: extension finished with result %d", Int(result.rawValue))
 	}
-	
+
 	func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-		os_log("failed to load system extension with error %{public}@", error.localizedDescription)
+		NSLog("PtpWebcamApp: extension failed with error: %@", error.localizedDescription)
 	}
 
 	func applicationDidFinishLaunching(_ aNotification: Notification) {

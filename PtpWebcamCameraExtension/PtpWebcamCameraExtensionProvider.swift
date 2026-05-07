@@ -258,54 +258,153 @@ class PtpWebcamCameraExtensionStreamSource: NSObject, CMIOExtensionStreamSource 
 // MARK: -
 
 class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSource {
-	
+
 	private(set) var provider: CMIOExtensionProvider!
-	
-	private var deviceSource: PtpWebcamCameraExtensionDeviceSource!
-	
-	// CMIOExtensionProviderSource protocol methods (all are required)
-	
+
+	private let logger = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: "Provider")
+	private var deviceSources: [String: PtpWebcamCameraExtensionDeviceSource] = [:]
+
+	private static let extLogger = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: "ExtLog")
+
+	static func log(_ msg: String) {
+		extLogger.fault("\(msg, privacy: .public)")
+	}
+
+	private var darwinSlotTokens: [Int32] = []
+
 	init(clientQueue: DispatchQueue?) {
-		
+
 		super.init()
-		
+
 		provider = CMIOExtensionProvider(source: self, clientQueue: clientQueue)
-		deviceSource = PtpWebcamCameraExtensionDeviceSource(localizedName: "PtpWebcam Mockup")
-		
-		do {
-			try provider.addDevice(deviceSource.device)
-		} catch let error {
-			fatalError("Failed to add device: \(error.localizedDescription)")
+
+		PtpWebcamCameraExtensionProviderSource.log("Extension init v4 (Darwin state slots)")
+
+		darwinSlotTokens = (0..<kDarwinStateSlotCount).map { i in
+			var token: Int32 = 0
+			darwin_notify_register_check(kDarwinStateSlotPrefix + "\(i)", &token)
+			return token
+		}
+
+		var stateToken: Int32 = 0
+		darwin_notify_register_dispatch(kDarwinCameraStateChanged, &stateToken, .main) { [weak self] _ in
+			self?.readCameraState()
+		}
+
+		DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+			PtpWebcamCameraExtensionProviderSource.log("Requesting camera state from agent")
+			darwin_notify_post(kDarwinCameraStateRequest)
 		}
 	}
-	
+
+	private func readCameraState() {
+		var lengthState: UInt64 = 0
+		darwin_notify_get_state(darwinSlotTokens[0], &lengthState)
+		let length = Int(lengthState >> 32)
+
+		guard length > 0 && length <= (kDarwinStateSlotCount - 1) * 8 else {
+			PtpWebcamCameraExtensionProviderSource.log("readCameraState: invalid length \(length)")
+			return
+		}
+
+		var jsonData = Data(count: length)
+		let slotCount = (length + 7) / 8
+		for i in 0..<slotCount {
+			var value: UInt64 = 0
+			darwin_notify_get_state(darwinSlotTokens[i + 1], &value)
+			let offset = i * 8
+			let chunkSize = min(8, length - offset)
+			jsonData.withUnsafeMutableBytes { ptr in
+				memcpy(ptr.baseAddress! + offset, &value, chunkSize)
+			}
+		}
+
+		guard let cameras = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: String]] else {
+			PtpWebcamCameraExtensionProviderSource.log("readCameraState: failed to parse JSON (\(length) bytes)")
+			return
+		}
+
+		PtpWebcamCameraExtensionProviderSource.log("readCameraState: \(cameras.count) camera(s)")
+		applyCameraState(cameras)
+	}
+
+	private func applyCameraState(_ cameras: [[String: String]]) {
+		let newCameraIds = Set(cameras.compactMap { $0["cameraId"] })
+		let existingIds = Set(deviceSources.keys)
+
+		for camera in cameras {
+			guard let cameraId = camera["cameraId"], !existingIds.contains(cameraId) else { continue }
+			let name = camera["name"] ?? "PTP Camera"
+			cameraConnected(cameraId, info: ["name": name, "cameraId": cameraId] as NSDictionary)
+		}
+
+		for cameraId in existingIds.subtracting(newCameraIds) {
+			cameraDisconnected(cameraId)
+		}
+	}
+
 	func connect(to client: CMIOExtensionClient) throws {
-		
-		// Handle client connect
 	}
-	
+
 	func disconnect(from client: CMIOExtensionClient) {
-		
-		// Handle client disconnect
 	}
-	
+
 	var availableProperties: Set<CMIOExtensionProperty> {
-		
-		// See full list of CMIOExtensionProperty choices in CMIOExtensionProperties.h
 		return [.providerManufacturer]
 	}
-	
+
 	func providerProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionProviderProperties {
-		
+
 		let providerProperties = CMIOExtensionProviderProperties(dictionary: [:])
 		if properties.contains(.providerManufacturer) {
-			providerProperties.manufacturer = "SampleCapture Manufacturer"
+			providerProperties.manufacturer = "PTP Webcam"
 		}
 		return providerProperties
 	}
-	
+
 	func setProviderProperties(_ providerProperties: CMIOExtensionProviderProperties) throws {
-		
-		// Handle settable properties here.
+	}
+}
+
+// MARK: - PtpCameraAgentDelegateProtocol
+
+extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol {
+
+	func cameraConnected(_ cameraId: String, info: NSDictionary) {
+		let name = info["name"] as? String ?? "PTP Camera"
+		PtpWebcamCameraExtensionProviderSource.log("cameraConnected: \(name) (\(cameraId))")
+
+		guard deviceSources[cameraId] == nil else { return }
+
+		let deviceSource = PtpWebcamCameraExtensionDeviceSource(localizedName: name)
+		deviceSources[cameraId] = deviceSource
+
+		do {
+			try provider.addDevice(deviceSource.device)
+			PtpWebcamCameraExtensionProviderSource.log("Added device: \(name)")
+		} catch {
+			PtpWebcamCameraExtensionProviderSource.log("Failed to add device: \(error.localizedDescription)")
+		}
+	}
+
+	func cameraDisconnected(_ cameraId: String) {
+		PtpWebcamCameraExtensionProviderSource.log("cameraDisconnected: \(cameraId)")
+
+		guard let deviceSource = deviceSources.removeValue(forKey: cameraId) else { return }
+
+		do {
+			try provider.removeDevice(deviceSource.device)
+			PtpWebcamCameraExtensionProviderSource.log("Removed device for \(cameraId)")
+		} catch {
+			PtpWebcamCameraExtensionProviderSource.log("Failed to remove device: \(error.localizedDescription)")
+		}
+	}
+
+	func receivedLiveViewJpegData(_ jpegData: Data, info: NSDictionary, forCamera cameraId: String) {
+		// TODO: Phase 4 — convert JPEG to CVPixelBuffer and send to stream
+	}
+
+	func propertyChanged(_ property: NSDictionary, forCamera cameraId: String) {
+		// TODO: Phase 6 — update CMIOExtension properties
 	}
 }

@@ -10,5 +10,9 @@
 	</array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>org.ptpwebcam.PtpCameraAgent</string>
+	</array>
 </dict>
 </plist>
