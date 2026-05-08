@@ -43,8 +43,12 @@ echo "=== PTP Webcam Extension Reinstall (version $VERSION) ==="
 
 # ── 1. Stop everything ────────────────────────────────────────────────
 echo "[1/6] Stopping running processes..."
+# Kill the host app (needed so the extension can be replaced).
+# Do NOT kill PtpCameraAgent here — it has KeepAlive=true in its SMAppService
+# plist, so launchd would immediately restart it from the OLD binary.
+# We kill it after the build instead (step 4b), so launchd restarts it from
+# the newly-installed binary.
 killall PtpWebcamApp 2>/dev/null || true
-killall PtpCameraAgent 2>/dev/null || true
 
 # ── 2. Optional reset ─────────────────────────────────────────────────
 if $RESET; then
@@ -95,6 +99,12 @@ fi
 BUILT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
     "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_BUNDLE_ID.systemextension/Contents/Info.plist" 2>/dev/null || echo "?")
 echo "    Extension bundle version: $BUILT_VERSION"
+
+# ── 4b. Restart agent from new binary ────────────────────────────────
+echo "[4b] Restarting PtpCameraAgent (launchd will relaunch from new binary)..."
+killall PtpCameraAgent 2>/dev/null || true
+# Brief pause so launchd has time to restart it before we open the host app.
+sleep 1
 
 # ── 5. Launch app → triggers activation/upgrade ──────────────────────
 echo "[5/6] Launching app..."

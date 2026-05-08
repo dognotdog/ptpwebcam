@@ -19,6 +19,19 @@ let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 let kDarwinStateSlotCount = 64
 let kDarwinStateSlotPrefix = "org.ptpwebcam.darwin.state."
 
+// Live view: extension → agent commands
+let kDarwinLiveViewStart = "org.ptpwebcam.darwin.LiveViewStart"
+let kDarwinLiveViewStop = "org.ptpwebcam.darwin.LiveViewStop"
+// Command payload slots: slot 0 = cameraId length (UInt64), slots 1-8 = cameraId bytes
+let kDarwinLiveViewCmdSlotPrefix = "org.ptpwebcam.darwin.lvcmd."
+let kDarwinLiveViewCmdSlotCount = 9
+
+// Live view: agent → extension frame delivery via IOSurface
+let kDarwinLiveViewFrame = "org.ptpwebcam.darwin.LiveViewFrame"
+// Frame payload slots: slot 0 = (IOSurfaceID << 32) | cameraId length, slots 1-8 = cameraId bytes
+let kDarwinLiveViewFrameSlotPrefix = "org.ptpwebcam.darwin.lvframe."
+let kDarwinLiveViewFrameSlotCount = 9
+
 // Extension -> Agent: commands
 @objc protocol PtpCameraAgentProtocol {
     func startLiveView(forCamera cameraId: String)

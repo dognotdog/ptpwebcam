@@ -1,17 +1,12 @@
-//
-//  AppDelegate.swift
-//  PtpCameraAgent
-//
-//  Created by Dömötör Gulyás on 02.12.2023.
-//  Copyright © 2023 org.ptpwebcam. All rights reserved.
-//
-
 import Cocoa
 import ImageCaptureCore
+import IOSurface
+import ImageIO
+import CoreGraphics
 import os.log
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, ICDeviceDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     private let logger = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "Agent")
     private var deviceBrowser: ICDeviceBrowser!
@@ -28,15 +23,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, ICD
         logFile?.write(line.data(using: .utf8)!)
         NSLog("%@", msg)
     }
-    private var connectedCameras: [String: ICDevice] = [:]
+
+    private var cameras: [String: PtpCamera] = [:]
     private var extensionConnections: [NSXPCConnection] = []
-
     private var simulatedCameras: [String: NSDictionary] = [:]
-
+    #if DEBUG
+    private var simulatedStripeSpeed: String {
+        get { UserDefaults.standard.string(forKey: "simulatedStripeSpeed") ?? "medium" }
+        set { UserDefaults.standard.set(newValue, forKey: "simulatedStripeSpeed") }
+    }
+    #endif
     private var darwinSlotTokens: [Int32] = []
+    private var liveViewSurfaces: [String: IOSurface] = [:]
+    private var lvFrameSlotTokens: [Int32] = []
+    private var lvCmdSlotTokens: [Int32] = []
+
+    private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         AppDelegate.log("PtpCameraAgent: applicationDidFinishLaunching")
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let icon = NSImage(named: "StatusBarIcon") {
+            icon.isTemplate = true
+            statusItem.button?.image = icon
+        } else {
+            statusItem.button?.title = "PTP"
+        }
+        rebuildMenu()
 
         darwinSlotTokens = (0..<kDarwinStateSlotCount).map { i in
             var token: Int32 = 0
@@ -48,6 +62,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, ICD
         darwin_notify_register_dispatch(kDarwinCameraStateRequest, &requestToken, .main) { [weak self] _ in
             AppDelegate.log("PtpCameraAgent: received Darwin state request")
             self?.publishCameraState()
+        }
+
+        lvFrameSlotTokens = (0..<kDarwinLiveViewFrameSlotCount).map { i in
+            var token: Int32 = 0
+            darwin_notify_register_check(kDarwinLiveViewFrameSlotPrefix + "\(i)", &token)
+            return token
+        }
+        lvCmdSlotTokens = (0..<kDarwinLiveViewCmdSlotCount).map { i in
+            var token: Int32 = 0
+            darwin_notify_register_check(kDarwinLiveViewCmdSlotPrefix + "\(i)", &token)
+            return token
+        }
+
+        var lvStartToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinLiveViewStart, &lvStartToken, .main) { [weak self] _ in
+            self?.handleLiveViewStartCommand()
+        }
+        var lvStopToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinLiveViewStop, &lvStopToken, .main) { [weak self] _ in
+            self?.handleLiveViewStopCommand()
         }
 
         xpcListener = NSXPCListener(machServiceName: kPtpCameraAgentMachServiceName)
@@ -79,52 +113,327 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, ICD
         simulatedCameras[cameraId] = info
         AppDelegate.log("PtpCameraAgent: Adding simulated camera: \(cameraId)")
         publishCameraState()
+        rebuildMenu()
     }
     #endif
 
+    // MARK: - Darwin Notify State Publishing
+
     private func publishCameraState() {
-        var cameras: [[String: String]] = []
-        for (cameraId, device) in connectedCameras {
-            cameras.append(["cameraId": cameraId, "name": device.name ?? "Unknown Camera"])
+        var cameraList: [[String: String]] = []
+        for (cameraId, camera) in cameras {
+            cameraList.append(["cameraId": cameraId, "name": camera.name])
         }
         #if DEBUG
         for (cameraId, info) in simulatedCameras {
-            cameras.append(["cameraId": cameraId, "name": info["name"] as? String ?? "Simulated"])
+            cameraList.append(["cameraId": cameraId, "name": info["name"] as? String ?? "Simulated", "isDemo": "1", "stripeSpeed": simulatedStripeSpeed])
         }
         #endif
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: cameras) else { return }
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: cameraList) else { return }
         let maxPayload = (kDarwinStateSlotCount - 1) * 8
         guard jsonData.count <= maxPayload else {
             AppDelegate.log("PtpCameraAgent: camera state too large (\(jsonData.count) bytes, max \(maxPayload))")
             return
         }
 
-        // Slot 0: length in high 32 bits
         darwin_notify_set_state(darwinSlotTokens[0], UInt64(jsonData.count) << 32)
 
-        // Slots 1..N: 8-byte chunks of JSON
         for i in 0..<((jsonData.count + 7) / 8) {
             let offset = i * 8
             var value: UInt64 = 0
             let chunkSize = min(8, jsonData.count - offset)
-            jsonData.withUnsafeBytes { ptr in
+            _ = jsonData.withUnsafeBytes { ptr in
                 memcpy(&value, ptr.baseAddress! + offset, chunkSize)
             }
             darwin_notify_set_state(darwinSlotTokens[i + 1], value)
         }
 
         darwin_notify_post(kDarwinCameraStateChanged)
-        AppDelegate.log("PtpCameraAgent: published \(cameras.count) camera(s), \(jsonData.count) bytes via Darwin state slots")
+        AppDelegate.log("PtpCameraAgent: published \(cameraList.count) camera(s), \(jsonData.count) bytes via Darwin state slots")
+    }
+
+    // MARK: - Live View Command Handling (extension → agent)
+
+    private func readLiveViewCmdCameraId() -> String? {
+        var slot0: UInt64 = 0
+        darwin_notify_get_state(lvCmdSlotTokens[0], &slot0)
+        let length = Int(slot0 & 0xFFFFFFFF)
+        guard length > 0, length <= (kDarwinLiveViewCmdSlotCount - 1) * 8 else { return nil }
+
+        var idData = Data(count: length)
+        let slotCount = (length + 7) / 8
+        for i in 0..<slotCount {
+            var value: UInt64 = 0
+            darwin_notify_get_state(lvCmdSlotTokens[i + 1], &value)
+            let offset = i * 8
+            let chunkSize = min(8, length - offset)
+            _ = idData.withUnsafeMutableBytes { ptr in
+                memcpy(ptr.baseAddress! + offset, &value, chunkSize)
+            }
+        }
+        return String(data: idData, encoding: .utf8)
+    }
+
+    private func handleLiveViewStartCommand() {
+        guard let cameraId = readLiveViewCmdCameraId(),
+              let camera = cameras[cameraId] else { return }
+        AppDelegate.log("PtpCameraAgent: Darwin live view start for \(cameraId)")
+        camera.startLiveView()
+    }
+
+    private func handleLiveViewStopCommand() {
+        guard let cameraId = readLiveViewCmdCameraId(),
+              let camera = cameras[cameraId] else { return }
+        AppDelegate.log("PtpCameraAgent: Darwin live view stop for \(cameraId)")
+        camera.stopLiveView()
+    }
+
+    // MARK: - Live View Frame Publishing (agent → extension)
+
+    private func publishLiveViewFrame(_ jpegData: Data, cameraId: String) {
+        guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
+
+        let width = 1920
+        let height = 1080
+
+        let surface: IOSurface
+        if let existing = liveViewSurfaces[cameraId] {
+            surface = existing
+        } else {
+            let props: [IOSurfacePropertyKey: Any] = [
+                IOSurfacePropertyKey(rawValue: kIOSurfaceWidth as String): width,
+                IOSurfacePropertyKey(rawValue: kIOSurfaceHeight as String): height,
+                IOSurfacePropertyKey(rawValue: kIOSurfaceBytesPerElement as String): 4,
+                IOSurfacePropertyKey(rawValue: kIOSurfaceBytesPerRow as String): width * 4,
+                IOSurfacePropertyKey(rawValue: kIOSurfacePixelFormat as String): OSType(kCVPixelFormatType_32BGRA),
+            ]
+            guard let s = IOSurface(properties: props) else { return }
+            liveViewSurfaces[cameraId] = s
+            surface = s
+        }
+
+        surface.lock(options: [], seed: nil)
+        if let ctx = CGContext(
+            data: surface.baseAddress,
+            width: width, height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: surface.bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) {
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        surface.unlock(options: [], seed: nil)
+
+        let cameraIdData = cameraId.data(using: .utf8) ?? Data()
+        let surfaceId = IOSurfaceGetID(surface)
+        let slot0: UInt64 = (UInt64(surfaceId) << 32) | UInt64(cameraIdData.count)
+        darwin_notify_set_state(lvFrameSlotTokens[0], slot0)
+
+        let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewFrameSlotCount - 1)
+        for i in 0..<slotCount {
+            var value: UInt64 = 0
+            let offset = i * 8
+            let chunkSize = min(8, cameraIdData.count - offset)
+            _ = cameraIdData.withUnsafeBytes { ptr in
+                memcpy(&value, ptr.baseAddress! + offset, chunkSize)
+            }
+            darwin_notify_set_state(lvFrameSlotTokens[i + 1], value)
+        }
+
+        darwin_notify_post(kDarwinLiveViewFrame)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
         deviceBrowser.stop()
+        for camera in cameras.values {
+            camera.closeSession()
+        }
         try? FileManager.default.removeItem(atPath: kPtpCameraStatePath)
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
+    }
+
+    // MARK: - Status Bar Menu
+
+    func rebuildMenu() {
+        let menu = NSMenu()
+
+        let allCameras = Array(cameras.values)
+        let hasSimulated: Bool
+        #if DEBUG
+        hasSimulated = !simulatedCameras.isEmpty
+        #else
+        hasSimulated = false
+        #endif
+
+        if allCameras.isEmpty && !hasSimulated {
+            let item = NSMenuItem(title: "No Cameras Connected", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
+
+        for camera in allCameras {
+            addCameraMenu(camera, to: menu)
+        }
+
+        #if DEBUG
+        for (_, info) in simulatedCameras {
+            let name = info["name"] as? String ?? "Simulated Camera"
+            menu.addItem(NSMenuItem.separator())
+            let header = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            let simItem = NSMenuItem(title: "  (simulated — no PTP session)", action: nil, keyEquivalent: "")
+            simItem.isEnabled = false
+            menu.addItem(simItem)
+
+            let speedMenu = NSMenu()
+            for speed in ["slow", "medium", "fast"] {
+                let subItem = NSMenuItem(title: speed.capitalized, action: #selector(setStripeSpeed(_:)), keyEquivalent: "")
+                subItem.target = self
+                subItem.representedObject = speed
+                subItem.state = (speed == simulatedStripeSpeed) ? .on : .off
+                speedMenu.addItem(subItem)
+            }
+            let speedItem = NSMenuItem(title: "  Stripe Speed: \(simulatedStripeSpeed.capitalized)", action: nil, keyEquivalent: "")
+            speedItem.submenu = speedMenu
+            menu.addItem(speedItem)
+        }
+        #endif
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit PTP Camera Agent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        statusItem.menu = menu
+    }
+
+    private func addCameraMenu(_ camera: PtpCamera, to menu: NSMenu) {
+        menu.addItem(NSMenuItem.separator())
+
+        let displayName = camera.model ?? camera.name
+        let header = NSMenuItem(title: displayName, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+
+        if !camera.isSessionOpen {
+            let item = NSMenuItem(title: "  Connecting…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        if camera.properties.isEmpty {
+            let item = NSMenuItem(title: "  Loading properties…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        // Show UI properties in defined order, then remaining known properties
+        var shown = Set<UInt32>()
+        for propId in camera.currentUiProperties {
+            if let info = camera.properties[propId] {
+                addPropertyMenuItem(info, camera: camera, to: menu)
+                shown.insert(propId)
+            }
+        }
+
+        let remaining = camera.properties.keys
+            .filter { !shown.contains($0) && camera.displayName(forProperty: $0) != nil }
+            .sorted()
+        if !remaining.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            for propId in remaining {
+                if let info = camera.properties[propId] {
+                    addPropertyMenuItem(info, camera: camera, to: menu)
+                }
+            }
+        }
+
+        if camera.canAutofocus {
+            menu.addItem(NSMenuItem.separator())
+            let afItem = NSMenuItem(title: "  Autofocus", action: #selector(autofocusAction(_:)), keyEquivalent: "")
+            afItem.target = self
+            afItem.representedObject = camera
+            menu.addItem(afItem)
+        }
+    }
+
+    private func addPropertyMenuItem(_ info: PtpPropertyInfo, camera: PtpCamera, to menu: NSMenu) {
+        let valueStr = camera.formatValue(info.value, forProperty: info.propertyId)
+        let displayName = camera.displayName(forProperty: info.propertyId) ?? String(format: "0x%04X", info.propertyId)
+        let title = "  \(displayName): \(valueStr)"
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+
+        if info.writable, let enumValues = info.range as? [NSNumber], !enumValues.isEmpty {
+            let submenu = NSMenu()
+            for enumVal in enumValues {
+                let valStr = camera.formatValue(enumVal, forProperty: info.propertyId)
+                let subItem = NSMenuItem(title: valStr, action: #selector(changePropertyAction(_:)), keyEquivalent: "")
+                subItem.target = self
+                subItem.representedObject = PropertyChangeInfo(
+                    camera: camera, propertyId: info.propertyId, value: enumVal)
+                if let currentNum = info.value as? NSNumber, currentNum.isEqual(to: enumVal) {
+                    subItem.state = .on
+                }
+                submenu.addItem(subItem)
+            }
+            item.submenu = submenu
+        } else if info.writable, let rangeDict = info.range as? [String: Any],
+                  let rmin = rangeDict["min"] as? NSNumber,
+                  let rmax = rangeDict["max"] as? NSNumber,
+                  let rstep = rangeDict["step"] as? NSNumber {
+            let submenu = NSMenu()
+            let stepVal = rstep.doubleValue
+            if stepVal > 0 {
+                let count = Int((rmax.doubleValue - rmin.doubleValue) / stepVal) + 1
+                if count <= 50 {
+                    var v = rmin.doubleValue
+                    while v <= rmax.doubleValue {
+                        let numVal = NSNumber(value: Int32(v))
+                        let valStr = camera.formatValue(numVal, forProperty: info.propertyId)
+                        let subItem = NSMenuItem(title: valStr, action: #selector(changePropertyAction(_:)), keyEquivalent: "")
+                        subItem.target = self
+                        subItem.representedObject = PropertyChangeInfo(
+                            camera: camera, propertyId: info.propertyId, value: numVal)
+                        if let currentNum = info.value as? NSNumber, currentNum.int32Value == numVal.int32Value {
+                            subItem.state = .on
+                        }
+                        submenu.addItem(subItem)
+                        v += stepVal
+                    }
+                    item.submenu = submenu
+                }
+            }
+        }
+
+        menu.addItem(item)
+    }
+
+    // MARK: - Menu Actions
+
+    #if DEBUG
+    @objc private func setStripeSpeed(_ sender: NSMenuItem) {
+        guard let speed = sender.representedObject as? String else { return }
+        simulatedStripeSpeed = speed
+        publishCameraState()
+        rebuildMenu()
+    }
+    #endif
+
+    @objc private func autofocusAction(_ sender: NSMenuItem) {
+        guard let camera = sender.representedObject as? PtpCamera else { return }
+        camera.performAutofocus()
+    }
+
+    @objc private func changePropertyAction(_ sender: NSMenuItem) {
+        guard let change = sender.representedObject as? PropertyChangeInfo else { return }
+        change.camera.setProperty(change.propertyId, value: change.value)
     }
 
     // MARK: - ICDeviceBrowserDelegate
@@ -134,36 +443,53 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, ICD
     }
 
     func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {
-        AppDelegate.log("PtpCameraAgent: deviceBrowser didAdd device: \(device.name ?? "unnamed") type=\(device.type.rawValue)")
-        guard device is ICCameraDevice else { return }
+        AppDelegate.log("PtpCameraAgent: didAdd device: \(device.name ?? "unnamed") type=\(device.type.rawValue)")
+        guard let icCamera = device as? ICCameraDevice else { return }
 
         let cameraId = device.uuidString ?? device.name ?? "unknown"
         AppDelegate.log("PtpCameraAgent: Camera added: \(cameraId) (\(device.name ?? "unnamed"))")
 
-        connectedCameras[cameraId] = device
-        device.delegate = self
+        guard let camera = PtpCamera.cameraForDevice(icCamera, cameraId: cameraId, delegate: self) else {
+            AppDelegate.log("PtpCameraAgent: Unsupported camera: \(cameraId)")
+            return
+        }
+        cameras[cameraId] = camera
+        camera.openSession()
+
         publishCameraState()
+        rebuildMenu()
     }
 
     func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
         let cameraId = device.uuidString ?? device.name ?? "unknown"
         AppDelegate.log("PtpCameraAgent: Camera removed: \(cameraId)")
-        connectedCameras.removeValue(forKey: cameraId)
+        cameras.removeValue(forKey: cameraId)
         publishCameraState()
+        rebuildMenu()
+    }
+}
+
+// MARK: - PtpCameraDelegate
+
+extension AppDelegate: PtpCameraDelegate {
+    func cameraPropertiesChanged(_ camera: PtpCamera) {
+        rebuildMenu()
     }
 
-    // MARK: - ICDeviceDelegate
-
-    func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
-        if let error = error {
-            logger.error("Failed to open session: \(error.localizedDescription)")
-        }
+    func cameraReady(_ camera: PtpCamera) {
+        AppDelegate.log("PtpCameraAgent: Camera ready: \(camera.manufacturer ?? "?") \(camera.model ?? "?")")
+        rebuildMenu()
     }
 
-    func device(_ device: ICDevice, didCloseSessionWithError error: Error?) {
+    func cameraRemoved(_ camera: PtpCamera) {
+        cameras.removeValue(forKey: camera.cameraId)
+        liveViewSurfaces.removeValue(forKey: camera.cameraId)
+        publishCameraState()
+        rebuildMenu()
     }
 
-    func didRemove(_ device: ICDevice) {
+    func cameraReceivedLiveViewJpeg(_ data: Data, camera: PtpCamera) {
+        publishLiveViewFrame(data, cameraId: camera.cameraId)
     }
 }
 
@@ -189,12 +515,11 @@ extension AppDelegate: NSXPCListenerDelegate {
         newConnection.resume()
         AppDelegate.log("PtpCameraAgent: XPC connection accepted")
 
-        // Send current camera list to newly connected client
         DispatchQueue.main.async {
             guard let proxy = newConnection.remoteObjectProxy as? PtpCameraAgentDelegateProtocol else { return }
-            for (cameraId, device) in self.connectedCameras {
+            for (cameraId, camera) in self.cameras {
                 let info: NSDictionary = [
-                    "name": device.name ?? "Unknown Camera",
+                    "name": camera.name,
                     "cameraId": cameraId,
                 ]
                 proxy.cameraConnected(cameraId, info: info)
@@ -214,18 +539,34 @@ extension AppDelegate: NSXPCListenerDelegate {
 
 extension AppDelegate: PtpCameraAgentProtocol {
     func startLiveView(forCamera cameraId: String) {
-        logger.info("startLiveView requested for \(cameraId)")
-        // TODO: open session and start live view on the ICCameraDevice
+        DispatchQueue.main.async {
+            self.cameras[cameraId]?.startLiveView()
+        }
     }
 
     func stopLiveView(forCamera cameraId: String) {
-        logger.info("stopLiveView requested for \(cameraId)")
-        // TODO: stop live view
+        DispatchQueue.main.async {
+            self.cameras[cameraId]?.stopLiveView()
+        }
     }
 
     func setPropertyValue(_ value: Any, forProperty propertyId: NSNumber, onCamera cameraId: String) {
         logger.info("setProperty \(propertyId) requested for \(cameraId)")
-        // TODO: send PTP property change command
+        guard let camera = cameras[cameraId], let numValue = value as? NSNumber else { return }
+        camera.setProperty(propertyId.uint32Value, value: numValue)
     }
 }
 
+// MARK: - Helper
+
+private class PropertyChangeInfo {
+    let camera: PtpCamera
+    let propertyId: UInt32
+    let value: NSNumber
+
+    init(camera: PtpCamera, propertyId: UInt32, value: NSNumber) {
+        self.camera = camera
+        self.propertyId = propertyId
+        self.value = value
+    }
+}
