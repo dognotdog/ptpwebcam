@@ -1,9 +1,9 @@
 import Cocoa
 import ImageCaptureCore
-import IOSurface
-import ImageIO
-import CoreGraphics
 import os.log
+import IOSurface
+import CoreGraphics
+import ImageIO
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
@@ -34,14 +34,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     }
     #endif
     private var darwinSlotTokens: [Int32] = []
-    private var liveViewSurfaces: [String: IOSurface] = [:]
     private var lvFrameSlotTokens: [Int32] = []
     private var lvCmdSlotTokens: [Int32] = []
+    private var lvSurfaceSlotTokens: [Int32] = []
+    // IOSurfaces created by the extension and looked up here via IOSurfaceLookup (works in sandbox).
+    private var remoteSurfaces: [String: IOSurface] = [:]
 
     private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        AppDelegate.log("PtpCameraAgent: applicationDidFinishLaunching")
+        let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        AppDelegate.log("PtpCameraAgent: applicationDidFinishLaunching build=\(buildVersion)")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let icon = NSImage(named: "StatusBarIcon") {
@@ -75,6 +78,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             return token
         }
 
+        lvSurfaceSlotTokens = (0..<kDarwinLiveViewSurfaceSlotCount).map { i in
+            var token: Int32 = 0
+            darwin_notify_register_check(kDarwinLiveViewSurfaceSlotPrefix + "\(i)", &token)
+            return token
+        }
+
         var lvStartToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinLiveViewStart, &lvStartToken, .main) { [weak self] _ in
             self?.handleLiveViewStartCommand()
@@ -82,6 +91,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         var lvStopToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinLiveViewStop, &lvStopToken, .main) { [weak self] _ in
             self?.handleLiveViewStopCommand()
+        }
+        var lvSurfaceToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinLiveViewSurfaceReady, &lvSurfaceToken, .main) { [weak self] _ in
+            self?.handleSurfaceReady()
         }
 
         xpcListener = NSXPCListener(machServiceName: kPtpCameraAgentMachServiceName)
@@ -179,6 +192,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         guard let cameraId = readLiveViewCmdCameraId(),
               let camera = cameras[cameraId] else { return }
         AppDelegate.log("PtpCameraAgent: Darwin live view start for \(cameraId)")
+        // Read the surface registration directly from slots — the extension always sets them
+        // before posting kDarwinLiveViewStart, so the state is already present even if the
+        // kDarwinLiveViewSurfaceReady dispatch notification was missed.
+        handleSurfaceReady()
         camera.startLiveView()
     }
 
@@ -187,63 +204,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
               let camera = cameras[cameraId] else { return }
         AppDelegate.log("PtpCameraAgent: Darwin live view stop for \(cameraId)")
         camera.stopLiveView()
-    }
-
-    // MARK: - Live View Frame Publishing (agent → extension)
-
-    private func publishLiveViewFrame(_ jpegData: Data, cameraId: String) {
-        guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
-
-        let width = 1920
-        let height = 1080
-
-        let surface: IOSurface
-        if let existing = liveViewSurfaces[cameraId] {
-            surface = existing
-        } else {
-            let props: [IOSurfacePropertyKey: Any] = [
-                IOSurfacePropertyKey(rawValue: kIOSurfaceWidth as String): width,
-                IOSurfacePropertyKey(rawValue: kIOSurfaceHeight as String): height,
-                IOSurfacePropertyKey(rawValue: kIOSurfaceBytesPerElement as String): 4,
-                IOSurfacePropertyKey(rawValue: kIOSurfaceBytesPerRow as String): width * 4,
-                IOSurfacePropertyKey(rawValue: kIOSurfacePixelFormat as String): OSType(kCVPixelFormatType_32BGRA),
-            ]
-            guard let s = IOSurface(properties: props) else { return }
-            liveViewSurfaces[cameraId] = s
-            surface = s
-        }
-
-        surface.lock(options: [], seed: nil)
-        if let ctx = CGContext(
-            data: surface.baseAddress,
-            width: width, height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: surface.bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) {
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        }
-        surface.unlock(options: [], seed: nil)
-
-        let cameraIdData = cameraId.data(using: .utf8) ?? Data()
-        let surfaceId = IOSurfaceGetID(surface)
-        let slot0: UInt64 = (UInt64(surfaceId) << 32) | UInt64(cameraIdData.count)
-        darwin_notify_set_state(lvFrameSlotTokens[0], slot0)
-
-        let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewFrameSlotCount - 1)
-        for i in 0..<slotCount {
-            var value: UInt64 = 0
-            let offset = i * 8
-            let chunkSize = min(8, cameraIdData.count - offset)
-            _ = cameraIdData.withUnsafeBytes { ptr in
-                memcpy(&value, ptr.baseAddress! + offset, chunkSize)
-            }
-            darwin_notify_set_state(lvFrameSlotTokens[i + 1], value)
-        }
-
-        darwin_notify_post(kDarwinLiveViewFrame)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
@@ -482,14 +442,96 @@ extension AppDelegate: PtpCameraDelegate {
     }
 
     func cameraRemoved(_ camera: PtpCamera) {
-        cameras.removeValue(forKey: camera.cameraId)
-        liveViewSurfaces.removeValue(forKey: camera.cameraId)
+        let cameraId = camera.cameraId
+        cameras.removeValue(forKey: cameraId)
+        remoteSurfaces.removeValue(forKey: cameraId)
         publishCameraState()
         rebuildMenu()
     }
 
     func cameraReceivedLiveViewJpeg(_ data: Data, camera: PtpCamera) {
         publishLiveViewFrame(data, cameraId: camera.cameraId)
+    }
+
+    // MARK: - IOSurface Registration (extension → agent)
+
+    private func handleSurfaceReady() {
+        var slot0: UInt64 = 0
+        darwin_notify_get_state(lvSurfaceSlotTokens[0], &slot0)
+        let surfaceId = IOSurfaceID(slot0 >> 32)
+        let cameraIdLength = Int(slot0 & 0xFFFFFFFF)
+
+        guard surfaceId != 0, cameraIdLength > 0,
+              cameraIdLength <= (kDarwinLiveViewSurfaceSlotCount - 1) * 8 else {
+            AppDelegate.log("PtpCameraAgent: handleSurfaceReady: bad slot0=0x\(String(slot0, radix: 16))")
+            return
+        }
+
+        var cameraIdData = Data(count: cameraIdLength)
+        let slotCount = (cameraIdLength + 7) / 8
+        for i in 0..<slotCount {
+            var value: UInt64 = 0
+            darwin_notify_get_state(lvSurfaceSlotTokens[i + 1], &value)
+            let offset = i * 8
+            let chunkSize = min(8, cameraIdLength - offset)
+            _ = cameraIdData.withUnsafeMutableBytes { ptr in
+                memcpy(ptr.baseAddress! + offset, &value, chunkSize)
+            }
+        }
+        guard let cameraId = String(data: cameraIdData, encoding: .utf8) else { return }
+
+        guard let surface = IOSurfaceLookup(surfaceId) else {
+            AppDelegate.log("PtpCameraAgent: IOSurfaceLookup failed id=\(surfaceId) cameraId=\(cameraId)")
+            return
+        }
+        remoteSurfaces[cameraId] = surface
+        AppDelegate.log("PtpCameraAgent: registered remote IOSurface id=\(surfaceId) for \(cameraId)")
+    }
+
+    // MARK: - Live View Frame Publishing via IOSurface (agent draws into extension's surface)
+
+    private func publishLiveViewFrame(_ jpegData: Data, cameraId: String) {
+        // We draw into the IOSurface that the extension created and registered with us.
+        guard let surface = remoteSurfaces[cameraId] else {
+            AppDelegate.log("PtpCameraAgent: publishLiveViewFrame: no surface for \(cameraId) — skipping frame")
+            return
+        }
+
+        // Decode JPEG to CGImage
+        guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            AppDelegate.log("PtpCameraAgent: JPEG decode failed size=\(jpegData.count)")
+            return
+        }
+
+        // Draw into the extension's IOSurface (BGRA)
+        surface.lock(options: [], seed: nil)
+        if let ctx = CGContext(
+            data: surface.baseAddress,
+            width: surface.width, height: surface.height,
+            bitsPerComponent: 8,
+            bytesPerRow: surface.bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) {
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: surface.width, height: surface.height))
+        }
+        surface.unlock(options: [], seed: nil)
+
+        // Notify extension: slot 0 = cameraId length, slots 1-N = cameraId bytes
+        let cameraIdData = cameraId.data(using: .utf8) ?? Data()
+        darwin_notify_set_state(lvFrameSlotTokens[0], UInt64(cameraIdData.count))
+        let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewFrameSlotCount - 1)
+        for i in 0..<slotCount {
+            var value: UInt64 = 0
+            let offset = i * 8
+            let chunkSize = min(8, cameraIdData.count - offset)
+            _ = cameraIdData.withUnsafeBytes { buf in
+                memcpy(&value, buf.baseAddress! + offset, chunkSize)
+            }
+            darwin_notify_set_state(lvFrameSlotTokens[i + 1], value)
+        }
+        darwin_notify_post(kDarwinLiveViewFrame)
     }
 }
 

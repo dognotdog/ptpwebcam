@@ -7,7 +7,7 @@
 	<key>AssociatedBundleIdentifiers</key>
 	<string>org.ptpwebcam.PtpWebcamApp</string>
 	<key>BundleProgram</key>
-	<string>Contents/Resources/PtpCameraAgent.app/Contents/MacOS/PtpCameraAgent</string>
+	<string>Contents/Library/LoginItems/PtpCameraAgent.app/Contents/MacOS/PtpCameraAgent</string>
 	<key>MachServices</key>
 	<dict>
 		<key>org.ptpwebcam.PtpCameraAgent</key>

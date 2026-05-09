@@ -11,6 +11,8 @@ import CoreMediaIO
 import IOKit.audio
 import IOSurface
 import CoreVideo
+import CoreGraphics
+import ImageIO
 import os.log
 
 let kWhiteStripeHeight: Int = 10
@@ -123,19 +125,17 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 	}
 
 	// Called by the provider when a live view frame arrives from the agent via IOSurface.
-	func sendLiveViewPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+	// Send a live-view frame to CMIO using _videoDescription (same as sendDemoFrame — guarantees format match).
+	func sendLiveViewFrame(_ pixelBuffer: CVPixelBuffer) {
 		guard _streamingCounter > 0 else { return }
-
-		var formatDescription: CMFormatDescription?
-		CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDescription)
-		guard let fd = formatDescription else { return }
 
 		var timingInfo = CMSampleTimingInfo()
 		timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock())
 		var sbuf: CMSampleBuffer?
+		// Use _videoDescription directly — same as sendDemoFrame — guarantees format match.
 		let err = CMSampleBufferCreateForImageBuffer(
 			allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, dataReady: true,
-			makeDataReadyCallback: nil, refcon: nil, formatDescription: fd,
+			makeDataReadyCallback: nil, refcon: nil, formatDescription: _videoDescription,
 			sampleTiming: &timingInfo, sampleBufferOut: &sbuf)
 		if err == 0, let sbuf = sbuf {
 			_streamSource.stream.send(sbuf, discontinuity: [],
@@ -292,6 +292,9 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	private var darwinSlotTokens: [Int32] = []
 	private var lvFrameSlotTokens: [Int32] = []
 	private var lvCmdSlotTokens: [Int32] = []
+	private var lvSurfaceSlotTokens: [Int32] = []
+	// Raw IOSurfaces shared with the agent (IOSurface(properties:) is globally accessible by ID).
+	private var liveViewSurfaces: [String: IOSurface] = [:]
 
 	init(clientQueue: DispatchQueue?) {
 
@@ -299,17 +302,12 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 		provider = CMIOExtensionProvider(source: self, clientQueue: clientQueue)
 
-		PtpWebcamCameraExtensionProviderSource.log("Extension init v5 (Darwin state slots + IOSurface live view)")
+		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+		PtpWebcamCameraExtensionProviderSource.log("Extension init build=\(buildVersion) (Darwin state slots + IOSurface live view)")
 
 		darwinSlotTokens = (0..<kDarwinStateSlotCount).map { i in
 			var token: Int32 = 0
 			darwin_notify_register_check(kDarwinStateSlotPrefix + "\(i)", &token)
-			return token
-		}
-
-		lvFrameSlotTokens = (0..<kDarwinLiveViewFrameSlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinLiveViewFrameSlotPrefix + "\(i)", &token)
 			return token
 		}
 
@@ -319,9 +317,21 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			return token
 		}
 
+		lvSurfaceSlotTokens = (0..<kDarwinLiveViewSurfaceSlotCount).map { i in
+			var token: Int32 = 0
+			darwin_notify_register_check(kDarwinLiveViewSurfaceSlotPrefix + "\(i)", &token)
+			return token
+		}
+
 		var stateToken: Int32 = 0
 		darwin_notify_register_dispatch(kDarwinCameraStateChanged, &stateToken, .main) { [weak self] _ in
 			self?.readCameraState()
+		}
+
+		lvFrameSlotTokens = (0..<kDarwinLiveViewFrameSlotCount).map { i in
+			var token: Int32 = 0
+			darwin_notify_register_check(kDarwinLiveViewFrameSlotPrefix + "\(i)", &token)
+			return token
 		}
 
 		var lvFrameToken: Int32 = 0
@@ -390,14 +400,54 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		}
 	}
 
+	// MARK: - IOSurface lifecycle (extension creates globally-accessible IOSurface; agent draws into it)
+
+	private func registerLiveViewSurface(cameraId: String) {
+		// IOSurface(properties:) creates a globally accessible surface (lookup by ID works cross-process/UID).
+		// Pool-backed CVPixelBuffer IOSurfaces are NOT globally accessible, so we use a raw IOSurface here.
+		let width = 1920, height = 1080
+		let props: [IOSurfacePropertyKey: Any] = [
+			.width: width, .height: height,
+			.pixelFormat: kCVPixelFormatType_32BGRA,
+			.bytesPerElement: 4,
+			.bytesPerRow: width * 4,
+			.allocSize: width * height * 4,
+		]
+		guard let surface = IOSurface(properties: props) else {
+			PtpWebcamCameraExtensionProviderSource.log("registerLiveViewSurface: IOSurface create failed")
+			return
+		}
+		liveViewSurfaces[cameraId] = surface
+		let surfaceId = IOSurfaceGetID(surface)
+		PtpWebcamCameraExtensionProviderSource.log("registerLiveViewSurface: id=\(surfaceId) for \(cameraId)")
+
+		// Tell the agent the surface ID so it can look it up (agent is unsandboxed).
+		let cameraIdData = cameraId.data(using: .utf8) ?? Data()
+		let slot0: UInt64 = (UInt64(surfaceId) << 32) | UInt64(cameraIdData.count)
+		darwin_notify_set_state(lvSurfaceSlotTokens[0], slot0)
+		let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewSurfaceSlotCount - 1)
+		for i in 0..<slotCount {
+			var value: UInt64 = 0
+			let offset = i * 8
+			let chunkSize = min(8, cameraIdData.count - offset)
+			_ = cameraIdData.withUnsafeBytes { ptr in
+				memcpy(&value, ptr.baseAddress! + offset, chunkSize)
+			}
+			darwin_notify_set_state(lvSurfaceSlotTokens[i + 1], value)
+		}
+		darwin_notify_post(kDarwinLiveViewSurfaceReady)
+	}
+
 	private func handleLiveViewFrame() {
 		var slot0: UInt64 = 0
 		darwin_notify_get_state(lvFrameSlotTokens[0], &slot0)
-		let surfaceId = IOSurfaceID(slot0 >> 32)
 		let cameraIdLength = Int(slot0 & 0xFFFFFFFF)
 
-		guard surfaceId > 0, cameraIdLength > 0,
-			  cameraIdLength <= (kDarwinLiveViewFrameSlotCount - 1) * 8 else { return }
+		guard cameraIdLength > 0,
+			  cameraIdLength <= (kDarwinLiveViewFrameSlotCount - 1) * 8 else {
+			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: bad slot0=0x\(String(slot0, radix:16))")
+			return
+		}
 
 		var cameraIdData = Data(count: cameraIdLength)
 		let slotCount = (cameraIdLength + 7) / 8
@@ -410,22 +460,28 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 				memcpy(ptr.baseAddress! + offset, &value, chunkSize)
 			}
 		}
-		guard let cameraId = String(data: cameraIdData, encoding: .utf8),
-			  let deviceSource = deviceSources[cameraId] else { return }
-
-		guard let surface = IOSurfaceLookup(surfaceId) else {
-			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: IOSurface \(surfaceId) not found")
+		guard let cameraId = String(data: cameraIdData, encoding: .utf8) else {
+			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: cameraId UTF-8 decode failed, raw=\(cameraIdData.map { String(format: "%02x", $0) }.joined())")
+			return
+		}
+		guard let deviceSource = deviceSources[cameraId],
+			  let surface = liveViewSurfaces[cameraId] else {
 			return
 		}
 
-		var unmanagedPb: Unmanaged<CVPixelBuffer>?
-		CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &unmanagedPb)
-		guard let pb = unmanagedPb?.takeRetainedValue() else { return }
-
-		deviceSource.sendLiveViewPixelBuffer(pb)
+		// Wrap the globally-accessible IOSurface (written by agent) in a CVPixelBuffer.
+		// sendLiveViewFrame uses _videoDescription directly — same path as sendDemoFrame.
+		var unmanagedPB: Unmanaged<CVPixelBuffer>?
+		let cvErr = CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &unmanagedPB)
+		guard cvErr == kCVReturnSuccess, let pb = unmanagedPB?.takeRetainedValue() else {
+			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: CVPixelBufferCreateWithIOSurface failed \(cvErr)")
+			return
+		}
+		deviceSource.sendLiveViewFrame(pb)
 	}
 
 	private func postLiveViewCommand(_ notifyName: String, cameraId: String) {
+		PtpWebcamCameraExtensionProviderSource.log("postLiveViewCommand: \(notifyName) cameraId=\(cameraId)")
 		let data = cameraId.data(using: .utf8) ?? Data()
 		darwin_notify_set_state(lvCmdSlotTokens[0], UInt64(data.count))
 		let slotCount = min((data.count + 7) / 8, kDarwinLiveViewCmdSlotCount - 1)
@@ -480,11 +536,13 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		deviceSource.onStreamingStarted = { [weak self, weak deviceSource] in
 			guard let self = self, let ds = deviceSource else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(ds.cameraId)")
+			self.registerLiveViewSurface(cameraId: ds.cameraId)
 			self.postLiveViewCommand(kDarwinLiveViewStart, cameraId: ds.cameraId)
 		}
 		deviceSource.onStreamingStopped = { [weak self, weak deviceSource] in
 			guard let self = self, let ds = deviceSource else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming stopped for \(ds.cameraId)")
+			self.liveViewSurfaces.removeValue(forKey:ds.cameraId)
 			self.postLiveViewCommand(kDarwinLiveViewStop, cameraId: ds.cameraId)
 		}
 
@@ -501,6 +559,7 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 	func cameraDisconnected(_ cameraId: String) {
 		PtpWebcamCameraExtensionProviderSource.log("cameraDisconnected: \(cameraId)")
 
+		liveViewSurfaces.removeValue(forKey:cameraId)
 		guard let deviceSource = deviceSources.removeValue(forKey: cameraId) else { return }
 
 		do {
@@ -512,8 +571,8 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 	}
 
 	func receivedLiveViewJpegData(_ jpegData: Data, info: NSDictionary, forCamera cameraId: String) {
-		// Live view frames now arrive via Darwin notify + IOSurface (handleLiveViewFrame).
-		// This XPC path is unused but kept for protocol conformance.
+		// XPC path is not used (XPC is blocked across UID boundaries in this sandbox).
+		// Frames arrive via Darwin notify + IOSurface instead.
 	}
 
 	func propertyChanged(_ property: NSDictionary, forCamera cameraId: String) {

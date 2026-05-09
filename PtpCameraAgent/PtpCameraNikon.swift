@@ -452,21 +452,29 @@ class PtpCameraNikon: PtpCamera {
     private func handleNikonLiveViewImageResponse(data: Data?, response: Data) {
         guard let data = data else {
             let rspCode = response.count >= 8 ? response.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) } : UInt16(0)
+            logger.warning("GETLIVEVIEWIMG: no data, rsp=0x\(String(rspCode, radix: 16))")
             if rspCode != PTP_RSP_DEVICEBUSY && lvStatus == .on {
                 restartLiveView()
             }
             return
         }
         let rspCode = response.count >= 8 ? response.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) } : UInt16(PTP_RSP_OK)
-        guard rspCode == PTP_RSP_OK else {
-            if rspCode != PTP_RSP_NIKON_NOTLIVEVIEW {
-                logger.warning("GETLIVEVIEWIMG response 0x\(String(rspCode, radix: 16))")
-            }
+        // Mirror old ObjC behaviour: only bail on NOTLIVEVIEW; attempt JPEG extraction for OK and any other code.
+        if rspCode == PTP_RSP_NIKON_NOTLIVEVIEW {
+            logger.info("GETLIVEVIEWIMG: camera not in live view")
             return
         }
+        if rspCode != PTP_RSP_OK {
+            logger.warning("GETLIVEVIEWIMG: non-OK rsp=0x\(String(rspCode, radix: 16)), data=\(data.count)B — attempting extraction anyway")
+        }
         let headerLen = liveViewHeaderLength
-        guard data.count > headerLen else { return }
+        guard data.count > headerLen else {
+            logger.warning("GETLIVEVIEWIMG: data too short (\(data.count) <= headerLen \(headerLen))")
+            return
+        }
         let jpegData = data.subdata(in: headerLen..<data.count)
+        let firstBytes = jpegData.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
+        logger.info("GETLIVEVIEWIMG: data=\(data.count)B header=\(headerLen) jpeg=\(jpegData.count)B start=[\(firstBytes)]")
         delegate?.cameraReceivedLiveViewJpeg(jpegData, camera: self)
     }
 

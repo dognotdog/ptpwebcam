@@ -22,7 +22,7 @@
 		DA1B26B12B1BC1A50075AAAB /* CameraAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26B02B1BC1A50075AAAB /* CameraAgentTests.swift */; };
 		DA1B26BB2B1BC1A70075AAAB /* CameraAgentUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26BA2B1BC1A70075AAAB /* CameraAgentUITests.swift */; };
 		DA1B26BD2B1BC1A70075AAAB /* CameraAgentUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26BC2B1BC1A70075AAAB /* CameraAgentUITestsLaunchTests.swift */; };
-		DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in Resources */ = {isa = PBXBuildFile; fileRef = DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */; };
+		DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in LoginItems */ = {isa = PBXBuildFile; fileRef = DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA1B26D02B1BC4700075AAAB /* org.ptpwebcam.PtpCameraAgent.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = DA1B26CF2B1BC4700075AAAB /* org.ptpwebcam.PtpCameraAgent.plist */; };
 		DA2680FE2480CC2600FF75EF /* ImageCaptureCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2680FD2480CC2600FF75EF /* ImageCaptureCore.framework */; };
 		DA26810A2481BB4600FF75EF /* CoreMediaIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2681092481BB4600FF75EF /* CoreMediaIO.framework */; };
@@ -204,6 +204,17 @@
 			files = (
 				DA1B26D02B1BC4700075AAAB /* org.ptpwebcam.PtpCameraAgent.plist in CopyFiles */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DA1B26E02B1BCC000075AAAB /* Embed Login Items */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LoginItems;
+			dstSubfolderSpec = 1;
+			files = (
+				DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in LoginItems */,
+			);
+			name = "Embed Login Items";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DA34C55E24FECA8F008D3CAD /* CopyFiles */ = {
@@ -890,6 +901,7 @@
 				DA1B26692B1BBCD70075AAAB /* Resources */,
 				DA1B26972B1BBDC20075AAAB /* Embed System Extensions */,
 				DA1B26D12B1BC7AB0075AAAB /* CopyFiles */,
+				DA1B26E02B1BCC000075AAAB /* Embed Login Items */,
 			);
 			buildRules = (
 			);
@@ -1257,7 +1269,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA1B26702B1BBCD80075AAAB /* Assets.xcassets in Resources */,
-				DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in Resources */,
 				DA1B26732B1BBCD80075AAAB /* MainMenu.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

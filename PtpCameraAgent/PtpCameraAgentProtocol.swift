@@ -23,9 +23,17 @@ let kDarwinLiveViewStop = "org.ptpwebcam.darwin.LiveViewStop"
 let kDarwinLiveViewCmdSlotPrefix = "org.ptpwebcam.darwin.lvcmd."
 let kDarwinLiveViewCmdSlotCount = 9
 
-// Live view: agent → extension frame delivery via IOSurface
+// Live view: extension → agent surface registration
+// Extension creates the IOSurface (sandbox allows own surfaces; agent looks it up unsandboxed).
+let kDarwinLiveViewSurfaceReady = "org.ptpwebcam.darwin.LiveViewSurfaceReady"
+// Surface payload slots: slot 0 = (IOSurfaceID << 32) | cameraId length, slots 1-8 = cameraId bytes
+let kDarwinLiveViewSurfaceSlotPrefix = "org.ptpwebcam.darwin.lvsurface."
+let kDarwinLiveViewSurfaceSlotCount = 9
+
+// Live view: agent → extension frame-ready notification
+// Agent draws JPEG into extension's IOSurface, then notifies via this name.
+// Frame payload slots: slot 0 = cameraId length, slots 1-8 = cameraId bytes
 let kDarwinLiveViewFrame = "org.ptpwebcam.darwin.LiveViewFrame"
-// Frame payload slots: slot 0 = (IOSurfaceID << 32) | cameraId length, slots 1-8 = cameraId bytes
 let kDarwinLiveViewFrameSlotPrefix = "org.ptpwebcam.darwin.lvframe."
 let kDarwinLiveViewFrameSlotCount = 9
 
