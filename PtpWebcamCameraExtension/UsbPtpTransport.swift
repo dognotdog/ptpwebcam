@@ -63,6 +63,25 @@ class UsbPtpTransport {
         return services
     }
 
+    /// Returns the IOKit service handle for the specific camera matching vid/pid/serial.
+    /// Releases all non-matching services. Caller must release the returned handle.
+    static func findService(vid: UInt16, pid: UInt16, serial: String) -> io_service_t? {
+        let services = findPtpServices()
+        var match: io_service_t? = nil
+        for svc in services {
+            var sVid: UInt16 = 0
+            var sPid: UInt16 = 0
+            var sSerial: NSString?
+            UsbPtpBridge.readVendorID(&sVid, productID: &sPid, productName: nil, serialNumber: &sSerial, fromService: svc)
+            if sVid == vid && sPid == pid && (sSerial as String?) == serial {
+                match = svc
+            } else {
+                IOObjectRelease(svc)
+            }
+        }
+        return match
+    }
+
     // MARK: - Init
 
     init(service: io_service_t) throws {
@@ -70,7 +89,8 @@ class UsbPtpTransport {
         var vid: UInt16 = 0
         var pid: UInt16 = 0
         var name: NSString?
-        UsbPtpBridge.readVendorID(&vid, productID: &pid, productName: &name, fromService: service)
+        var serial: NSString?
+        UsbPtpBridge.readVendorID(&vid, productID: &pid, productName: &name, serialNumber: &serial, fromService: service)
         vendorId   = vid
         productId  = pid
         deviceName = (name as String?) ?? "PTP Camera"

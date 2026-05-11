@@ -264,6 +264,7 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
 + (void)readVendorID:(uint16_t *)outVid
            productID:(uint16_t *)outPid
          productName:(NSString **)outName
+        serialNumber:(NSString **)outSerial
          fromService:(io_service_t)service
 {
     CFTypeRef (^prop)(NSString *) = ^CFTypeRef(NSString *key) {
@@ -292,6 +293,10 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
     if (outName) {
         CFTypeRef v = prop(@"USB Product Name");
         *outName = v ? (__bridge_transfer NSString *)v : @"PTP Camera";
+    }
+    if (outSerial) {
+        CFTypeRef v = prop(@"USB Serial Number");
+        *outSerial = v ? (__bridge_transfer NSString *)v : @"";
     }
 }
 

@@ -18,14 +18,20 @@ private let PTP_CMD_SETPROPVAL:             UInt16 = 0x1016
 private let PTP_RSP_OK:                     UInt16 = 0x2001
 private let PTP_RSP_DEVICEBUSY:             UInt16 = 0x2019
 
-private let PTP_CMD_NIKON_GETVENDORPROPS:   UInt16 = 0x90CA
-private let PTP_CMD_NIKON_STARTLIVEVIEW:    UInt16 = 0x9201
-private let PTP_CMD_NIKON_STOPLIVEVIEW:     UInt16 = 0x9202
-private let PTP_CMD_NIKON_GETLIVEVIEWIMG:   UInt16 = 0x9203
-private let PTP_CMD_NIKON_DEVICEREADY:      UInt16 = 0x90C8
-private let PTP_CMD_NIKON_GETVENDORCODES:   UInt16 = 0x9439
+private let PTP_CMD_NIKON_GETVENDORPROPS:    UInt16 = 0x90CA
+private let PTP_CMD_NIKON_CHANGECAMERAMODE:  UInt16 = 0x90C2  // param 0=PC camera, 1=remote/tethered
+private let PTP_CMD_NIKON_STARTLIVEVIEW:     UInt16 = 0x9201
+private let PTP_CMD_NIKON_STOPLIVEVIEW:      UInt16 = 0x9202  // also called EndLiveView on Z-series
+private let PTP_CMD_NIKON_GETLIVEVIEWIMG:    UInt16 = 0x9203  // compatibility; Z-series prefer 0x9428
+private let PTP_CMD_NIKON_DEVICEREADY:       UInt16 = 0x90C8
+private let PTP_CMD_NIKON_GETVENDORCODES:    UInt16 = 0x9439
+private let PTP_CMD_NIKON_GETLIVEVIEWIMGEX:  UInt16 = 0x9428  // Z-series: LiveViewObject DataSet v2
 
-private let PTP_RSP_NIKON_NOTLIVEVIEW:      UInt16 = 0xA00B
+private let PTP_RSP_NIKON_NOTLIVEVIEW:       UInt16 = 0xA00B
+
+// Z-series live view status properties (not present on older bodies)
+private let PTP_PROP_NIKON_CAMERA_LV_STATUS: UInt16 = 0xD1B8  // 0=off, 1=on
+private let PTP_PROP_NIKON_LV_IMAGE_STATUS:  UInt16 = 0xD1BB  // 0=unavailable, 1=available
 
 // Header bytes to skip before the JPEG payload, keyed on USB product ID.
 // All D800-era and later Nikon bodies use 384 bytes; older bodies use 64 or 128.
@@ -184,6 +190,10 @@ final class UsbNikonCamera {
     private var stopLv   = false
     private var closing  = false
     private var sessionOpen = false
+    private var supportedOperations: Set<UInt16> = []
+    // True for Z-series cameras that support GetLiveViewImageEx (0x9428).
+    // Set after GetDeviceInfo; controls which LV command and header offset to use.
+    private var usesLvEx = false
 
     // Pending property-set commands. Appended from any thread under pendingLock;
     // drained on the camera queue between live view frames (or immediately when not streaming).
@@ -240,27 +250,42 @@ final class UsbNikonCamera {
         }
         if closing { return }
 
-        do {
-            let cmd = transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1])
-            let (_, rsp) = try transport.sendPtpCommand(cmd)
-            var code = transport.responseCode(from: rsp)
+        var sessionOpenError: Error? = nil
+        for attempt in 1...5 {
+            if closing { return }
+            do {
+                let cmd = transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1])
+                let (_, rsp) = try transport.sendPtpCommand(cmd)
+                var code = transport.responseCode(from: rsp)
 
-            if code == 0x201E {
-                cameraLog.fault("UsbNikonCamera: session already open — CLOSE_SESSION + retry")
-                _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CLOSESESSION))
-                Thread.sleep(forTimeInterval: 0.3)
-                let cmd2 = transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1])
-                let (_, rsp2) = try transport.sendPtpCommand(cmd2)
-                code = transport.responseCode(from: rsp2)
-            }
+                if code == 0x201E {
+                    cameraLog.fault("UsbNikonCamera: session already open — CLOSE_SESSION + retry")
+                    _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CLOSESESSION))
+                    Thread.sleep(forTimeInterval: 0.3)
+                    let cmd2 = transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1])
+                    let (_, rsp2) = try transport.sendPtpCommand(cmd2)
+                    code = transport.responseCode(from: rsp2)
+                }
 
-            guard code == PTP_RSP_OK else {
-                cameraLog.fault("UsbNikonCamera: OPEN_SESSION failed code=0x\(String(code, radix:16), privacy: .public)")
-                return
+                guard code == PTP_RSP_OK else {
+                    cameraLog.fault("UsbNikonCamera: OPEN_SESSION failed code=0x\(String(code, radix:16), privacy: .public)")
+                    return
+                }
+                sessionOpen = true
+                sessionOpenError = nil
+                cameraLog.fault("UsbNikonCamera: session opened (attempt \(attempt, privacy: .public))")
+                break
+            } catch {
+                sessionOpenError = error
+                if attempt < 5 {
+                    cameraLog.fault("UsbNikonCamera: OPEN_SESSION attempt \(attempt, privacy: .public) failed: \(String(describing: error), privacy: .public) — retrying")
+                    Thread.sleep(forTimeInterval: 0.5)
+                    // Clear pipe stalls before retry — some cameras leave endpoints halted.
+                    transport.clearStalls()
+                }
             }
-            sessionOpen = true
-            cameraLog.fault("UsbNikonCamera: session opened")
-        } catch {
+        }
+        if let error = sessionOpenError {
             cameraLog.fault("UsbNikonCamera: OPEN_SESSION error: \(String(describing: error), privacy: .public)")
             return
         }
@@ -282,6 +307,22 @@ final class UsbNikonCamera {
             return
         }
 
+        // ── Pre-flight: switch to remote/tethered mode if supported ──────────
+        // Z-series cameras start in PC camera mode (upload priority) by default.
+        // ChangeCameraMode(1) switches to remote mode, enabling live view.
+        if supportedOperations.contains(PTP_CMD_NIKON_CHANGECAMERAMODE) {
+            cameraLog.fault("UsbNikonCamera: issuing ChangeCameraMode(1) — remote/tethered mode")
+            let modeCmd = transport.buildCommand(code: PTP_CMD_NIKON_CHANGECAMERAMODE, parameters: [1])
+            _ = try? transport.sendPtpCommand(modeCmd)
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        if let prohibit = discoverSingleProperty(0xD1A4) {
+            let bits = prohibit.value.uint32Value
+            if bits != 0 {
+                cameraLog.fault("UsbNikonCamera: LV prohibit condition 0xD1A4 = 0x\(String(bits, radix:16), privacy: .public)")
+            }
+        }
+
         // ── STARTLIVEVIEW ─────────────────────────────────────────────────────
         do {
             let cmd = transport.buildCommand(code: PTP_CMD_NIKON_STARTLIVEVIEW)
@@ -301,9 +342,14 @@ final class UsbNikonCamera {
         if stopLv || closing { return }
 
         // ── GETLIVEVIEWIMG loop ───────────────────────────────────────────────
-        cameraLog.fault("UsbNikonCamera: entering live view loop")
+        // Z-series cameras use GetLiveViewImageEx (0x9428) with a 1024-byte header.
+        // Older bodies use GetLiveViewImage (0x9203) with a product-ID-specific header.
+        let lvCmd = usesLvEx ? PTP_CMD_NIKON_GETLIVEVIEWIMGEX : PTP_CMD_NIKON_GETLIVEVIEWIMG
+        let lvHeaderLen = usesLvEx ? 1024 : headerLen
+        cameraLog.fault("UsbNikonCamera: entering live view loop (cmd=0x\(String(lvCmd, radix:16), privacy: .public) headerLen=\(lvHeaderLen, privacy: .public))")
         let targetInterval: TimeInterval = 1.0 / 30.0
         var frameCount = 0
+        var notLiveViewCount = 0
 
         while !stopLv && !closing {
             // Execute any queued property-set commands before the next frame.
@@ -313,17 +359,22 @@ final class UsbNikonCamera {
             let frameStart = Date()
 
             do {
-                let cmd = transport.buildCommand(code: PTP_CMD_NIKON_GETLIVEVIEWIMG)
+                let cmd = transport.buildCommand(code: lvCmd)
                 let (inData, rsp) = try transport.sendPtpCommand(cmd)
                 let rspCode = transport.responseCode(from: rsp)
 
                 if rspCode == PTP_RSP_NIKON_NOTLIVEVIEW {
-                    cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW — restarting")
+                    notLiveViewCount += 1
+                    if notLiveViewCount > 20 {
+                        cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW after \(notLiveViewCount, privacy: .public) restarts — giving up")
+                        return
+                    }
+                    cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW — restarting (\(notLiveViewCount, privacy: .public))")
                     restartLiveView()
                     continue
                 }
 
-                if let data = inData, data.count > headerLen {
+                if let data = inData, data.count > lvHeaderLen {
                     if let jpeg = extractJpeg(from: data) {
                         frameCount += 1
                         if frameCount == 1 || frameCount == 10 || frameCount % 150 == 0 {
@@ -336,7 +387,7 @@ final class UsbNikonCamera {
                 } else if inData == nil && rspCode == PTP_RSP_DEVICEBUSY {
                     Thread.sleep(forTimeInterval: 0.033)
                 } else if let data = inData {
-                    cameraLog.fault("UsbNikonCamera: frame too small (\(data.count, privacy: .public)B, headerLen=\(self.headerLen, privacy: .public))")
+                    cameraLog.fault("UsbNikonCamera: frame too small (\(data.count, privacy: .public)B, lvHeaderLen=\(lvHeaderLen, privacy: .public))")
                 }
             } catch {
                 if !stopLv && !closing {
@@ -420,8 +471,10 @@ final class UsbNikonCamera {
         }
 
         let supportedOps = Set(ops)
+        supportedOperations = supportedOps
+        usesLvEx = supportedOps.contains(PTP_CMD_NIKON_GETLIVEVIEWIMGEX)
         var allProps = props
-        cameraLog.fault("UsbNikonCamera: GetDeviceInfo — \(props.count, privacy: .public) standard props, \(ops.count, privacy: .public) ops")
+        cameraLog.fault("UsbNikonCamera: GetDeviceInfo — \(props.count, privacy: .public) standard props, \(ops.count, privacy: .public) ops, usesLvEx=\(self.usesLvEx, privacy: .public)")
 
         // Nikon GetVendorProps / GetVendorCodes adds properties not in standard DeviceInfo.
         if supportedOps.contains(PTP_CMD_NIKON_GETVENDORPROPS) {
@@ -530,6 +583,21 @@ final class UsbNikonCamera {
 
     /// Set a camera property. Safe to call at any time, including during live view:
     /// the command is enqueued and executed between the next live view frame.
+    /// Set a property synchronously on the camera queue. Only call from within the camera queue.
+    private func setPropertyDirect(propId: UInt16, value: UInt32, dataType: UInt16) {
+        var outData = Data()
+        switch dataType {
+        case 1:  outData.appendLE(UInt8(bitPattern: Int8(bitPattern: UInt8(value & 0xFF))))
+        case 2:  outData.appendLE(UInt8(value & 0xFF))
+        case 3:  outData.appendLE(UInt16(bitPattern: Int16(bitPattern: UInt16(value & 0xFFFF))))
+        case 4:  outData.appendLE(UInt16(value & 0xFFFF))
+        case 5, 6: outData.appendLE(value)
+        default: outData.appendLE(UInt16(value & 0xFFFF))
+        }
+        let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL, parameters: [UInt32(propId)])
+        _ = try? transport.sendPtpCommand(cmd, outData: outData)
+    }
+
     func setProperty(propId: UInt16, value: UInt32, dataType: UInt16) {
         pendingLock.lock()
         pendingSets.append(PendingSet(propId: propId, value: value, dataType: dataType))

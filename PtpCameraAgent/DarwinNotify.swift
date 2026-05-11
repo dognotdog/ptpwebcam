@@ -22,3 +22,7 @@ func darwin_notify_set_state(_ token: Int32, _ state64: UInt64) -> UInt32
 @_silgen_name("notify_get_state")
 @discardableResult
 func darwin_notify_get_state(_ token: Int32, _ state64: UnsafeMutablePointer<UInt64>) -> UInt32
+
+@_silgen_name("notify_cancel")
+@discardableResult
+func notify_cancel(_ token: Int32) -> UInt32

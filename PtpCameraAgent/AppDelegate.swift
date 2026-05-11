@@ -32,7 +32,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // Extension-published camera property state (via Darwin notify slots, multi-page).
     private var propSlotTokens: [Int32] = []
     private var propCmdToken: Int32 = 0
+
     private var extCameras: [String: ExtCamera] = [:]
+
+    private var claimedCameraKeys: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "claimedCameraKeys") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "claimedCameraKeys") }
+    }
     // Page-reassembly state for multi-page property state transfers.
     private var propPageBuffer: Data? = nil
     private var propPageTotal: Int = 0
@@ -108,13 +114,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         AppDelegate.log("PtpCameraAgent: ICDeviceBrowser disabled (extension owns USB)")
 
         // USB access coordination: the extension can't kill ptpcamerad (different UID).
-        // We do it here (same UID 501) when the extension requests it.
+        // We do it here (same UID 501) when the extension requests it (at stream start only).
         var needUsbToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinNeedUsbAccess, &needUsbToken, .main) { [weak self] _ in
             self?.handleNeedUsbAccess()
         }
-        // Also kill ptpcamerad at startup so the first stream attempt doesn't race.
-        handleNeedUsbAccess()
 
         // Property state slots: extension publishes camera property JSON here.
         propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
@@ -124,6 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         }
         // Property command slot: agent writes SET_PROP command here before posting kDarwinCameraPropertyCmd.
         darwin_notify_register_check(kDarwinPropertyCmdSlot, &propCmdToken)
+        // Per-camera claim channels are registered on-the-fly in sendClaimCommand.
         // Subscribe to property state notifications from extension.
         var propStateToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
@@ -288,6 +293,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             return
         }
 
+        // Build stable claim key from VID:PID:serial.
+        let vid    = (json["vid"]    as? UInt16) ?? (json["vid"] as? Int).map { UInt16($0) } ?? 0
+        let pid    = (json["pid"]    as? UInt16) ?? (json["pid"] as? Int).map { UInt16($0) } ?? 0
+        let serial = (json["serial"] as? String) ?? ""
+        let claimKey = serial.isEmpty
+            ? String(format: "%04x:%04x", vid, pid)
+            : String(format: "%04x:%04x:%@", vid, pid, serial)
+
         var properties: [UInt32: ExtCameraProperty] = [:]
         var orderedIds: [UInt32] = []
 
@@ -310,10 +323,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         }
 
         let name = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
-        extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name,
+        extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
                                          properties: properties, orderedPropertyIds: orderedIds)
-        AppDelegate.log("PtpCameraAgent: property state updated for \(cameraId) (\(properties.count) properties)")
+        AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(claimKey) props=\(properties.count)")
+
+        // Auto-claim if this camera was previously claimed and the session isn't open yet.
+        if properties.isEmpty, claimedCameraKeys.contains(claimKey), vid != 0 {
+            AppDelegate.log("PtpCameraAgent: auto-claiming \(claimKey)")
+            sendClaimCommand(vid: vid, pid: pid, serial: serial, claim: true)
+        }
+
         rebuildMenu()
+    }
+
+    // MARK: - Claim Command (agent → extension)
+
+    private func sendClaimCommand(vid: UInt16, pid: UInt16, serial: String, claim: Bool) {
+        let crc = crc32OfString(serial) & 0x00FFFFFF
+        let suffix = String(format: "%04x.%04x.%06x", vid, pid, crc)
+        let slotName   = kDarwinClaimCameraSlot + "." + suffix
+        let notifyName = kDarwinClaimCamera     + "." + suffix
+        var slotToken: Int32 = 0
+        darwin_notify_register_check(slotName, &slotToken)
+        darwin_notify_set_state(slotToken, claim ? 1 : 2)
+        darwin_notify_post(notifyName)
+        notify_cancel(slotToken)
+        AppDelegate.log("PtpCameraAgent: posted claim cmd=\(claim ? 1 : 2) vid=\(vid) pid=\(pid) serial='\(serial)'")
+    }
+
+    private func crc32OfString(_ s: String) -> UInt32 {
+        var crc: UInt32 = 0xFFFFFFFF
+        for byte in s.utf8 {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = (crc >> 1) ^ (0xEDB88320 * (crc & 1)) }
+        }
+        return crc ^ 0xFFFFFFFF
     }
 
     // MARK: - Property Command (agent → extension)
@@ -513,6 +557,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         header.isEnabled = false
         menu.addItem(header)
 
+        let isClaimed = claimedCameraKeys.contains(camera.claimKey)
+
+        let claimItem = NSMenuItem(title: "  Claim for PTP Webcam",
+                                   action: #selector(claimCameraAction(_:)),
+                                   keyEquivalent: "")
+        claimItem.target = self
+        claimItem.representedObject = camera.cameraId
+        claimItem.state = isClaimed ? .on : .off
+        menu.addItem(claimItem)
+
+        if !isClaimed { return }
+
         let previewItem = NSMenuItem(title: "  Preview Video Stream…",
                                      action: #selector(showPreviewAction(_:)),
                                      keyEquivalent: "")
@@ -521,7 +577,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         menu.addItem(previewItem)
 
         if camera.properties.isEmpty {
-            let item = NSMenuItem(title: "  Loading properties…", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "  Opening PTP session…", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
             return
@@ -588,6 +644,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera)
             menu.addItem(item)
         }
+
     }
 
     // Build the appropriate submenu for a writable ext-camera property.
@@ -720,7 +777,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         case 0x5001:         return "\(value.intValue)%"
         case 0x5007, 0xD1A9: return String(format: "f/%.1f", Double(value.intValue) * 0.01)
         case 0x5008:         return String(format: "%.1f mm", Double(value.intValue) * 0.01)
-        case 0x500F:         return "ISO \(value.intValue)"
+        case 0x500F:         return "\(value.intValue)"
         case 0xD100, 0xD1A8: return formatNikonShutterSpeed(value.uint32Value)
         case 0x5010, 0xD1AB: return String(format: "%+.1f EV", Double(value.intValue) * 0.001)
         case 0xD01E:         return "\(value.intValue) K"
@@ -754,6 +811,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
               let encodedName = camera.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "ptpwebcam://preview?name=\(encodedName)") else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func claimCameraAction(_ sender: NSMenuItem) {
+        guard let cameraId = sender.representedObject as? String,
+              let camera = extCameras[cameraId] else { return }
+        let claiming = !claimedCameraKeys.contains(camera.claimKey)
+        var keys = claimedCameraKeys
+        if claiming { keys.insert(camera.claimKey) } else { keys.remove(camera.claimKey) }
+        claimedCameraKeys = keys
+        let parts = camera.claimKey.split(separator: ":")
+        let vid  = UInt16(parts.count > 0 ? UInt32(parts[0], radix: 16) ?? 0 : 0)
+        let pid  = UInt16(parts.count > 1 ? UInt32(parts[1], radix: 16) ?? 0 : 0)
+        let serial = parts.count > 2 ? String(parts[2...].joined(separator: ":")) : ""
+        AppDelegate.log("PtpCameraAgent: \(claiming ? "claiming" : "releasing") \(camera.claimKey)")
+        sendClaimCommand(vid: vid, pid: pid, serial: serial, claim: claiming)
+        rebuildMenu()
     }
 
     // MARK: - ICDeviceBrowserDelegate
@@ -1005,6 +1078,7 @@ struct ExtCameraProperty {
 struct ExtCamera {
     let cameraId: String
     let name: String
+    let claimKey: String
     var properties: [UInt32: ExtCameraProperty]
     let orderedPropertyIds: [UInt32]
 }
@@ -1244,13 +1318,27 @@ private let nikonExtPropValueNames: [UInt32: [UInt32: String]] = [
     0xD1A6: [  // LV Selector
         0x0000: "Still", 0x0001: "Movie",
     ],
-    0xD061: [  // LV AF Mode
-        0x0000: "Single (S)", 0x0001: "Constant (F)",
-        0x0002: "Continuous (C)", 0x0003: "Manual Lens", 0x0004: "Manual",
-    ],
-    0xD05D: [  // LV AF Area Mode
+    0xD05D: [  // AF Area Mode (StillFocusMeteringMode on Z-series)
+        // DSLR values (D800-era)
         0x0000: "Face Detect", 0x0001: "Wide Area",
         0x0002: "Normal Area", 0x0003: "Target Tracking",
+        // Z-series values (Z8, Z9, Z6III, etc.)
+        0x8010: "Single-point",
+        0x8011: "Auto-area",
+        0x8012: "3D-Tracking",
+        0x8013: "Dynamic (M)",
+        0x8014: "Dynamic (L)",
+        0x8017: "Pinpoint",
+        0x8018: "Wide (S)",
+        0x8019: "Wide (L)",
+        0x801E: "Wide (C1)",
+        0x801F: "Wide (C2)",
+    ],
+    0xD061: [  // Focus Mode (StillFocusMode on Z-series)
+        // DSLR values (D800-era): 0=Single, 1=Constant/AF-F, 2=Continuous, 3=ManualLens, 4=Manual
+        // Z-series values: 0=AF-S, 1=AF-C, 4=MF
+        0x0000: "AF-S", 0x0001: "AF-C / AF-F",
+        0x0002: "[C] Continuous", 0x0003: "Manual Lens", 0x0004: "Manual",
     ],
     0xD1AC: [  // LV Image Size
         0x0000: "Undefined", 0x0001: "QVGA (320×240)",

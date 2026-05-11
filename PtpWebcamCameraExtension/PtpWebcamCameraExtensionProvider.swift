@@ -301,7 +301,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		extLogger.fault("\(msg, privacy: .public)")
 	}
 
-	// USB cameras keyed by cameraId — created at camera connect time.
+	// USB cameras keyed by cameraId — opened on claim.
 	private var usbCameras: [String: UsbNikonCamera] = [:]
 
 	// Camera IDs that received a streaming-start request before the USB camera was ready.
@@ -310,10 +310,15 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	// Discovered camera properties keyed by cameraId, then by propertyId.
 	private var cameraProperties: [String: [UInt16: NikonDiscoveredProperty]] = [:]
 
+	// VID, PID, serial keyed by cameraId — populated at IOKit attach time.
+	private var cameraIdentity: [String: (vid: UInt16, pid: UInt16, serial: String)] = [:]
+
 	// Darwin notify tokens for property state slots (extension → agent).
 	private var propSlotTokens: [Int32] = []
 	// Darwin notify token for the property command slot (agent → extension).
 	private var propCmdToken: Int32 = 0
+	// Per-camera claim tokens: (slotToken, notifyToken) keyed by cameraId.
+	private var claimTokens: [String: (slot: Int32, notify: Int32)] = [:]
 
 	// IOKit USB device detection (replaces ICDeviceBrowser / Darwin notify camera state).
 	private var ioNotificationPort: IONotificationPortRef?
@@ -339,6 +344,8 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		darwin_notify_register_dispatch(kDarwinCameraPropertyCmd, &propCmdNotifyToken, .main) { [weak self] _ in
 			self?.handlePropertyCommand()
 		}
+
+		// Per-camera claim channels are registered in cameraConnected.
 
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
 		PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension started build=\(buildVersion)")
@@ -373,10 +380,26 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			propsList.append(entry)
 		}
 		let cameraName = deviceSources[cameraId]?.device.localizedName ?? cameraId
-		let dict: [String: Any] = ["id": cameraId, "name": cameraName, "props": propsList]
+		let identity = cameraIdentity[cameraId]
+		let dict: [String: Any] = ["id": cameraId, "name": cameraName,
+		                           "vid": identity?.vid ?? 0, "pid": identity?.pid ?? 0,
+		                           "serial": identity?.serial ?? "",
+		                           "props": propsList]
 		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
 		writeJsonToPropertySlots(jsonData)
 		PtpWebcamCameraExtensionProviderSource.log("publishPropertyState: \(jsonData.count)B for \(cameraId)")
+	}
+
+	private func publishCameraConnected(cameraId: String) {
+		guard let identity = cameraIdentity[cameraId],
+		      let name = deviceSources[cameraId]?.device.localizedName else { return }
+		let dict: [String: Any] = ["id": cameraId, "name": name,
+		                           "vid": identity.vid, "pid": identity.pid,
+		                           "serial": identity.serial,
+		                           "connected": true, "props": []]
+		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
+		writeJsonToPropertySlots(jsonData)
+		PtpWebcamCameraExtensionProviderSource.log("publishCameraConnected: \(cameraId) \(name)")
 	}
 
 	private func publishCameraRemoved(cameraId: String) {
@@ -447,6 +470,38 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		camera.setProperty(propId: propId, value: value, dataType: dataType)
 	}
 
+	private func handleClaimCommand(cameraId: String, slotToken: Int32) {
+		var cmd: UInt64 = 0
+		darwin_notify_get_state(slotToken, &cmd)
+
+		if cmd == 1 {
+			guard usbCameras[cameraId] == nil,
+				  let deviceSource = deviceSources[cameraId],
+				  let identity = cameraIdentity[cameraId] else { return }
+			PtpWebcamCameraExtensionProviderSource.log("handleClaimCommand: claiming \(cameraId)")
+			let camVid = identity.vid; let camPid = identity.pid; let camSerial = identity.serial
+			DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+				self?.openUsbCamera(cameraId: cameraId, deviceSource: deviceSource,
+				                    vid: camVid, pid: camPid, serial: camSerial)
+			}
+		} else if cmd == 2 {
+			PtpWebcamCameraExtensionProviderSource.log("handleClaimCommand: releasing \(cameraId)")
+			usbCameras.removeValue(forKey: cameraId)?.close()
+			cameraProperties.removeValue(forKey: cameraId)
+			publishCameraConnected(cameraId: cameraId)
+		}
+	}
+
+	private func crc32OfString(_ s: String) -> UInt32 {
+		// Simple polynomial CRC-32 (IEEE 802.3).
+		var crc: UInt32 = 0xFFFFFFFF
+		for byte in s.utf8 {
+			crc ^= UInt32(byte)
+			for _ in 0..<8 { crc = (crc >> 1) ^ (0xEDB88320 * (crc & 1)) }
+		}
+		return crc ^ 0xFFFFFFFF
+	}
+
 	// MARK: - IOKit camera detection
 
 	private func setupIoKitCameraDetection() {
@@ -494,13 +549,15 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			IORegistryEntryGetRegistryEntryID(svc, &entryId)
 			let cameraId = String(format: "usb-%016llx", entryId)
 
-			var vid: UInt16 = 0; var pid: UInt16 = 0; var nsName: NSString?
-			UsbPtpBridge.readVendorID(&vid, productID: &pid, productName: &nsName, fromService: svc)
-			let name = (nsName as String?) ?? "PTP Camera"
+			var vid: UInt16 = 0; var pid: UInt16 = 0; var nsName: NSString?; var nsSerial: NSString?
+			UsbPtpBridge.readVendorID(&vid, productID: &pid, productName: &nsName, serialNumber: &nsSerial, fromService: svc)
+			let name   = (nsName   as String?) ?? "PTP Camera"
+			let serial = (nsSerial as String?) ?? ""
 
 			PtpWebcamCameraExtensionProviderSource.log(
-				"IOKit: attached vid=0x\(String(vid, radix:16)) pid=0x\(String(pid, radix:16)) \"\(name)\" id=\(cameraId)")
-			cameraConnected(cameraId, info: ["name": name, "cameraId": cameraId] as NSDictionary)
+				"IOKit: attached vid=0x\(String(vid, radix:16)) pid=0x\(String(pid, radix:16)) serial='\(serial)' \"\(name)\" id=\(cameraId)")
+			cameraConnected(cameraId, info: ["name": name, "vid": NSNumber(value: vid),
+			                                 "pid": NSNumber(value: pid), "serial": serial] as NSDictionary)
 		}
 	}
 
@@ -522,7 +579,8 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// Opens USB transport + PTP session for a newly connected camera.
 	/// Called at camera connect time on a background queue.
 	/// All dict mutations are dispatched back to main to avoid data races.
-	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource) {
+	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource,
+	                           vid: UInt16, pid: UInt16, serial: String) {
 		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: requesting USB access (killing ptpcamerad)")
 		darwin_notify_post(kDarwinNeedUsbAccess)
 
@@ -530,13 +588,10 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		var lastError: Error?
 		for attempt in 1...10 {
 			Thread.sleep(forTimeInterval: 0.3)
-			let services = UsbPtpTransport.findPtpServices()
-			guard !services.isEmpty else {
-				if attempt == 1 { PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: no PTP service yet") }
+			guard let svc = UsbPtpTransport.findService(vid: vid, pid: pid, serial: serial) else {
+				if attempt == 1 { PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: no matching PTP service yet") }
 				continue
 			}
-			let svc = services[0]
-			services.dropFirst().forEach { IOObjectRelease($0) }
 			do {
 				transport = try UsbPtpTransport(service: svc)
 				IOObjectRelease(svc)
@@ -621,6 +676,11 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 
 		guard deviceSources[cameraId] == nil else { return }
 
+		let vid    = (info["vid"]    as? NSNumber)?.uint16Value ?? 0
+		let pid    = (info["pid"]    as? NSNumber)?.uint16Value ?? 0
+		let serial = (info["serial"] as? String) ?? ""
+		cameraIdentity[cameraId] = (vid: vid, pid: pid, serial: serial)
+
 		let isDemo = (info["isDemo"] as? String) == "1"
 		let deviceSource = PtpWebcamCameraExtensionDeviceSource(localizedName: name, cameraId: cameraId, isDemo: isDemo)
 		if let speed = info["stripeSpeed"] as? String { deviceSource.applyStripeSpeed(speed) }
@@ -628,28 +688,22 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		deviceSource.onStreamingStarted = { [weak self] in
 			guard let self = self else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(cameraId)")
+			// Only start live view if camera has been claimed (PTP session is open).
 			if let camera = self.usbCameras[cameraId] {
 				camera.startLiveView()
 			} else {
-				PtpWebcamCameraExtensionProviderSource.log("streaming started but camera not ready yet — queuing for \(cameraId)")
-				self.pendingLiveViewStart.insert(cameraId)
+				PtpWebcamCameraExtensionProviderSource.log("streaming started but camera not claimed — no live view for \(cameraId)")
 			}
 		}
 		deviceSource.onStreamingStopped = { [weak self] in
 			guard let self = self else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming stopped for \(cameraId)")
 			self.pendingLiveViewStart.remove(cameraId)
+			// Stop live view but keep PTP session open — claimed camera stays claimed.
 			self.usbCameras[cameraId]?.stopLiveView()
 		}
 
 		deviceSources[cameraId] = deviceSource
-
-		// Start USB session immediately at connect time (not at streaming time).
-		if !isDemo {
-			DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-				self?.openUsbCamera(cameraId: cameraId, deviceSource: deviceSource)
-			}
-		}
 
 		do {
 			try provider.addDevice(deviceSource.device)
@@ -657,6 +711,20 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		} catch {
 			PtpWebcamCameraExtensionProviderSource.log("Failed to add device: \(error.localizedDescription)")
 		}
+
+		// Register per-camera claim channel (agent → extension, keyed by vid.pid.crc).
+		let crc = crc32OfString(serial) & 0x00FFFFFF
+		let suffix = String(format: "%04x.%04x.%06x", vid, pid, crc)
+		var slotToken: Int32 = 0
+		var notifyToken: Int32 = 0
+		darwin_notify_register_check(kDarwinClaimCameraSlot + "." + suffix, &slotToken)
+		darwin_notify_register_dispatch(kDarwinClaimCamera + "." + suffix, &notifyToken, .main) { [weak self] _ in
+			self?.handleClaimCommand(cameraId: cameraId, slotToken: slotToken)
+		}
+		claimTokens[cameraId] = (slot: slotToken, notify: notifyToken)
+
+		// Announce to agent so it can show the camera in the menu (unclaimed state).
+		publishCameraConnected(cameraId: cameraId)
 	}
 
 	func cameraDisconnected(_ cameraId: String) {
@@ -666,6 +734,11 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 			camera.close()
 		}
 		cameraProperties.removeValue(forKey: cameraId)
+		cameraIdentity.removeValue(forKey: cameraId)
+		if let tokens = claimTokens.removeValue(forKey: cameraId) {
+			notify_cancel(tokens.slot)
+			notify_cancel(tokens.notify)
+		}
 
 		// Tell the agent to remove this camera from its menu before we drop the device.
 		publishCameraRemoved(cameraId: cameraId)

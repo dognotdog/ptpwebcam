@@ -71,10 +71,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// Caller receives +1 retain; use __bridge_transfer or CFRelease.
 + (nullable CFMutableDictionaryRef)ptpMatchingDictionary CF_RETURNS_RETAINED;
 
-/// Reads VID, PID, and product name from the IOKit service (or its parent device).
+/// Reads VID, PID, product name, and USB serial number from the IOKit service (or its parent device).
 + (void)readVendorID:(nullable uint16_t *)outVid
            productID:(nullable uint16_t *)outPid
          productName:(NSString * _Nullable * _Nullable)outName
+        serialNumber:(NSString * _Nullable * _Nullable)outSerial
          fromService:(io_service_t)service;
 
 /// Performs a USB device re-enumeration (soft reset) via the parent device of the

@@ -56,6 +56,12 @@ let kDarwinCameraPropertyState = "org.ptpwebcam.darwin.PropertyState"
 let kDarwinPropertySlotPrefix  = "org.ptpwebcam.darwin.prop."
 let kDarwinPropertySlotCount   = 2048
 
+// Agent → Extension: camera claim/release command
+// Agent writes packed uint64 to kDarwinClaimCameraSlot, then posts kDarwinClaimCamera.
+// Bit layout: [63:56] cmd (1=claim, 2=release) | [55:32] crc32(serial.utf8) | [31:16] VID | [15:0] PID
+let kDarwinClaimCamera     = "org.ptpwebcam.darwin.ClaimCamera"
+let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
+
 // Agent → Extension: property set command
 // Agent writes a packed uint64 command to kDarwinPropertyCmdSlot, then posts kDarwinCameraPropertyCmd.
 // Bit layout: [63:56] cmd (3=SET_PROP) | [55:48] reserved | [47:32] propId (UInt16) | [31:0] value (UInt32)

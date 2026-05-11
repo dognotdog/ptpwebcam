@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to preview the live camera stream from a connected PTP camera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Not used — required by AVCaptureSession on macOS.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ptpwebcam</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>org.ptpwebcam.preview</string>
+		</dict>
+	</array>
+</dict>
 </plist>
