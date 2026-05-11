@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		AA001111000000000000AA01 /* WbTuneGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA001111000000000000AA00 /* WbTuneGridView.swift */; };
+		CC001111000000000000CC01 /* CameraPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001111000000000000CC00 /* CameraPreviewWindowController.swift */; };
+		CC001111000000000000CC02 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB001111000000000000BB02 /* AVFoundation.framework */; };
 		0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
 		B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */; };
 		DA1B266E2B1BBCD70075AAAB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */; };
@@ -316,6 +318,8 @@
 
 /* Begin PBXFileReference section */
 		AA001111000000000000AA00 /* WbTuneGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WbTuneGridView.swift; sourceTree = "<group>"; };
+		BB001111000000000000BB02 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		CC001111000000000000CC00 /* CameraPreviewWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraPreviewWindowController.swift; path = PtpWebcamApp/CameraPreviewWindowController.swift; sourceTree = SOURCE_ROOT; };
 		59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpCameraAgent/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
 		64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpWebcamCameraExtension/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
 		8B0F4F0DBF7C2E04CC9FB5A6 /* PtpCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PtpCamera.swift; path = PtpCameraAgent/PtpCamera.swift; sourceTree = SOURCE_ROOT; };
@@ -481,6 +485,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC001111000000000000CC02 /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -599,6 +604,7 @@
 			children = (
 				DA1B26982B1BBDC70075AAAB /* Info.plist */,
 				DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */,
+				CC001111000000000000CC00 /* CameraPreviewWindowController.swift */,
 				DA1B266F2B1BBCD80075AAAB /* Assets.xcassets */,
 				DA1B26712B1BBCD80075AAAB /* MainMenu.xib */,
 				DA1B26742B1BBCD80075AAAB /* PtpWebcamApp.entitlements */,
@@ -643,6 +649,7 @@
 			children = (
 				DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */,
 				AA001111000000000000AA00 /* WbTuneGridView.swift */,
+				BB001111000000000000BB00 /* CameraPreviewWindowController.swift */,
 				DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */,
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
@@ -1435,6 +1442,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA1B266E2B1BBCD70075AAAB /* AppDelegate.swift in Sources */,
+				CC001111000000000000CC01 /* CameraPreviewWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

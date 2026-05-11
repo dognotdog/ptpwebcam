@@ -10,6 +10,7 @@ import Cocoa
 import ServiceManagement
 import SystemExtensions
 import OSLog
+import AVFoundation
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDelegate {
@@ -24,7 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	func request(_ request: OSSystemExtensionRequest,
 				 actionForReplacingExtension existing: OSSystemExtensionProperties,
 				 withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-		log.info("Upgrading camera extension \(existing.bundleVersion) → \(ext.bundleVersion)")
+		log.info("Upgrading camera extension \(existing.bundleVersion, privacy: .public) → \(ext.bundleVersion, privacy: .public)")
 		return .replace
 	}
 
@@ -42,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 			log.warning("Camera extension activation will complete after reboot (dirty system extension database)")
 			DispatchQueue.main.async { self.showRebootRequiredAlert() }
 		@unknown default:
-			log.error("Camera extension finished with unknown result \(result.rawValue)")
+			log.error("Camera extension finished with unknown result \(result.rawValue, privacy: .public)")
 		}
 	}
 
@@ -54,22 +55,60 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 			log.info("Extension activation request superseded by newer request (OK)")
 			return
 		}
-		log.error("Camera extension activation failed: \(error.localizedDescription)")
+		log.error("Camera extension activation failed: \(error.localizedDescription, privacy: .public)")
 		DispatchQueue.main.async { self.showActivationFailedAlert(error: error) }
 	}
 
 	// MARK: - NSApplicationDelegate
+
+	private var previewWindows: [String: CameraPreviewWindowController] = [:]
 
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
 		activateExtension()
 		migrateAgentIfNeeded { [weak self] in
 			self?.installAndStartCameraAgent()
 		}
+		// Request camera access so this app bundle is registered in TCC and appears
+		// in System Settings → Privacy & Security → Camera.
+		AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+			self?.log.info("PtpWebcamApp: camera access \(granted ? "granted" : "denied", privacy: .public)")
+		}
 	}
 
 	func applicationWillTerminate(_ aNotification: Notification) {}
 
 	func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+	// Keep app alive after all preview windows are closed so URL launches don't
+	// re-run applicationDidFinishLaunching (which would restart the agent).
+	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+	// Suppress Dock-click window restore — this app has no persistent main window.
+	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { false }
+
+	// MARK: - URL Scheme (ptpwebcam://preview?name=<camera>)
+
+	func application(_ application: NSApplication, open urls: [URL]) {
+		for url in urls where url.scheme == "ptpwebcam" && url.host == "preview" {
+			guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+				  let name = components.queryItems?.first(where: { $0.name == "name" })?.value else { continue }
+			openPreview(cameraName: name)
+		}
+	}
+
+	private func openPreview(cameraName: String) {
+		if let existing = previewWindows[cameraName] {
+			existing.showWindow(nil)
+			existing.window?.makeKeyAndOrderFront(nil)
+			NSApp.activate(ignoringOtherApps: true)
+			return
+		}
+		let controller = CameraPreviewWindowController(cameraName: cameraName)
+		controller.onClose = { [weak self] in self?.previewWindows.removeValue(forKey: cameraName) }
+		previewWindows[cameraName] = controller
+		controller.showWindow(nil)
+		NSApp.activate(ignoringOtherApps: true)
+	}
 
 	// MARK: - Extension Activation
 
@@ -95,14 +134,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 			return
 		}
 
-		log.info("Migrating from old launchctl agent — removing \(oldPlistPath)")
+		log.info("Migrating from old launchctl agent — removing \(oldPlistPath, privacy: .public)")
 
 		// Remove the old plist so launchd won't try to manage it anymore.
 		do {
 			try FileManager.default.removeItem(atPath: oldPlistPath)
 			log.info("Old LaunchAgents plist removed")
 		} catch {
-			log.error("Failed to remove old plist: \(error.localizedDescription)")
+			log.error("Failed to remove old plist: \(error.localizedDescription, privacy: .public)")
 			// Proceed anyway — SMAppService will still try to take over.
 		}
 
@@ -110,7 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		let uid = String(getuid())
 		let serviceTarget = "gui/\(uid)/\(agentLabel)"
 		runProcess("/bin/launchctl", ["bootout", serviceTarget]) { exitCode in
-			self.log.info("Migration bootout exit=\(exitCode) (non-zero OK if not previously loaded)")
+			self.log.info("Migration bootout exit=\(exitCode, privacy: .public) (non-zero OK if not previously loaded)")
 			// Brief delay to let the old process exit before SMAppService registers.
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
 				completion()
@@ -184,7 +223,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 				task.waitUntilExit()
 				DispatchQueue.main.async { completion(task.terminationStatus) }
 			} catch {
-				self.log.error("Failed to run \(executable): \(error.localizedDescription)")
+				self.log.error("Failed to run \(executable, privacy: .public): \(error.localizedDescription, privacy: .public)")
 				DispatchQueue.main.async { completion(-1) }
 			}
 		}

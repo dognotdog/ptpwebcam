@@ -6,5 +6,7 @@
 	<true/>
 	<key>SMLoginItemRegistrationEnabled</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to preview the live camera stream from a connected PTP camera.</string>
 </dict>
 </plist>

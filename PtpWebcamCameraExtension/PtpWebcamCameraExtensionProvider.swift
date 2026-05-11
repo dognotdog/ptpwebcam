@@ -372,7 +372,8 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			}
 			propsList.append(entry)
 		}
-		let dict: [String: Any] = ["id": cameraId, "props": propsList]
+		let cameraName = deviceSources[cameraId]?.device.localizedName ?? cameraId
+		let dict: [String: Any] = ["id": cameraId, "name": cameraName, "props": propsList]
 		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
 		writeJsonToPropertySlots(jsonData)
 		PtpWebcamCameraExtensionProviderSource.log("publishPropertyState: \(jsonData.count)B for \(cameraId)")

@@ -1,7 +1,6 @@
 import Cocoa
 import ImageCaptureCore
 import os.log
-import IOSurface
 import CoreGraphics
 import ImageIO
 
@@ -20,13 +19,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     private var cameras: [String: PtpCamera] = [:]
     private var extensionConnections: [NSXPCConnection] = []
-    private var simulatedCameras: [String: NSDictionary] = [:]
-    #if DEBUG
-    private var simulatedStripeSpeed: String {
-        get { UserDefaults.standard.string(forKey: "simulatedStripeSpeed") ?? "medium" }
-        set { UserDefaults.standard.set(newValue, forKey: "simulatedStripeSpeed") }
-    }
-    #endif
     private var darwinSlotTokens: [Int32] = []
     private var lvFrameSlotTokens: [Int32] = []
     private var lvCmdSlotTokens: [Int32] = []
@@ -137,27 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
             self?.handlePropertyStateChange()
         }
-
-        #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            self.addSimulatedCamera()
-        }
-        #endif
     }
-
-    #if DEBUG
-    private func addSimulatedCamera() {
-        let cameraId = "simulated-nikon-d800"
-        let info: NSDictionary = [
-            "name": "Simulated Nikon D800",
-            "cameraId": cameraId,
-        ]
-        simulatedCameras[cameraId] = info
-        AppDelegate.log("PtpCameraAgent: Adding simulated camera: \(cameraId)")
-        publishCameraState()
-        rebuildMenu()
-    }
-    #endif
 
     // MARK: - USB Access Coordination
 
@@ -214,11 +186,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         for (cameraId, camera) in cameras {
             cameraList.append(["cameraId": cameraId, "name": camera.name])
         }
-        #if DEBUG
-        for (cameraId, info) in simulatedCameras {
-            cameraList.append(["cameraId": cameraId, "name": info["name"] as? String ?? "Simulated", "isDemo": "1", "stripeSpeed": simulatedStripeSpeed])
-        }
-        #endif
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: cameraList) else { return }
         let maxPayload = (kDarwinStateSlotCount - 1) * 8
@@ -342,7 +309,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             orderedIds.append(propId)
         }
 
-        let name = extCameras[cameraId]?.name ?? "PTP Camera"
+        let name = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
         extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name,
                                          properties: properties, orderedPropertyIds: orderedIds)
         AppDelegate.log("PtpCameraAgent: property state updated for \(cameraId) (\(properties.count) properties)")
@@ -398,7 +365,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
-        deviceBrowser.stop()
+        deviceBrowser?.stop()
         for camera in cameras.values {
             camera.closeSession()
         }
@@ -416,15 +383,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         let menu = NSMenu()
 
         let allCameras = Array(cameras.values)
-        let hasSimulated: Bool
-        #if DEBUG
-        hasSimulated = !simulatedCameras.isEmpty
-        #else
-        hasSimulated = false
-        #endif
-
         let hasExtCameras = !extCameras.isEmpty
-        if allCameras.isEmpty && !hasSimulated && !hasExtCameras {
+        if allCameras.isEmpty && !hasExtCameras {
             let item = NSMenuItem(title: "No Cameras Connected", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
@@ -437,31 +397,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         for camera in extCameras.values {
             addExtCameraMenu(camera, to: menu)
         }
-
-        #if DEBUG
-        for (_, info) in simulatedCameras {
-            let name = info["name"] as? String ?? "Simulated Camera"
-            menu.addItem(NSMenuItem.separator())
-            let header = NSMenuItem(title: name, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.addItem(header)
-            let simItem = NSMenuItem(title: "  (simulated — no PTP session)", action: nil, keyEquivalent: "")
-            simItem.isEnabled = false
-            menu.addItem(simItem)
-
-            let speedMenu = NSMenu()
-            for speed in ["slow", "medium", "fast"] {
-                let subItem = NSMenuItem(title: speed.capitalized, action: #selector(setStripeSpeed(_:)), keyEquivalent: "")
-                subItem.target = self
-                subItem.representedObject = speed
-                subItem.state = (speed == simulatedStripeSpeed) ? .on : .off
-                speedMenu.addItem(subItem)
-            }
-            let speedItem = NSMenuItem(title: "  Stripe Speed: \(simulatedStripeSpeed.capitalized)", action: nil, keyEquivalent: "")
-            speedItem.submenu = speedMenu
-            menu.addItem(speedItem)
-        }
-        #endif
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit PTP Camera Agent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -577,6 +512,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         let header = NSMenuItem(title: camera.name, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+
+        let previewItem = NSMenuItem(title: "  Preview Video Stream…",
+                                     action: #selector(showPreviewAction(_:)),
+                                     keyEquivalent: "")
+        previewItem.target = self
+        previewItem.representedObject = camera.cameraId
+        menu.addItem(previewItem)
 
         if camera.properties.isEmpty {
             let item = NSMenuItem(title: "  Loading properties…", action: nil, keyEquivalent: "")
@@ -793,15 +735,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     // MARK: - Menu Actions
 
-    #if DEBUG
-    @objc private func setStripeSpeed(_ sender: NSMenuItem) {
-        guard let speed = sender.representedObject as? String else { return }
-        simulatedStripeSpeed = speed
-        publishCameraState()
-        rebuildMenu()
-    }
-    #endif
-
     @objc private func autofocusAction(_ sender: NSMenuItem) {
         guard let camera = sender.representedObject as? PtpCamera else { return }
         camera.performAutofocus()
@@ -813,6 +746,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         } else if let change = sender.representedObject as? ExtPropertyChangeInfo {
             postPropertyCommand(propId: change.propertyId, value: change.value)
         }
+    }
+
+    @objc private func showPreviewAction(_ sender: NSMenuItem) {
+        guard let cameraId = sender.representedObject as? String,
+              let camera = extCameras[cameraId],
+              let encodedName = camera.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "ptpwebcam://preview?name=\(encodedName)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - ICDeviceBrowserDelegate
@@ -896,12 +837,11 @@ extension AppDelegate: PtpCameraDelegate {
             return
         }
 
-        // Draw CGImage directly into the IOSurface using C API (IOSurfaceRef doesn't bridge .width etc.)
-        IOSurfaceLock(surface, [], nil)
-        let w = IOSurfaceGetWidth(surface)
-        let h = IOSurfaceGetHeight(surface)
-        let bpr = IOSurfaceGetBytesPerRow(surface)
-        let baseAddr = IOSurfaceGetBaseAddress(surface)
+        surface.lock(options: [], seed: nil)
+        let w = surface.width
+        let h = surface.height
+        let bpr = surface.bytesPerRow
+        let baseAddr = surface.baseAddress
         let ctxOk: Bool
         if let ctx = CGContext(
             data: baseAddr,
@@ -917,7 +857,7 @@ extension AppDelegate: PtpCameraDelegate {
             AppDelegate.log("PtpCameraAgent: CGContext init failed w=\(w) h=\(h) bpr=\(bpr)")
             ctxOk = false
         }
-        IOSurfaceUnlock(surface, [], nil)
+        surface.unlock(options: [], seed: nil)
         guard ctxOk else { return }
 
         // Signal extension to consume the frame.
@@ -987,11 +927,6 @@ extension AppDelegate: NSXPCListenerDelegate {
                 ]
                 proxy.cameraConnected(cameraId, info: info)
             }
-            #if DEBUG
-            for (cameraId, info) in self.simulatedCameras {
-                proxy.cameraConnected(cameraId, info: info)
-            }
-            #endif
         }
 
         return true
@@ -1004,7 +939,7 @@ extension AppDelegate: SurfaceSharingProtocol {
     func receiveSurface(_ surface: IOSurface, cameraId: String, reply: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
             self.ownedSurfaces[cameraId] = surface
-            AppDelegate.log("PtpCameraAgent: received IOSurface via XPC id=\(IOSurfaceGetID(surface)) size=\(IOSurfaceGetWidth(surface))×\(IOSurfaceGetHeight(surface)) for \(cameraId)")
+            AppDelegate.log("PtpCameraAgent: received IOSurface via XPC size=\(surface.width)×\(surface.height) for \(cameraId)")
             reply(true)
         }
     }
