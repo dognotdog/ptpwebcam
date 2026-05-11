@@ -34,6 +34,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // IOSurfaces created by the agent; extension calls IOSurfaceLookup to access them.
     private var ownedSurfaces: [String: IOSurface] = [:]
 
+    // Keeps slider/grid action holders alive for the lifetime of the current menu.
+    private var menuActionHolders: [AnyObject] = []
+
     // Extension-published camera property state (via Darwin notify slots, multi-page).
     private var propSlotTokens: [Int32] = []
     private var propCmdToken: Int32 = 0
@@ -311,6 +314,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
               let cameraId = json["id"] as? String,
               let propsList = json["props"] as? [[String: Any]] else { return }
 
+        if let removed = json["disconnected"] as? Bool, removed {
+            extCameras.removeValue(forKey: cameraId)
+            AppDelegate.log("PtpCameraAgent: camera removed from menu: \(cameraId)")
+            rebuildMenu()
+            return
+        }
+
         var properties: [UInt32: ExtCameraProperty] = [:]
         var orderedIds: [UInt32] = []
 
@@ -402,6 +412,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // MARK: - Status Bar Menu
 
     func rebuildMenu() {
+        menuActionHolders = []
         let menu = NSMenu()
 
         let allCameras = Array(cameras.values)
@@ -576,6 +587,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
         // Curated ordered list matching old DAL plugin uiPtpProperties for Nikon.
         // nil entries become separators (deferred so trailing/double separators are skipped).
+        // WB tune sub-properties (0xD017–0xD150) are NOT listed here — they appear as
+        // sub-menus inside the WB mode value items instead.
         let nikonUiList: [UInt32?] = [
             0x5001,   // Battery Level
             0x5008,   // Focal Length
@@ -630,22 +643,111 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
             let valueStr = formatExtPropValue(prop)
             let item = NSMenuItem(title: "  \(displayName): \(valueStr)", action: nil, keyEquivalent: "")
-
-            if prop.writable, let enumValues = prop.enumValues, !enumValues.isEmpty {
-                let submenu = NSMenu()
-                for enumVal in enumValues {
-                    let valStr = formatExtPropRaw(enumVal, propId: propId)
-                    let subItem = NSMenuItem(title: valStr, action: #selector(changePropertyAction(_:)), keyEquivalent: "")
-                    subItem.target = self
-                    subItem.representedObject = ExtPropertyChangeInfo(
-                        cameraId: camera.cameraId, propertyId: propId, value: enumVal)
-                    if prop.value == enumVal { subItem.state = .on }
-                    submenu.addItem(subItem)
-                }
-                item.submenu = submenu
-            }
+            item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera)
             menu.addItem(item)
         }
+    }
+
+    // Build the appropriate submenu for a writable ext-camera property.
+    // Priority: grid (WB tune) → enum (with optional WB sub-props) → slider (range, no enum).
+    private func buildExtPropSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                     camera: ExtCamera) -> NSMenu? {
+        guard prop.writable else { return nil }
+
+        // Grid view for WB fine-tune matrix properties.
+        if nikonWbTuneIds.contains(propId),
+           let rMin = prop.rangeMin, let rMax = prop.rangeMax {
+            return buildWbTuneGridSubmenu(prop, propId: propId, cameraId: camera.cameraId,
+                                         rangeMin: rMin.intValue, rangeMax: rMax.intValue)
+        }
+
+        // Enum list (discrete values).
+        if let enumValues = prop.enumValues, !enumValues.isEmpty {
+            let submenu = NSMenu()
+            for enumVal in enumValues {
+                let valStr = formatExtPropRaw(enumVal, propId: propId)
+                let subItem = NSMenuItem(title: valStr,
+                                        action: #selector(changePropertyAction(_:)),
+                                        keyEquivalent: "")
+                subItem.target = self
+                subItem.representedObject = ExtPropertyChangeInfo(
+                    cameraId: camera.cameraId, propertyId: propId, value: enumVal)
+                if prop.value == enumVal { subItem.state = .on }
+
+                // Attach WB sub-properties (tune grid / color-temp) to each WB mode value.
+                if propId == 0x5005,
+                   let subPropIds = nikonWbSubProperties[enumVal.uint32Value] {
+                    let subPropMenu = NSMenu()
+                    for subId in subPropIds {
+                        guard let subProp = camera.properties[subId] else { continue }
+                        let subName = extPropDisplayNames[subId] ?? String(format: "0x%04X", subId)
+                        let subVal  = formatExtPropValue(subProp)
+                        let subItem2 = NSMenuItem(title: "\(subName): \(subVal)",
+                                                  action: nil, keyEquivalent: "")
+                        subItem2.submenu = buildExtPropSubmenu(subProp, propId: subId,
+                                                               camera: camera)
+                        subPropMenu.addItem(subItem2)
+                    }
+                    if subPropMenu.numberOfItems > 0 { subItem.submenu = subPropMenu }
+                }
+
+                submenu.addItem(subItem)
+            }
+            return submenu
+        }
+
+        // Slider for range-only properties (too many steps for a discrete list).
+        if let rMin = prop.rangeMin, let rMax = prop.rangeMax, let rStep = prop.rangeStep,
+           rStep.doubleValue > 0 {
+            return buildSliderSubmenu(prop, propId: propId, cameraId: camera.cameraId,
+                                     rMin: rMin.doubleValue, rMax: rMax.doubleValue,
+                                     rStep: rStep.doubleValue)
+        }
+
+        return nil
+    }
+
+    // NSMenuItem containing a WbTuneGridView.
+    private func buildWbTuneGridSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                        cameraId: String, rangeMin: Int, rangeMax: Int) -> NSMenu {
+        let size = WbTuneGridView.idealSize(gridSize: 13)
+        let grid = WbTuneGridView(frame: NSRect(origin: .zero, size: size))
+        grid.gridSize  = 13
+        grid.rangeMin  = rangeMin
+        grid.rangeMax  = rangeMax
+        grid.currentValue = prop.value.intValue
+        grid.onValueSelected = { [weak self] val in
+            self?.postPropertyCommand(propId: propId, value: NSNumber(value: val))
+        }
+        let gridItem = NSMenuItem()
+        gridItem.view = grid
+        let submenu = NSMenu()
+        submenu.addItem(gridItem)
+        return submenu
+    }
+
+    // NSMenuItem containing an NSSlider (fires only on mouse-up, not continuously).
+    private func buildSliderSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                    cameraId: String,
+                                    rMin: Double, rMax: Double, rStep: Double) -> NSMenu {
+        let holder = SliderActionHolder(propId: propId, rangeMin: rMin, rangeStep: rStep) {
+            [weak self] val in self?.postPropertyCommand(propId: propId, value: NSNumber(value: val))
+        }
+        menuActionHolders.append(holder)
+
+        let slider = NSSlider(frame: NSRect(x: 0, y: 0, width: 160, height: 16))
+        slider.minValue    = rMin
+        slider.maxValue    = rMax
+        slider.doubleValue = prop.value.doubleValue
+        slider.isContinuous = false
+        slider.target = holder
+        slider.action = #selector(SliderActionHolder.sliderChanged(_:))
+
+        let sliderItem = NSMenuItem()
+        sliderItem.view = slider
+        let submenu = NSMenu()
+        submenu.addItem(sliderItem)
+        return submenu
     }
 
     private func formatExtPropValue(_ prop: ExtCameraProperty) -> String {
@@ -983,6 +1085,44 @@ private class ExtPropertyChangeInfo {
         self.value = value
     }
 }
+
+// Keeps a slider's action alive for the duration of the menu.
+private class SliderActionHolder: NSObject {
+    let propId: UInt32
+    let rangeMin: Double
+    let rangeStep: Double
+    let callback: (Double) -> Void
+
+    init(propId: UInt32, rangeMin: Double, rangeStep: Double, callback: @escaping (Double) -> Void) {
+        self.propId = propId; self.rangeMin = rangeMin
+        self.rangeStep = rangeStep; self.callback = callback
+    }
+
+    @objc func sliderChanged(_ sender: NSSlider) {
+        let step = rangeStep > 0 ? rangeStep : 1
+        let snapped = rangeMin + floor((sender.doubleValue - rangeMin) / step) * step
+        callback(snapped)
+    }
+}
+
+// WB tune property IDs that get a grid view instead of an enum list.
+private let nikonWbTuneIds: Set<UInt32> = [
+    0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
+    0xD150, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
+]
+
+// WB mode value → list of sub-property IDs shown below that value's menu item.
+// Mirrors PtpCameraNikon.uiPtpSubProperties.
+private let nikonWbSubProperties: [UInt32: [UInt32]] = [
+    0x0002: [0xD017, 0xD141],  // Auto          → WB Auto Tune + WB Auto Type
+    0x0004: [0xD01A],          // Daylight       → WB Sunny Tune
+    0x0005: [0xD019, 0xD14F],  // Fluorescent    → WB Fluorescent Tune + Fluorescent Type
+    0x0006: [0xD018],          // Tungsten       → WB Incandescent Tune
+    0x0007: [0xD01B],          // Flash          → WB Flash Tune
+    0x8010: [0xD01C],          // Cloudy         → WB Cloudy Tune
+    0x8011: [0xD01D],          // Shade          → WB Shade Tune
+    0x8012: [0xD01E, 0xD150],  // Color Temp     → WB Color Temperature + Color Temp Tune
+]
 
 private let extPropDisplayNames: [UInt32: String] = [
     // PTP standard (0x5xxx)

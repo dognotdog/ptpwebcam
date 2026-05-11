@@ -374,10 +374,21 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		}
 		let dict: [String: Any] = ["id": cameraId, "props": propsList]
 		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
+		writeJsonToPropertySlots(jsonData)
+		PtpWebcamCameraExtensionProviderSource.log("publishPropertyState: \(jsonData.count)B for \(cameraId)")
+	}
 
+	private func publishCameraRemoved(cameraId: String) {
+		let dict: [String: Any] = ["id": cameraId, "disconnected": true, "props": []]
+		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
+		writeJsonToPropertySlots(jsonData)
+		PtpWebcamCameraExtensionProviderSource.log("publishCameraRemoved: \(cameraId)")
+	}
+
+	private func writeJsonToPropertySlots(_ jsonData: Data) {
 		// Multi-page protocol: slot 0 = header, slots 1..(N-2) = data, slot N-1 = checksum.
-		let pageDataSlots = kDarwinPropertySlotCount - 2  // 1022 data slots per page
-		let pageSize = pageDataSlots * 8                   // 8176 bytes per page
+		let pageDataSlots = kDarwinPropertySlotCount - 2
+		let pageSize = pageDataSlots * 8
 		let totalLength = jsonData.count
 		let pageCount = max(1, (totalLength + pageSize - 1) / pageSize)
 		let checksumSlot = kDarwinPropertySlotCount - 1
@@ -387,11 +398,9 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			let pageEnd = min(pageOffset + pageSize, totalLength)
 			let pageLength = pageEnd - pageOffset
 
-			// Header: [63:32]=totalLength [31:16]=pageIndex [15:0]=pageCount
 			let header = (UInt64(totalLength) << 32) | (UInt64(pageIndex) << 16) | UInt64(pageCount)
 			darwin_notify_set_state(propSlotTokens[0], header)
 
-			// Data slots
 			for i in 0..<((pageLength + 7) / 8) {
 				let chunkOffset = pageOffset + i * 8
 				let chunkSize = min(8, totalLength - chunkOffset)
@@ -402,14 +411,12 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 				darwin_notify_set_state(propSlotTokens[i + 1], value)
 			}
 
-			// Checksum: additive byte sum of this page
 			var checksum: UInt32 = 0
 			for byte in jsonData[pageOffset..<pageEnd] { checksum = checksum &+ UInt32(byte) }
 			darwin_notify_set_state(propSlotTokens[checksumSlot], UInt64(checksum))
 
 			darwin_notify_post(kDarwinCameraPropertyState)
 		}
-		PtpWebcamCameraExtensionProviderSource.log("publishPropertyState: \(totalLength)B (\(pageCount) page(s)) for \(cameraId)")
 	}
 
 	// MARK: - Property Command (agent → extension)
@@ -658,8 +665,11 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 			camera.close()
 		}
 		cameraProperties.removeValue(forKey: cameraId)
-		guard let deviceSource = deviceSources.removeValue(forKey: cameraId) else { return }
 
+		// Tell the agent to remove this camera from its menu before we drop the device.
+		publishCameraRemoved(cameraId: cameraId)
+
+		guard let deviceSource = deviceSources.removeValue(forKey: cameraId) else { return }
 		do {
 			try provider.removeDevice(deviceSource.device)
 			PtpWebcamCameraExtensionProviderSource.log("Removed device for \(cameraId)")

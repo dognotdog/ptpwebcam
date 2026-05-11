@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA001111000000000000AA01 /* WbTuneGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA001111000000000000AA00 /* WbTuneGridView.swift */; };
 		0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
 		B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */; };
 		DA1B266E2B1BBCD70075AAAB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */; };
@@ -314,6 +315,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AA001111000000000000AA00 /* WbTuneGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WbTuneGridView.swift; sourceTree = "<group>"; };
 		59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpCameraAgent/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
 		64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DarwinNotify.swift; path = PtpWebcamCameraExtension/DarwinNotify.swift; sourceTree = SOURCE_ROOT; };
 		8B0F4F0DBF7C2E04CC9FB5A6 /* PtpCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PtpCamera.swift; path = PtpCameraAgent/PtpCamera.swift; sourceTree = SOURCE_ROOT; };
@@ -640,6 +642,7 @@
 			isa = PBXGroup;
 			children = (
 				DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */,
+				AA001111000000000000AA00 /* WbTuneGridView.swift */,
 				DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */,
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
@@ -1457,6 +1460,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA1B26A12B1BC1A20075AAAB /* AppDelegate.swift in Sources */,
+				AA001111000000000000AA01 /* WbTuneGridView.swift in Sources */,
 				DA8A7A6A2FAAE277001FB4BC /* PtpCameraAgentProtocol.swift in Sources */,
 				0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */,
 				E9E54BE2BF3F31F6EC68A67C /* PtpCamera.swift in Sources */,

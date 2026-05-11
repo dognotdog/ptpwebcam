@@ -67,6 +67,18 @@ private let nikonUiPropertyIds: [UInt16] = [
     0xD1A5,  // LV Exposure Preview
     0xD17B,  // LV Apply Settings
     0xD1AC,  // LV Image Size
+    // WB fine-tune sub-properties (shown as sub-menus under WB mode values)
+    0xD017,  // WB Auto Tune
+    0xD018,  // WB Incandescent Tune
+    0xD019,  // WB Fluorescent Tune
+    0xD01A,  // WB Sunny Tune
+    0xD01B,  // WB Flash Tune
+    0xD01C,  // WB Cloudy Tune
+    0xD01D,  // WB Shade Tune
+    0xD01E,  // WB Color Temperature (for Color Temp mode)
+    0xD141,  // WB Auto Type
+    0xD14F,  // WB Fluorescent Type
+    0xD150,  // WB Color Temp Tune
 ]
 
 // MARK: - NikonDiscoveredProperty
