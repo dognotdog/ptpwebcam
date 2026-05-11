@@ -10,5 +10,13 @@
 	</array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
+	<key>com.apple.security.device.usb</key>
+	<true/>
+	<key>com.apple.security.temporary-exception.iokit-user-client-class</key>
+	<array>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOUSBHostInterfaceUserClient</string>
+		<string>IOUSBHostDeviceUserClient</string>
+	</array>
 </dict>
 </plist>

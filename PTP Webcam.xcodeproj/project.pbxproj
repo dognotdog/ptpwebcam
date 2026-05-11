@@ -116,6 +116,9 @@
 		9DF63120DAD141C8A8939FD3 /* PtpCameraNikon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E3BD1335EDF49C89A2E857D /* PtpCameraNikon.swift */; };
 		8D2F472D61884C419850DAF6 /* PtpCameraCanon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B5F52D3F89418F9D814CA1 /* PtpCameraCanon.swift */; };
 		B3483D2132D7405DB80EFB72 /* PtpCameraSony.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969BC79923E9471CBE4D0E3A /* PtpCameraSony.swift */; };
+		A1B2C3D4E5F60003A1B2C3D4 /* UsbPtpTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60001A1B2C3D4 /* UsbPtpTransport.swift */; };
+		A1B2C3D4E5F60004A1B2C3D4 /* UsbNikonCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002A1B2C3D4 /* UsbNikonCamera.swift */; };
+		A1B2C3D4E5F60007A1B2C3D4 /* UsbPtpBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60006A1B2C3D4 /* UsbPtpBridge.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -451,6 +454,10 @@
 		DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamPreviewAppDelegate.m; sourceTree = "<group>"; };
 		DACDC5602B1B877D001F9DFC /* org.ptpwebcam.CameraExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = org.ptpwebcam.CameraExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		DACDC5622B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpWebcamCameraExtensionProvider.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60001A1B2C3D4 /* UsbPtpTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPtpTransport.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60002A1B2C3D4 /* UsbNikonCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbNikonCamera.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60005A1B2C3D4 /* UsbPtpBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UsbPtpBridge.h; sourceTree = "<group>"; };
+		A1B2C3D4E5F60006A1B2C3D4 /* UsbPtpBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UsbPtpBridge.m; sourceTree = "<group>"; };
 		DACDC5642B1B877F001F9DFC /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DACDC5662B1B877F001F9DFC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DACDC5672B1B877F001F9DFC /* PtpWebcamCameraExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PtpWebcamCameraExtension.entitlements; sourceTree = "<group>"; };
@@ -879,6 +886,10 @@
 		DACDC5612B1B877F001F9DFC /* PtpWebcamCameraExtension */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F60001A1B2C3D4 /* UsbPtpTransport.swift */,
+				A1B2C3D4E5F60005A1B2C3D4 /* UsbPtpBridge.h */,
+				A1B2C3D4E5F60006A1B2C3D4 /* UsbPtpBridge.m */,
+				A1B2C3D4E5F60002A1B2C3D4 /* UsbNikonCamera.swift */,
 				DACDC5622B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift */,
 				DACDC5642B1B877F001F9DFC /* main.swift */,
 				DACDC5662B1B877F001F9DFC /* Info.plist */,
@@ -1270,6 +1281,7 @@
 			files = (
 				DA1B26702B1BBCD80075AAAB /* Assets.xcassets in Resources */,
 				DA1B26732B1BBCD80075AAAB /* MainMenu.xib in Resources */,
+
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1595,6 +1607,9 @@
 				DACDC5632B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift in Sources */,
 				DA8A7A6C2FAAE2B8001FB4BC /* PtpCameraAgentProtocol.swift in Sources */,
 				B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */,
+								A1B2C3D4E5F60007A1B2C3D4 /* UsbPtpBridge.m in Sources */,
+				A1B2C3D4E5F60003A1B2C3D4 /* UsbPtpTransport.swift in Sources */,
+				A1B2C3D4E5F60004A1B2C3D4 /* UsbNikonCamera.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2615,7 +2630,9 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_OBJC_BRIDGING_HEADER = "PtpWebcamCameraExtension/PtpWebcamCameraExtension-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
+				OTHER_LDFLAGS = "-framework IOUSBHost";
 			};
 			name = Debug;
 		};
@@ -2652,7 +2669,9 @@
 				SKIP_INSTALL = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "PtpWebcamCameraExtension/PtpWebcamCameraExtension-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
+				OTHER_LDFLAGS = "-framework IOUSBHost";
 			};
 			name = Release;
 		};

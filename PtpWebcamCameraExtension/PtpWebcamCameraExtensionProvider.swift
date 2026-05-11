@@ -8,8 +8,8 @@
 
 import Foundation
 import CoreMediaIO
+import IOKit
 import IOKit.audio
-import IOSurface
 import CoreVideo
 import CoreGraphics
 import ImageIO
@@ -124,18 +124,30 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 		}
 	}
 
-	// Called by the provider when a live view frame arrives from the agent via IOSurface.
-	// Send a live-view frame to CMIO using _videoDescription (same as sendDemoFrame — guarantees format match).
+	// Allocate a CVPixelBuffer from the pool for live view frames.
+	func createPixelBuffer() -> CVPixelBuffer? {
+		guard _bufferPool != nil else { return nil }
+		var pb: CVPixelBuffer?
+		let err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+			kCFAllocatorDefault, _bufferPool, _bufferAuxAttributes, &pb)
+		guard err == kCVReturnSuccess else { return nil }
+		return pb
+	}
+
+	// Send a live-view frame to CMIO, deriving format description from actual pixel buffer dimensions.
 	func sendLiveViewFrame(_ pixelBuffer: CVPixelBuffer) {
 		guard _streamingCounter > 0 else { return }
+
+		var formatDesc: CMVideoFormatDescription?
+		CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDesc)
+		guard let fd = formatDesc else { return }
 
 		var timingInfo = CMSampleTimingInfo()
 		timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock())
 		var sbuf: CMSampleBuffer?
-		// Use _videoDescription directly — same as sendDemoFrame — guarantees format match.
 		let err = CMSampleBufferCreateForImageBuffer(
 			allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, dataReady: true,
-			makeDataReadyCallback: nil, refcon: nil, formatDescription: _videoDescription,
+			makeDataReadyCallback: nil, refcon: nil, formatDescription: fd,
 			sampleTiming: &timingInfo, sampleBufferOut: &sbuf)
 		if err == 0, let sbuf = sbuf {
 			_streamSource.stream.send(sbuf, discontinuity: [],
@@ -289,12 +301,24 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		extLogger.fault("\(msg, privacy: .public)")
 	}
 
-	private var darwinSlotTokens: [Int32] = []
-	private var lvFrameSlotTokens: [Int32] = []
-	private var lvCmdSlotTokens: [Int32] = []
-	private var lvSurfaceSlotTokens: [Int32] = []
-	// Raw IOSurfaces shared with the agent (IOSurface(properties:) is globally accessible by ID).
-	private var liveViewSurfaces: [String: IOSurface] = [:]
+	// USB cameras keyed by cameraId — created at camera connect time.
+	private var usbCameras: [String: UsbNikonCamera] = [:]
+
+	// Camera IDs that received a streaming-start request before the USB camera was ready.
+	private var pendingLiveViewStart: Set<String> = []
+
+	// Discovered camera properties keyed by cameraId, then by propertyId.
+	private var cameraProperties: [String: [UInt16: NikonDiscoveredProperty]] = [:]
+
+	// Darwin notify tokens for property state slots (extension → agent).
+	private var propSlotTokens: [Int32] = []
+	// Darwin notify token for the property command slot (agent → extension).
+	private var propCmdToken: Int32 = 0
+
+	// IOKit USB device detection (replaces ICDeviceBrowser / Darwin notify camera state).
+	private var ioNotificationPort: IONotificationPortRef?
+	private var ioAddedIterator:   io_iterator_t = IO_OBJECT_NULL
+	private var ioRemovedIterator: io_iterator_t = IO_OBJECT_NULL
 
 	init(clientQueue: DispatchQueue?) {
 
@@ -302,199 +326,259 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 		provider = CMIOExtensionProvider(source: self, clientQueue: clientQueue)
 
+		// Register property state slots (extension → agent).
+		propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
+			var token: Int32 = 0
+			darwin_notify_register_check(kDarwinPropertySlotPrefix + "\(i)", &token)
+			return token
+		}
+
+		// Register command slot and subscribe to property command notification (agent → extension).
+		darwin_notify_register_check(kDarwinPropertyCmdSlot, &propCmdToken)
+		var propCmdNotifyToken: Int32 = 0
+		darwin_notify_register_dispatch(kDarwinCameraPropertyCmd, &propCmdNotifyToken, .main) { [weak self] _ in
+			self?.handlePropertyCommand()
+		}
+
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-		PtpWebcamCameraExtensionProviderSource.log("Extension init build=\(buildVersion) (Darwin state slots + IOSurface live view)")
+		PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension started build=\(buildVersion)")
 
-		darwinSlotTokens = (0..<kDarwinStateSlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinStateSlotPrefix + "\(i)", &token)
-			return token
-		}
-
-		lvCmdSlotTokens = (0..<kDarwinLiveViewCmdSlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinLiveViewCmdSlotPrefix + "\(i)", &token)
-			return token
-		}
-
-		lvSurfaceSlotTokens = (0..<kDarwinLiveViewSurfaceSlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinLiveViewSurfaceSlotPrefix + "\(i)", &token)
-			return token
-		}
-
-		var stateToken: Int32 = 0
-		darwin_notify_register_dispatch(kDarwinCameraStateChanged, &stateToken, .main) { [weak self] _ in
-			self?.readCameraState()
-		}
-
-		lvFrameSlotTokens = (0..<kDarwinLiveViewFrameSlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinLiveViewFrameSlotPrefix + "\(i)", &token)
-			return token
-		}
-
-		var lvFrameToken: Int32 = 0
-		darwin_notify_register_dispatch(kDarwinLiveViewFrame, &lvFrameToken, .main) { [weak self] _ in
-			self?.handleLiveViewFrame()
-		}
-
-		DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-			PtpWebcamCameraExtensionProviderSource.log("Requesting camera state from agent")
-			darwin_notify_post(kDarwinCameraStateRequest)
+		// Defer IOKit camera detection until after CMIOExtensionProvider.startService()
+		// and CFRunLoopRun() are both running.  Calling addDevice() synchronously from
+		// init() (before the run loop is up) can deadlock inside CMIOExtensionProvider.
+		DispatchQueue.main.async { [weak self] in
+			guard let self = self else { return }
+			PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension run loop active build=\(buildVersion)")
+			self.setupIoKitCameraDetection()
 		}
 	}
 
-	private func readCameraState() {
-		var lengthState: UInt64 = 0
-		darwin_notify_get_state(darwinSlotTokens[0], &lengthState)
-		let length = Int(lengthState >> 32)
+	// MARK: - Property State (extension → agent)
 
-		guard length > 0 && length <= (kDarwinStateSlotCount - 1) * 8 else {
-			PtpWebcamCameraExtensionProviderSource.log("readCameraState: invalid length \(length)")
-			return
-		}
+	private func publishPropertyState(cameraId: String) {
+		guard let props = cameraProperties[cameraId], !props.isEmpty else { return }
 
-		var jsonData = Data(count: length)
-		let slotCount = (length + 7) / 8
-		for i in 0..<slotCount {
-			var value: UInt64 = 0
-			darwin_notify_get_state(darwinSlotTokens[i + 1], &value)
-			let offset = i * 8
-			let chunkSize = min(8, length - offset)
-			_ = jsonData.withUnsafeMutableBytes { ptr in
-				memcpy(ptr.baseAddress! + offset, &value, chunkSize)
+		var propsList: [[String: Any]] = []
+		for (_, prop) in props {
+			var entry: [String: Any] = [
+				"i": prop.propertyId,
+				"dt": prop.dataType,
+				"w": prop.writable ? 1 : 0,
+				"v": prop.value,
+			]
+			if prop.writable, let e = prop.enumValues { entry["e"] = Array(e.prefix(32)) }
+			if let rmin = prop.rangeMin, let rmax = prop.rangeMax, let rstep = prop.rangeStep {
+				entry["r"] = ["min": rmin, "max": rmax, "step": rstep]
 			}
+			propsList.append(entry)
 		}
+		let dict: [String: Any] = ["id": cameraId, "props": propsList]
+		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
 
-		guard let cameras = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: String]] else {
-			PtpWebcamCameraExtensionProviderSource.log("readCameraState: failed to parse JSON (\(length) bytes)")
-			return
-		}
+		// Multi-page protocol: slot 0 = header, slots 1..(N-2) = data, slot N-1 = checksum.
+		let pageDataSlots = kDarwinPropertySlotCount - 2  // 1022 data slots per page
+		let pageSize = pageDataSlots * 8                   // 8176 bytes per page
+		let totalLength = jsonData.count
+		let pageCount = max(1, (totalLength + pageSize - 1) / pageSize)
+		let checksumSlot = kDarwinPropertySlotCount - 1
 
-		PtpWebcamCameraExtensionProviderSource.log("readCameraState: \(cameras.count) camera(s)")
-		applyCameraState(cameras)
-	}
+		for pageIndex in 0..<pageCount {
+			let pageOffset = pageIndex * pageSize
+			let pageEnd = min(pageOffset + pageSize, totalLength)
+			let pageLength = pageEnd - pageOffset
 
-	private func applyCameraState(_ cameras: [[String: String]]) {
-		let newCameraIds = Set(cameras.compactMap { $0["cameraId"] })
-		let existingIds = Set(deviceSources.keys)
+			// Header: [63:32]=totalLength [31:16]=pageIndex [15:0]=pageCount
+			let header = (UInt64(totalLength) << 32) | (UInt64(pageIndex) << 16) | UInt64(pageCount)
+			darwin_notify_set_state(propSlotTokens[0], header)
 
-		for camera in cameras {
-			guard let cameraId = camera["cameraId"] else { continue }
-			if existingIds.contains(cameraId) {
-				if let speed = camera["stripeSpeed"] {
-					deviceSources[cameraId]?.applyStripeSpeed(speed)
+			// Data slots
+			for i in 0..<((pageLength + 7) / 8) {
+				let chunkOffset = pageOffset + i * 8
+				let chunkSize = min(8, totalLength - chunkOffset)
+				var value: UInt64 = 0
+				_ = jsonData.withUnsafeBytes { ptr in
+					memcpy(&value, ptr.baseAddress! + chunkOffset, chunkSize)
 				}
-			} else {
-				let name = camera["name"] ?? "PTP Camera"
-				var info: [String: String] = ["name": name, "cameraId": cameraId]
-				if let isDemo = camera["isDemo"] { info["isDemo"] = isDemo }
-				if let speed = camera["stripeSpeed"] { info["stripeSpeed"] = speed }
-				cameraConnected(cameraId, info: info as NSDictionary)
+				darwin_notify_set_state(propSlotTokens[i + 1], value)
 			}
+
+			// Checksum: additive byte sum of this page
+			var checksum: UInt32 = 0
+			for byte in jsonData[pageOffset..<pageEnd] { checksum = checksum &+ UInt32(byte) }
+			darwin_notify_set_state(propSlotTokens[checksumSlot], UInt64(checksum))
+
+			darwin_notify_post(kDarwinCameraPropertyState)
+		}
+		PtpWebcamCameraExtensionProviderSource.log("publishPropertyState: \(totalLength)B (\(pageCount) page(s)) for \(cameraId)")
+	}
+
+	// MARK: - Property Command (agent → extension)
+
+	private func handlePropertyCommand() {
+		var packed: UInt64 = 0
+		darwin_notify_get_state(propCmdToken, &packed)
+		let cmd    = UInt8((packed >> 56) & 0xFF)
+		let propId = UInt16((packed >> 32) & 0xFFFF)
+		let value  = UInt32(packed & 0xFFFFFFFF)
+
+		guard cmd == 3 else {
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: unknown cmd=\(cmd)")
+			return
 		}
 
-		for cameraId in existingIds.subtracting(newCameraIds) {
+		// Find active camera with this property.
+		guard let (cameraId, camera) = usbCameras.first else {
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: no active camera")
+			return
+		}
+		guard let dataType = cameraProperties[cameraId]?[propId]?.dataType else {
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: unknown propId=0x\(String(propId, radix:16))")
+			return
+		}
+		PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: SET_PROP 0x\(String(propId, radix:16))=\(value) on \(cameraId)")
+		camera.setProperty(propId: propId, value: value, dataType: dataType)
+	}
+
+	// MARK: - IOKit camera detection
+
+	private func setupIoKitCameraDetection() {
+		guard let port = IONotificationPortCreate(kIOMainPortDefault) else {
+			PtpWebcamCameraExtensionProviderSource.log("setupIoKitCameraDetection: IONotificationPortCreate failed")
+			return
+		}
+		ioNotificationPort = port
+		IONotificationPortSetDispatchQueue(port, .main)
+
+		// Attach notifications —— drain the iterator to get the initial snapshot.
+		if let dict = UsbPtpBridge.ptpMatchingDictionary() {
+			let ctx = Unmanaged.passUnretained(self).toOpaque()
+			IOServiceAddMatchingNotification(
+				port, kIOFirstMatchNotification, dict as CFDictionary,
+				{ ctx, iter in
+					Unmanaged<PtpWebcamCameraExtensionProviderSource>
+						.fromOpaque(ctx!).takeUnretainedValue().ioServiceAdded(iter)
+				},
+				ctx, &ioAddedIterator)
+			ioServiceAdded(ioAddedIterator)  // drain initial snapshot
+		}
+
+		// Detach notifications.
+		if let dict = UsbPtpBridge.ptpMatchingDictionary() {
+			let ctx = Unmanaged.passUnretained(self).toOpaque()
+			IOServiceAddMatchingNotification(
+				port, kIOTerminatedNotification, dict as CFDictionary,
+				{ ctx, iter in
+					Unmanaged<PtpWebcamCameraExtensionProviderSource>
+						.fromOpaque(ctx!).takeUnretainedValue().ioServiceRemoved(iter)
+				},
+				ctx, &ioRemovedIterator)
+			ioServiceRemoved(ioRemovedIterator)  // drain any already-terminated
+		}
+
+		PtpWebcamCameraExtensionProviderSource.log("setupIoKitCameraDetection: watching for PTP interfaces")
+	}
+
+	private func ioServiceAdded(_ iterator: io_iterator_t) {
+		while case let svc = IOIteratorNext(iterator), svc != IO_OBJECT_NULL {
+			defer { IOObjectRelease(svc) }
+
+			var entryId: UInt64 = 0
+			IORegistryEntryGetRegistryEntryID(svc, &entryId)
+			let cameraId = String(format: "usb-%016llx", entryId)
+
+			var vid: UInt16 = 0; var pid: UInt16 = 0; var nsName: NSString?
+			UsbPtpBridge.readVendorID(&vid, productID: &pid, productName: &nsName, fromService: svc)
+			let name = (nsName as String?) ?? "PTP Camera"
+
+			PtpWebcamCameraExtensionProviderSource.log(
+				"IOKit: attached vid=0x\(String(vid, radix:16)) pid=0x\(String(pid, radix:16)) \"\(name)\" id=\(cameraId)")
+			cameraConnected(cameraId, info: ["name": name, "cameraId": cameraId] as NSDictionary)
+		}
+	}
+
+	private func ioServiceRemoved(_ iterator: io_iterator_t) {
+		while case let svc = IOIteratorNext(iterator), svc != IO_OBJECT_NULL {
+			defer { IOObjectRelease(svc) }
+
+			var entryId: UInt64 = 0
+			IORegistryEntryGetRegistryEntryID(svc, &entryId)
+			let cameraId = String(format: "usb-%016llx", entryId)
+
+			PtpWebcamCameraExtensionProviderSource.log("IOKit: removed id=\(cameraId)")
 			cameraDisconnected(cameraId)
 		}
 	}
 
-	// MARK: - IOSurface lifecycle (extension creates globally-accessible IOSurface; agent draws into it)
+	// MARK: - USB Camera (direct PTP over IOUSBHost)
 
-	private func registerLiveViewSurface(cameraId: String) {
-		// IOSurface(properties:) creates a globally accessible surface (lookup by ID works cross-process/UID).
-		// Pool-backed CVPixelBuffer IOSurfaces are NOT globally accessible, so we use a raw IOSurface here.
-		let width = 1920, height = 1080
-		let props: [IOSurfacePropertyKey: Any] = [
-			.width: width, .height: height,
-			.pixelFormat: kCVPixelFormatType_32BGRA,
-			.bytesPerElement: 4,
-			.bytesPerRow: width * 4,
-			.allocSize: width * height * 4,
-		]
-		guard let surface = IOSurface(properties: props) else {
-			PtpWebcamCameraExtensionProviderSource.log("registerLiveViewSurface: IOSurface create failed")
-			return
-		}
-		liveViewSurfaces[cameraId] = surface
-		let surfaceId = IOSurfaceGetID(surface)
-		PtpWebcamCameraExtensionProviderSource.log("registerLiveViewSurface: id=\(surfaceId) for \(cameraId)")
+	/// Opens USB transport + PTP session for a newly connected camera.
+	/// Called at camera connect time on a background queue.
+	/// All dict mutations are dispatched back to main to avoid data races.
+	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource) {
+		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: requesting USB access (killing ptpcamerad)")
+		darwin_notify_post(kDarwinNeedUsbAccess)
 
-		// Tell the agent the surface ID so it can look it up (agent is unsandboxed).
-		let cameraIdData = cameraId.data(using: .utf8) ?? Data()
-		let slot0: UInt64 = (UInt64(surfaceId) << 32) | UInt64(cameraIdData.count)
-		darwin_notify_set_state(lvSurfaceSlotTokens[0], slot0)
-		let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewSurfaceSlotCount - 1)
-		for i in 0..<slotCount {
-			var value: UInt64 = 0
-			let offset = i * 8
-			let chunkSize = min(8, cameraIdData.count - offset)
-			_ = cameraIdData.withUnsafeBytes { ptr in
-				memcpy(&value, ptr.baseAddress! + offset, chunkSize)
+		var transport: UsbPtpTransport?
+		var lastError: Error?
+		for attempt in 1...10 {
+			Thread.sleep(forTimeInterval: 0.3)
+			let services = UsbPtpTransport.findPtpServices()
+			guard !services.isEmpty else {
+				if attempt == 1 { PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: no PTP service yet") }
+				continue
 			}
-			darwin_notify_set_state(lvSurfaceSlotTokens[i + 1], value)
-		}
-		darwin_notify_post(kDarwinLiveViewSurfaceReady)
-	}
-
-	private func handleLiveViewFrame() {
-		var slot0: UInt64 = 0
-		darwin_notify_get_state(lvFrameSlotTokens[0], &slot0)
-		let cameraIdLength = Int(slot0 & 0xFFFFFFFF)
-
-		guard cameraIdLength > 0,
-			  cameraIdLength <= (kDarwinLiveViewFrameSlotCount - 1) * 8 else {
-			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: bad slot0=0x\(String(slot0, radix:16))")
-			return
-		}
-
-		var cameraIdData = Data(count: cameraIdLength)
-		let slotCount = (cameraIdLength + 7) / 8
-		for i in 0..<slotCount {
-			var value: UInt64 = 0
-			darwin_notify_get_state(lvFrameSlotTokens[i + 1], &value)
-			let offset = i * 8
-			let chunkSize = min(8, cameraIdLength - offset)
-			_ = cameraIdData.withUnsafeMutableBytes { ptr in
-				memcpy(ptr.baseAddress! + offset, &value, chunkSize)
+			let svc = services[0]
+			services.dropFirst().forEach { IOObjectRelease($0) }
+			do {
+				transport = try UsbPtpTransport(service: svc)
+				IOObjectRelease(svc)
+				PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: interface opened on attempt \(attempt)")
+				break
+			} catch {
+				IOObjectRelease(svc)
+				lastError = error
+				if attempt == 1 || attempt % 3 == 0 {
+					PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: attempt \(attempt)/10 failed: \(error)")
+				}
 			}
 		}
-		guard let cameraId = String(data: cameraIdData, encoding: .utf8) else {
-			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: cameraId UTF-8 decode failed, raw=\(cameraIdData.map { String(format: "%02x", $0) }.joined())")
-			return
-		}
-		guard let deviceSource = deviceSources[cameraId],
-			  let surface = liveViewSurfaces[cameraId] else {
+
+		guard let t = transport else {
+			PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: all attempts failed: \(String(describing: lastError))")
 			return
 		}
 
-		// Wrap the globally-accessible IOSurface (written by agent) in a CVPixelBuffer.
-		// sendLiveViewFrame uses _videoDescription directly — same path as sendDemoFrame.
-		var unmanagedPB: Unmanaged<CVPixelBuffer>?
-		let cvErr = CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &unmanagedPB)
-		guard cvErr == kCVReturnSuccess, let pb = unmanagedPB?.takeRetainedValue() else {
-			PtpWebcamCameraExtensionProviderSource.log("handleLiveViewFrame: CVPixelBufferCreateWithIOSurface failed \(cvErr)")
-			return
-		}
-		deviceSource.sendLiveViewFrame(pb)
-	}
-
-	private func postLiveViewCommand(_ notifyName: String, cameraId: String) {
-		PtpWebcamCameraExtensionProviderSource.log("postLiveViewCommand: \(notifyName) cameraId=\(cameraId)")
-		let data = cameraId.data(using: .utf8) ?? Data()
-		darwin_notify_set_state(lvCmdSlotTokens[0], UInt64(data.count))
-		let slotCount = min((data.count + 7) / 8, kDarwinLiveViewCmdSlotCount - 1)
-		for i in 0..<slotCount {
-			var value: UInt64 = 0
-			let offset = i * 8
-			let chunkSize = min(8, data.count - offset)
-			_ = data.withUnsafeBytes { ptr in
-				memcpy(&value, ptr.baseAddress! + offset, chunkSize)
+		let camera = UsbNikonCamera(transport: t)
+		camera.onJpegFrame = { [weak deviceSource] jpegData in
+			guard let ds = deviceSource else { return }
+			if let pb = jpegToPixelBuffer(jpegData) {
+				ds.sendLiveViewFrame(pb)
 			}
-			darwin_notify_set_state(lvCmdSlotTokens[i + 1], value)
 		}
-		darwin_notify_post(notifyName)
+		camera.onPropertiesDiscovered = { [weak self] discovered in
+			guard let self = self else { return }
+			DispatchQueue.main.async {
+				if self.cameraProperties[cameraId] == nil {
+					self.cameraProperties[cameraId] = discovered
+				} else {
+					for (k, v) in discovered { self.cameraProperties[cameraId]![k] = v }
+				}
+				self.publishPropertyState(cameraId: cameraId)
+			}
+		}
+
+		// Store camera on main, then open session. Check pending live view request.
+		DispatchQueue.main.async { [weak self] in
+			guard let self = self else { return }
+			self.usbCameras[cameraId] = camera
+			PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: camera stored, opening session for \(cameraId)")
+			camera.openSessionAndDiscover()
+			if self.pendingLiveViewStart.remove(cameraId) != nil {
+				PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: fulfilling pending live view start for \(cameraId)")
+				camera.startLiveView()
+			}
+		}
+		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: transport ready vid=0x\(String(t.vendorId, radix:16)) pid=0x\(String(t.productId, radix:16)) for \(cameraId)")
 	}
 
 	func connect(to client: CMIOExtensionClient) throws {
@@ -533,20 +617,31 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		let deviceSource = PtpWebcamCameraExtensionDeviceSource(localizedName: name, cameraId: cameraId, isDemo: isDemo)
 		if let speed = info["stripeSpeed"] as? String { deviceSource.applyStripeSpeed(speed) }
 
-		deviceSource.onStreamingStarted = { [weak self, weak deviceSource] in
-			guard let self = self, let ds = deviceSource else { return }
-			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(ds.cameraId)")
-			self.registerLiveViewSurface(cameraId: ds.cameraId)
-			self.postLiveViewCommand(kDarwinLiveViewStart, cameraId: ds.cameraId)
+		deviceSource.onStreamingStarted = { [weak self] in
+			guard let self = self else { return }
+			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(cameraId)")
+			if let camera = self.usbCameras[cameraId] {
+				camera.startLiveView()
+			} else {
+				PtpWebcamCameraExtensionProviderSource.log("streaming started but camera not ready yet — queuing for \(cameraId)")
+				self.pendingLiveViewStart.insert(cameraId)
+			}
 		}
-		deviceSource.onStreamingStopped = { [weak self, weak deviceSource] in
-			guard let self = self, let ds = deviceSource else { return }
-			PtpWebcamCameraExtensionProviderSource.log("streaming stopped for \(ds.cameraId)")
-			self.liveViewSurfaces.removeValue(forKey:ds.cameraId)
-			self.postLiveViewCommand(kDarwinLiveViewStop, cameraId: ds.cameraId)
+		deviceSource.onStreamingStopped = { [weak self] in
+			guard let self = self else { return }
+			PtpWebcamCameraExtensionProviderSource.log("streaming stopped for \(cameraId)")
+			self.pendingLiveViewStart.remove(cameraId)
+			self.usbCameras[cameraId]?.stopLiveView()
 		}
 
 		deviceSources[cameraId] = deviceSource
+
+		// Start USB session immediately at connect time (not at streaming time).
+		if !isDemo {
+			DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+				self?.openUsbCamera(cameraId: cameraId, deviceSource: deviceSource)
+			}
+		}
 
 		do {
 			try provider.addDevice(deviceSource.device)
@@ -558,8 +653,11 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 
 	func cameraDisconnected(_ cameraId: String) {
 		PtpWebcamCameraExtensionProviderSource.log("cameraDisconnected: \(cameraId)")
-
-		liveViewSurfaces.removeValue(forKey:cameraId)
+		pendingLiveViewStart.remove(cameraId)
+		if let camera = usbCameras.removeValue(forKey: cameraId) {
+			camera.close()
+		}
+		cameraProperties.removeValue(forKey: cameraId)
 		guard let deviceSource = deviceSources.removeValue(forKey: cameraId) else { return }
 
 		do {
@@ -571,11 +669,10 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 	}
 
 	func receivedLiveViewJpegData(_ jpegData: Data, info: NSDictionary, forCamera cameraId: String) {
-		// XPC path is not used (XPC is blocked across UID boundaries in this sandbox).
-		// Frames arrive via Darwin notify + IOSurface instead.
+		// Not used — live view is handled directly by UsbNikonCamera in the extension.
 	}
 
 	func propertyChanged(_ property: NSDictionary, forCamera cameraId: String) {
-		// not used — the agent handles property display via menu rebuild
+		// Not used — the agent handles property display via menu rebuild.
 	}
 }
