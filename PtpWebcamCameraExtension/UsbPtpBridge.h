@@ -56,6 +56,15 @@ NS_ASSUME_NONNULL_BEGIN
 /// All pipes discovered on this interface (enumerated immediately after open).
 @property (readonly) NSArray<PtpUsbPipe *> *pipes;
 
+/// Issue the PTP class-specific Cancel Transaction control request
+/// (bmRequestType=0x21, bRequest=0x64, payload=[cancelCode=0x4001, txnId]).
+/// Sends on the default control pipe; tells the camera to abort whatever
+/// in-flight transaction we just timed out on, so the bulk endpoints stay
+/// in sync.  Returns YES if the control transfer completed (even if the
+/// camera's response is camera-specific).
+- (BOOL)cancelTransactionID:(uint32_t)txnId
+                      error:(NSError **)error;
+
 /// Closes the interface and releases the exclusive lock.
 - (void)close;
 

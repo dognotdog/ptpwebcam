@@ -6,14 +6,6 @@ import os.log
 
 // MARK: - Canon PTP Constants
 
-private let PTP_CMD_OPENSESSION:              UInt16 = 0x1002
-private let PTP_CMD_CLOSESESSION:             UInt16 = 0x1003
-private let PTP_CMD_GETDEVICEINFO:            UInt16 = 0x1001
-private let PTP_CMD_GETPROPDESC:              UInt16 = 0x1014
-private let PTP_CMD_SETPROPVAL:               UInt16 = 0x1016
-private let PTP_RSP_OK:                       UInt16 = 0x2001
-private let PTP_RSP_DEVICEBUSY:               UInt16 = 0x2019
-
 private let PTP_CMD_CANON_SETPROPVAL_EX:      UInt16 = 0x9110
 private let PTP_CMD_CANON_SETREMOTEMODE:      UInt16 = 0x9114
 private let PTP_CMD_CANON_SETEVENTMODE:       UInt16 = 0x9115
@@ -30,137 +22,52 @@ private enum CanonLvState { case off, waitingEvfMode, waitingOutputDevice, on }
 
 // MARK: - UsbCanonCamera
 
-final class UsbCanonCamera: UsbCameraProtocol {
-
-    private let transport: UsbPtpTransport
-    private let cameraLog = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: "UsbCanonCamera")
-    private let queue = DispatchQueue(label: "org.ptpwebcam.canoncamera", qos: .userInteractive)
-
-    private var stopLv   = false
-    private var closing  = false
-    private var sessionOpen = false
-    private var supportedOps: Set<UInt16> = []
-
-    private var discoveredProperties: [UInt32: UsbCameraProperty] = [:]
-
-    private struct PendingSet { let propId: UInt32; let value: UInt32; let dataType: UInt16 }
-    private var pendingSets: [PendingSet] = []
-    private let pendingLock = NSLock()
-
-    var onJpegFrame: ((Data) -> Void)?
-    var onPropertiesDiscovered: (([UInt32: UsbCameraProperty]) -> Void)?
+final class UsbCanonCamera: UsbPtpCameraBase {
 
     init(transport: UsbPtpTransport) {
-        self.transport = transport
-        cameraLog.fault("UsbCanonCamera: init vid=0x\(String(transport.vendorId, radix:16), privacy: .public) pid=0x\(String(transport.productId, radix:16), privacy: .public) name=\(transport.deviceName, privacy: .public)")
+        super.init(transport: transport, logTag: "UsbCanonCamera")
+        // Canon polls GetEvent for property changes; less frequent than Nikon/Sony
+        // interrupt-IN poll since each call is a full PTP transaction.
+        eventPollInterval = 15
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Vendor connect
 
-    func openSessionAndDiscover() {
-        queue.async { [weak self] in self?.runOpenSessionPhase() }
-    }
+    override func performVendorConnect() {
+        parseDeviceInfo()  // populates supportedOps
 
-    func startLiveView() {
-        guard !closing else { return }
-        stopLv = false
-        queue.async { [weak self] in self?.runLiveViewPhase() }
-    }
-
-    func stopLiveView() {
-        stopLv = true
-    }
-
-    func close() {
-        stopLv  = true
-        closing = true
-        queue.async { [weak self] in self?.runCleanUp() }
-    }
-
-    // MARK: - Phase 1: Session open + property discovery
-
-    private func runOpenSessionPhase() {
-        Thread.sleep(forTimeInterval: 0.5)
-        if closing { return }
-
-        // OPEN_SESSION
-        var opened = false
-        for attempt in 1...5 {
-            if closing { return }
-            do {
-                let cmd = transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1])
-                let (_, rsp) = try transport.sendPtpCommand(cmd)
-                var code = transport.responseCode(from: rsp)
-                if code == 0x201E {
-                    _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CLOSESESSION))
-                    Thread.sleep(forTimeInterval: 0.3)
-                    let (_, rsp2) = try transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_OPENSESSION, parameters: [1]))
-                    code = transport.responseCode(from: rsp2)
-                }
-                if code == PTP_RSP_OK {
-                    opened = true
-                    sessionOpen = true
-                    cameraLog.fault("UsbCanonCamera: session opened (attempt \(attempt, privacy: .public))")
-                    break
-                }
-                cameraLog.fault("UsbCanonCamera: OPEN_SESSION code=0x\(String(code, radix:16), privacy: .public)")
-            } catch {
-                cameraLog.fault("UsbCanonCamera: OPEN_SESSION attempt \(attempt, privacy: .public): \(String(describing: error), privacy: .public)")
-                if attempt < 5 { Thread.sleep(forTimeInterval: 0.5); transport.clearStalls() }
-            }
-        }
-        guard opened else { return }
-        if closing { return }
-
-        // GetDeviceInfo — parse supported operations
-        if let (inData, rsp) = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_GETDEVICEINFO)),
-           transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData {
-            let p = PtpPropParser(data)
-            _ = p.readU16(); _ = p.readU32(); _ = p.readU16()
-            p.skipPtpString(); _ = p.readU16()
-            if let ops = p.readU16Array() {
-                supportedOps = Set(ops)
-                cameraLog.fault("UsbCanonCamera: GetDeviceInfo — \(ops.count, privacy: .public) ops")
-            }
-        }
-
-        // SetRemoteMode(1)
         if supportedOps.contains(PTP_CMD_CANON_SETREMOTEMODE) {
-            _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CANON_SETREMOTEMODE, parameters: [1]))
-            cameraLog.fault("UsbCanonCamera: SetRemoteMode(1)")
+            _ = try? transport.sendPtpCommand(
+                transport.buildCommand(code: PTP_CMD_CANON_SETREMOTEMODE, parameters: [1]))
+            cameraLog.fault("SetRemoteMode(1)")
         }
-
-        // SetEventMode(1)
         if supportedOps.contains(PTP_CMD_CANON_SETEVENTMODE) {
-            _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CANON_SETEVENTMODE, parameters: [1]))
-            cameraLog.fault("UsbCanonCamera: SetEventMode(1)")
+            _ = try? transport.sendPtpCommand(
+                transport.buildCommand(code: PTP_CMD_CANON_SETEVENTMODE, parameters: [1]))
+            cameraLog.fault("SetEventMode(1)")
         }
+    }
 
-        // Collect initial property snapshot from GetEvent
+    // MARK: - Property discovery
+
+    override func discoverAllProperties() -> [UInt32: UsbCameraProperty] {
+        // Canon publishes properties via the event queue. Drain it for ~3s.
         for _ in 0..<30 {
-            if closing { return }
+            if closing { return [:] }
             Thread.sleep(forTimeInterval: 0.1)
             pollGetEvent()
         }
-
-        let propCount = discoveredProperties.count
-        cameraLog.fault("UsbCanonCamera: discovered \(propCount, privacy: .public) properties")
-        if !discoveredProperties.isEmpty {
-            onPropertiesDiscovered?(discoveredProperties)
-        }
+        return discoveredProperties
     }
 
-    // MARK: - Phase 2: Live view
+    // MARK: - Live view session
 
-    private func runLiveViewPhase() {
-        guard sessionOpen && !closing else { return }
-
-        // Enable EVF
+    override func startLiveViewSession() -> Bool {
         setPropertyEos(propId: PTP_PROP_CANON_EVF_MODE, value: 1)
 
         var lvState = CanonLvState.waitingEvfMode
         for _ in 0..<100 {
-            if stopLv || closing { return }
+            if stopLv || closing { return false }
             Thread.sleep(forTimeInterval: 0.05)
             pollGetEvent { [self] propId, value in
                 switch (propId, lvState) {
@@ -177,53 +84,38 @@ final class UsbCanonCamera: UsbCameraProtocol {
         }
 
         if lvState != .on {
-            cameraLog.fault("UsbCanonCamera: EVF did not become ready — aborting live view")
-            return
+            cameraLog.fault("EVF did not become ready — aborting live view")
+            return false
         }
-
-        cameraLog.fault("UsbCanonCamera: EVF on — entering GetViewfinderData loop")
-        let targetInterval: TimeInterval = 1.0 / 30.0
-        var frameCount = 0
-
-        while !stopLv && !closing {
-            autoreleasepool {
-                drainPendingSets()
-                guard !stopLv && !closing else { return }
-
-                frameCount += 1
-                if frameCount % 15 == 0 { pollGetEvent() }
-
-                let frameStart = Date()
-                let cmd = transport.buildCommand(code: PTP_CMD_CANON_GETVIEWFINDERDATA, parameters: [0x00100000])
-                if let (inData, _) = try? transport.sendPtpCommand(cmd), let data = inData {
-                    if let jpeg = extractJpegFromLiveViewData(data) {
-                        if frameCount == 1 || frameCount == 10 || frameCount % 150 == 0 {
-                            cameraLog.fault("UsbCanonCamera: frame #\(frameCount, privacy: .public) \(jpeg.count, privacy: .public)B → CMIO")
-                        }
-                        onJpegFrame?(jpeg)
-                    }
-                }
-
-                let elapsed = -frameStart.timeIntervalSinceNow
-                let remaining = targetInterval - elapsed
-                if remaining > 0.001 { Thread.sleep(forTimeInterval: remaining) }
-            }
-        }
-
-        cameraLog.fault("UsbCanonCamera: LV loop exited")
-        if !closing {
-            setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
-        }
+        cameraLog.fault("EVF on")
+        return true
     }
 
-    // MARK: - GetEvent polling
+    override func stopLiveViewSession() {
+        setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
+    }
+
+    // MARK: - Frame fetch
+
+    override func fetchOneFrame() throws -> Data? {
+        let cmd = transport.buildCommand(code: PTP_CMD_CANON_GETVIEWFINDERDATA, parameters: [0x00100000])
+        guard let (inData, _) = try? transport.sendPtpCommand(cmd), let data = inData else { return nil }
+        return extractJpegFromLiveViewData(data)
+    }
+
+    // MARK: - Event polling
+
+    override func pollEvents() {
+        pollGetEvent()
+    }
 
     @discardableResult
     private func pollGetEvent(onPropertyChanged: ((UInt32, UInt32) -> Void)? = nil) -> Bool {
         guard sessionOpen, supportedOps.contains(PTP_CMD_CANON_GETEVENT) else { return false }
-        guard let (inData, rsp) = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CANON_GETEVENT)),
-              transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData else { return false }
-
+        guard let (inData, rsp) = try? transport.sendPtpCommand(
+                transport.buildCommand(code: PTP_CMD_CANON_GETEVENT)),
+              transport.responseCode(from: rsp) == PTP_RSP_OK,
+              let data = inData else { return false }
         parseCanonEventResponse(data, onPropertyChanged: onPropertyChanged)
         return true
     }
@@ -322,43 +214,15 @@ final class UsbCanonCamera: UsbCameraProtocol {
 
     // MARK: - Property set
 
-    func setProperty(propId: UInt32, value: UInt32, dataType: UInt16) {
-        pendingLock.lock()
-        pendingSets.append(PendingSet(propId: propId, value: value, dataType: dataType))
-        pendingLock.unlock()
-        queue.async { [weak self] in self?.drainPendingSets() }
-    }
-
-    private func drainPendingSets() {
-        pendingLock.lock()
-        let cmds = pendingSets; pendingSets.removeAll()
-        pendingLock.unlock()
-
-        for cmd in cmds {
-            guard sessionOpen else { break }
-            setPropertyDirect(propId: cmd.propId, value: cmd.value, dataType: cmd.dataType)
-            if let updated = discoverSingleProperty(cmd.propId) {
-                discoveredProperties[cmd.propId] = updated
-                onPropertiesDiscovered?([cmd.propId: updated])
-            }
-        }
-    }
-
-    private func setPropertyDirect(propId: UInt32, value: UInt32, dataType: UInt16) {
-        if propId < 0x9000 {
-            // Standard PTP SETPROPVAL
-            var outData = Data()
-            switch dataType {
-            case 1: outData.appendLE(UInt8(bitPattern: Int8(bitPattern: UInt8(value & 0xFF))))
-            case 2: outData.appendLE(UInt8(value & 0xFF))
-            case 3: outData.appendLE(UInt16(bitPattern: Int16(bitPattern: UInt16(value & 0xFFFF))))
-            case 4: outData.appendLE(UInt16(value & 0xFFFF))
-            default: outData.appendLE(value)
-            }
-            let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL, parameters: [propId])
-            _ = try? transport.sendPtpCommand(cmd, outData: outData)
+    override func performPropertySet(_ pending: PendingSet) {
+        if pending.propId < 0x9000 {
+            sendStandardSetPropVal(propId: pending.propId, value: pending.value, dataType: pending.dataType)
         } else {
-            setPropertyEos(propId: propId, value: value)
+            setPropertyEos(propId: pending.propId, value: pending.value)
+        }
+        if let updated = getDevicePropDesc(pending.propId) {
+            discoveredProperties[pending.propId] = updated
+            onPropertiesDiscovered?([pending.propId: updated])
         }
     }
 
@@ -370,28 +234,7 @@ final class UsbCanonCamera: UsbCameraProtocol {
         let cmd = transport.buildCommand(code: PTP_CMD_CANON_SETPROPVAL_EX)
         if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: outData) {
             let code = transport.responseCode(from: rsp)
-            cameraLog.fault("UsbCanonCamera: setPropertyEos 0x\(String(propId, radix:16), privacy: .public)=\(value, privacy: .public) → 0x\(String(code, radix:16), privacy: .public)")
+            cameraLog.fault("setPropertyEos 0x\(String(propId, radix:16), privacy: .public)=\(value, privacy: .public) → 0x\(String(code, radix:16), privacy: .public)")
         }
-    }
-
-    private func discoverSingleProperty(_ propId: UInt32) -> UsbCameraProperty? {
-        guard propId < 0x9000,
-              let (inData, rsp) = try? transport.sendPtpCommand(
-                  transport.buildCommand(code: PTP_CMD_GETPROPDESC, parameters: [propId])),
-              transport.responseCode(from: rsp) == PTP_RSP_OK,
-              let data = inData else { return nil }
-        return PtpPropParser(data).parsePropDesc()
-    }
-
-    // MARK: - Cleanup
-
-    private func runCleanUp() {
-        if sessionOpen {
-            _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CLOSESESSION))
-            sessionOpen = false
-            cameraLog.fault("UsbCanonCamera: session closed")
-        }
-        transport.close()
-        cameraLog.fault("UsbCanonCamera: transport closed")
     }
 }

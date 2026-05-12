@@ -302,10 +302,15 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	// Darwin notify tokens for property state slots (extension → agent).
 	private var propSlotTokens: [Int32] = []
-	// Darwin notify token for the property command slot (agent → extension).
-	private var propCmdToken: Int32 = 0
+	// Serializes writes to the shared property-state slots. Multiple back-to-back
+	// publishes (e.g. both cameras announcing themselves at extension startup)
+	// would otherwise overwrite each other in the slots — the kernel coalesces
+	// the `darwin_notify_post` calls and the agent only ever sees the LAST data.
+	private let publishQueue = DispatchQueue(label: "org.ptpwebcam.publish", qos: .userInteractive)
 	// Per-camera claim tokens: (slotToken, notifyToken) keyed by cameraId.
 	private var claimTokens: [String: (slot: Int32, notify: Int32)] = [:]
+	// Per-camera property command tokens (agent → extension, per camera).
+	private var propCmdTokens: [String: (slot: Int32, notify: Int32)] = [:]
 
 	// IOKit USB device detection (replaces ICDeviceBrowser / Darwin notify camera state).
 	private var ioNotificationPort: IONotificationPortRef?
@@ -325,14 +330,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			return token
 		}
 
-		// Register command slot and subscribe to property command notification (agent → extension).
-		darwin_notify_register_check(kDarwinPropertyCmdSlot, &propCmdToken)
-		var propCmdNotifyToken: Int32 = 0
-		darwin_notify_register_dispatch(kDarwinCameraPropertyCmd, &propCmdNotifyToken, .main) { [weak self] _ in
-			self?.handlePropertyCommand()
-		}
-
-		// Per-camera claim channels are registered in cameraConnected.
+		// Per-camera claim and property-command channels are registered in cameraConnected.
 
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
 		PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension started build=\(buildVersion)")
@@ -397,6 +395,21 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	}
 
 	private func writeJsonToPropertySlots(_ jsonData: Data) {
+		// Hand off to the publish queue so consecutive publishes don't overwrite
+		// each other's slots before the agent's notification handler can read.
+		publishQueue.async { [weak self] in
+			self?.doWriteJsonToPropertySlots(jsonData)
+		}
+	}
+
+	/// Per-page delay between `darwin_notify_post` calls. Gives the agent's
+	/// `.main`-queue notification handler time to drain each post — without
+	/// this, the kernel coalesces back-to-back posts and slot contents get
+	/// overwritten before the agent reads them. ~60 ms is empirically enough
+	/// for cold-start contention (two cameras announcing simultaneously).
+	private static let publishPostDelay: TimeInterval = 0.06
+
+	private func doWriteJsonToPropertySlots(_ jsonData: Data) {
 		// Multi-page protocol: slot 0 = header, slots 1..(N-2) = data, slot N-1 = checksum.
 		let pageDataSlots = kDarwinPropertySlotCount - 2
 		let pageSize = pageDataSlots * 8
@@ -427,30 +440,29 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			darwin_notify_set_state(propSlotTokens[checksumSlot], UInt64(checksum))
 
 			darwin_notify_post(kDarwinCameraPropertyState)
+			Thread.sleep(forTimeInterval: Self.publishPostDelay)
 		}
 	}
 
 	// MARK: - Property Command (agent → extension)
 
-	private func handlePropertyCommand() {
+	private func handlePropertyCommand(cameraId: String, slotToken: Int32) {
 		var packed: UInt64 = 0
-		darwin_notify_get_state(propCmdToken, &packed)
+		darwin_notify_get_state(slotToken, &packed)
 		let cmd    = UInt8((packed >> 56) & 0xFF)
 		let propId = UInt32((packed >> 32) & 0xFFFF)
 		let value  = UInt32(packed & 0xFFFFFFFF)
 
 		guard cmd == 3 else {
-			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: unknown cmd=\(cmd)")
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown cmd=\(cmd)")
 			return
 		}
-
-		// Find active camera with this property.
-		guard let (cameraId, camera) = usbCameras.first else {
-			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: no active camera")
+		guard let camera = usbCameras[cameraId] else {
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: camera not claimed")
 			return
 		}
 		guard let dataType = cameraProperties[cameraId]?[propId]?.dataType else {
-			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: unknown propId=0x\(String(propId, radix:16))")
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown propId=0x\(String(propId, radix:16))")
 			return
 		}
 		PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: SET_PROP 0x\(String(propId, radix:16))=\(value) on \(cameraId)")
@@ -716,6 +728,18 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		}
 		claimTokens[cameraId] = (slot: slotToken, notify: notifyToken)
 
+		// Register per-camera property command channel.  Without this, all
+		// property sets would arrive on the single shared channel and be routed
+		// to whichever camera happens to be `usbCameras.first`, which is wrong
+		// whenever more than one camera is connected.
+		var propSlotToken:   Int32 = 0
+		var propNotifyToken: Int32 = 0
+		darwin_notify_register_check(kDarwinPropertyCmdSlot + "." + suffix, &propSlotToken)
+		darwin_notify_register_dispatch(kDarwinCameraPropertyCmd + "." + suffix, &propNotifyToken, .main) { [weak self] _ in
+			self?.handlePropertyCommand(cameraId: cameraId, slotToken: propSlotToken)
+		}
+		propCmdTokens[cameraId] = (slot: propSlotToken, notify: propNotifyToken)
+
 		// Announce to agent so it can show the camera in the menu (unclaimed state).
 		publishCameraConnected(cameraId: cameraId)
 	}
@@ -729,6 +753,10 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		cameraProperties.removeValue(forKey: cameraId)
 		cameraIdentity.removeValue(forKey: cameraId)
 		if let tokens = claimTokens.removeValue(forKey: cameraId) {
+			notify_cancel(tokens.slot)
+			notify_cancel(tokens.notify)
+		}
+		if let tokens = propCmdTokens.removeValue(forKey: cameraId) {
 			notify_cancel(tokens.slot)
 			notify_cancel(tokens.notify)
 		}

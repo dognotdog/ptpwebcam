@@ -111,7 +111,13 @@ func formatNikonShutterSpeed(_ val: UInt32) -> String {
 func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: CameraVendor = .unknown) -> String {
     if let name = nikonExtPropValueNames[propId]?[value.uint32Value] { return name }
     switch propId {
-    case 0x5001, 0xD218: return "\(value.intValue)%"  // Battery Level (std + Sony)
+    case 0x5001: return "\(value.intValue)%"  // Standard PTP Battery Level
+    case 0xD218:                              // Sony Battery Level
+        // Sony reports -1 (Int8 0xFF) when the camera is running on external
+        // power (AC adapter / USB power delivery) rather than the internal
+        // battery; the actual battery isn't being drawn from so there's no
+        // meaningful percentage to show.
+        return value.intValue == -1 ? "External" : "\(value.intValue)%"
     case 0x5007, 0xD1A9: return String(format: "f/%.1f", Double(value.intValue) * 0.01)
     case 0x5008:         return String(format: "%.1f mm", Double(value.intValue) * 0.01)
     case 0x500F:         return "\(value.intValue)"
@@ -121,11 +127,17 @@ func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: CameraVendor = 
     case 0xD20F:         return "\(value.intValue) K"
     case 0xD21E:         return value.uint32Value == 0xFFFFFF ? "Auto" : "\(value.intValue)"
     case 0xD1A2, 0xD1A5, 0xD17B: return value.boolValue ? "On" : "Off"
-    // WB tuning: signed int, range typically -3…+3 (Nikon); Sony uses 0xD210, 0xD21C
-    case 0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
-         0xD150, 0xD210, 0xD21C,
-         0xD212, 0xD213, 0xD215, 0xD216, 0xD219, 0xD21B:
-        return value.intValue >= 0 ? "+\(value.intValue)" : "\(value.intValue)"
+    // Nikon WB fine-tune: camera reports unsigned 0..12 with 6 as neutral
+    // (full range −6..+6). Display as a signed offset from neutral.
+    case 0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D, 0xD150:
+        let offset = value.intValue - 6
+        return offset >= 0 ? "+\(offset)" : "\(offset)"
+
+    // Sony WB tune and related fine-tune properties: camera reports unsigned
+    // 0..255 with 128 (0x80) as neutral. Display as a signed offset.
+    case 0xD210, 0xD21C, 0xD212, 0xD213, 0xD215, 0xD216, 0xD219, 0xD21B:
+        let offset = value.intValue - 128
+        return offset >= 0 ? "+\(offset)" : "\(offset)"
     default:             return "\(value)"
     }
 }

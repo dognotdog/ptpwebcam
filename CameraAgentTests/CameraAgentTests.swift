@@ -70,12 +70,40 @@ final class CameraAgentTests: XCTestCase {
         XCTAssertEqual(formatExtPropRaw(NSNumber(value: 75), propId: 0x5001), "75%")
     }
 
-    func testWbTunePositive() {
-        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 3), propId: 0xD018), "+3")
+    func testSonyBatteryLevel() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 75), propId: 0xD218), "75%")
     }
 
-    func testWbTuneNegative() {
-        XCTAssertEqual(formatExtPropRaw(NSNumber(value: -2), propId: 0xD018), "-2")
+    func testSonyBatteryExternalPower() {
+        // Sony reports -1 (Int8 0xFF) when running on external power.
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: -1), propId: 0xD218), "External")
+    }
+
+    func testNikonWbTunePositive() {
+        // Camera reports raw 9, neutral=6, so display +3
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 9), propId: 0xD018), "+3")
+    }
+
+    func testNikonWbTuneNeutral() {
+        // Raw 6 == neutral, displayed as "+0"
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 6), propId: 0xD018), "+0")
+    }
+
+    func testNikonWbTuneNegative() {
+        // Raw 4, neutral=6, so display -2
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 4), propId: 0xD018), "-2")
+    }
+
+    func testNikonWbTuneExtremes() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0),  propId: 0xD017), "-6")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 12), propId: 0xD017), "+6")
+    }
+
+    func testSonyWbTune() {
+        // Sony WB tune: neutral at 128
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 128), propId: 0xD210), "+0")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 131), propId: 0xD210), "+3")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 125), propId: 0xD210), "-3")
     }
 
     func testColorTempKelvin() {

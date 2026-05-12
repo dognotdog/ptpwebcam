@@ -159,10 +159,20 @@ class UsbPtpTransport {
     /// Sends a command container (and optionally an outgoing data container) over bulk-OUT,
     /// then reads back any incoming data container and the response container from bulk-IN.
     /// Returns (inData, response) where inData is nil for operations with no data phase.
+    ///
+    /// On a bulk-IN timeout, issues a PTP `CancelTransaction` class-specific
+    /// control request to tell the camera "abort that in-flight transaction"
+    /// — without this, the camera's PTP state machine stays in "data-out
+    /// pending" mode and the next bulk-OUT also times out, eventually
+    /// triggering a USB re-enumeration.
     func sendPtpCommand(_ command: Data, outData: Data? = nil) throws -> (inData: Data?, response: Data) {
 
+        // Extract this command's transaction ID for potential CancelTransaction.
+        let txnId: UInt32 = command.count >= 12
+            ? command.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt32.self) }
+            : 0
+
         // ── 1. Send command container ────────────────────────────────────────
-        // ObjC NSError** → Swift throws; `error:` label stripped, BOOL return dropped.
         let cmdBuf = NSMutableData(data: command)
         do {
             try bulkOut.send(cmdBuf, bytesTransferred: nil, timeout: 5.0)
@@ -172,36 +182,63 @@ class UsbPtpTransport {
 
         // ── 2. Optionally send data container ────────────────────────────────
         if let outData = outData {
-            let txn  = command.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt32.self) }
             let code = command.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
             var dc = Data()
             dc.appendLE(UInt32(12 + outData.count))
             dc.appendLE(kPtpContainerData)
             dc.appendLE(code)
-            dc.appendLE(txn)
+            dc.appendLE(txnId)
             dc.append(outData)
             let dataBuf = NSMutableData(data: dc)
             do {
                 try bulkOut.send(dataBuf, bytesTransferred: nil, timeout: 5.0)
             } catch {
+                cancelTransaction(txnId: txnId)
                 throw UsbPtpError.bulkOutFailed(error)
             }
         }
 
         // ── 3. Read first response packet ────────────────────────────────────
-        let first = try readBulkIn()
+        let first: Data
+        do {
+            first = try readBulkIn()
+        } catch {
+            cancelTransaction(txnId: txnId)
+            throw error
+        }
         guard first.count >= 6 else { throw UsbPtpError.shortRead(first.count) }
         let containerType = first.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }
 
         switch containerType {
         case kPtpContainerData:
-            let resp = try readBulkIn()
-            return (inData: Data(first.dropFirst(12)), response: resp)
+            do {
+                let resp = try readBulkIn()
+                return (inData: Data(first.dropFirst(12)), response: resp)
+            } catch {
+                cancelTransaction(txnId: txnId)
+                throw error
+            }
         case kPtpContainerResponse:
             return (inData: nil, response: first)
         default:
             throw UsbPtpError.unexpectedContainer(containerType)
         }
+    }
+
+    /// Issue a PTP CancelTransaction control request to abort an in-flight
+    /// transaction on the camera side, then drain any partially-emitted bytes
+    /// from bulk-IN.  Safe to call after any bulk-OUT or bulk-IN timeout.
+    private func cancelTransaction(txnId: UInt32) {
+        do {
+            try iface.cancelTransactionID(txnId)
+        } catch {
+            // CancelRequest itself failing isn't fatal — the camera may already
+            // have recovered or never received our command.  Log via the caller.
+            return
+        }
+        // Drain any bytes the camera was mid-way through sending; otherwise the
+        // next command's response would read those stale bytes instead.
+        _ = drainBulkIn(timeout: 0.1)
     }
 
     private func readBulkIn() throws -> Data {

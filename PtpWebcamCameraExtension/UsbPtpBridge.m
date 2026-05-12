@@ -224,6 +224,47 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
     return self;
 }
 
+- (BOOL)cancelTransactionID:(uint32_t)txnId
+                      error:(NSError **)error
+{
+    if (!_iface) {
+        if (error) *error = [NSError errorWithDomain:@"IOUSBErrorDomain" code:kIOReturnNotOpen
+                                            userInfo:@{NSLocalizedDescriptionKey:@"interface not open"}];
+        return NO;
+    }
+
+    // PTP Cancel Transaction payload: 6 bytes, little-endian.
+    //   [0..1] cancellation code = 0x4001
+    //   [2..5] transaction ID being cancelled
+    uint8_t payload[6];
+    payload[0] = 0x01;  payload[1] = 0x40;
+    payload[2] = (uint8_t)(txnId      & 0xFF);
+    payload[3] = (uint8_t)(txnId >> 8 & 0xFF);
+    payload[4] = (uint8_t)(txnId >> 16 & 0xFF);
+    payload[5] = (uint8_t)(txnId >> 24 & 0xFF);
+
+    IOUSBDevRequestTO req = {0};
+    req.bmRequestType     = 0x21;   // host-to-device, class, interface
+    req.bRequest          = 0x64;   // PTP Cancel Request
+    req.wValue            = 0;
+    req.wIndex            = 0;      // interface number (filled by ControlRequest)
+    req.wLength           = sizeof(payload);
+    req.pData             = payload;
+    req.noDataTimeout     = 500;    // ms
+    req.completionTimeout = 1000;   // ms
+
+    IOReturn kr = (*_iface)->ControlRequestTO(_iface, /*pipeRef*/0, &req);
+    if (kr != kIOReturnSuccess) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"IOUSBErrorDomain" code:kr
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                                         [NSString stringWithFormat:@"PTP CancelRequest failed 0x%08x", kr]}];
+        }
+        return NO;
+    }
+    return YES;
+}
+
 - (void)close
 {
     if (_iface) {

@@ -127,6 +127,7 @@
 		A1B2C3D4E5F60011A1B2C3D4 /* UsbCanonCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60009A1B2C3D4 /* UsbCanonCamera.swift */; };
 		A1B2C3D4E5F60012A1B2C3D4 /* UsbSonyCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */; };
 		A1B2C3D4E5F60013A1B2C3D4 /* UsbCameraRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */; };
+		A1B2C3D4E5F60020A1B2C3D4 /* UsbPtpCameraBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -474,6 +475,7 @@
 		A1B2C3D4E5F60009A1B2C3D4 /* UsbCanonCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbCanonCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbSonyCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbCameraRegistry.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPtpCameraBase.swift; sourceTree = "<group>"; };
 		DACDC5642B1B877F001F9DFC /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DACDC5662B1B877F001F9DFC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DACDC5672B1B877F001F9DFC /* PtpWebcamCameraExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PtpWebcamCameraExtension.entitlements; sourceTree = "<group>"; };
@@ -911,6 +913,7 @@
 				A1B2C3D4E5F60005A1B2C3D4 /* UsbPtpBridge.h */,
 				A1B2C3D4E5F60006A1B2C3D4 /* UsbPtpBridge.m */,
 				A1B2C3D4E5F60008A1B2C3D4 /* UsbCameraProtocol.swift */,
+				A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */,
 				A1B2C3D4E5F60002A1B2C3D4 /* UsbNikonCamera.swift */,
 				A1B2C3D4E5F60009A1B2C3D4 /* UsbCanonCamera.swift */,
 				A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */,
@@ -1638,6 +1641,7 @@
 								A1B2C3D4E5F60007A1B2C3D4 /* UsbPtpBridge.m in Sources */,
 				A1B2C3D4E5F60003A1B2C3D4 /* UsbPtpTransport.swift in Sources */,
 				A1B2C3D4E5F60010A1B2C3D4 /* UsbCameraProtocol.swift in Sources */,
+				A1B2C3D4E5F60020A1B2C3D4 /* UsbPtpCameraBase.swift in Sources */,
 				A1B2C3D4E5F60004A1B2C3D4 /* UsbNikonCamera.swift in Sources */,
 				A1B2C3D4E5F60011A1B2C3D4 /* UsbCanonCamera.swift in Sources */,
 				A1B2C3D4E5F60012A1B2C3D4 /* UsbSonyCamera.swift in Sources */,

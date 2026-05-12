@@ -31,7 +31,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     // Extension-published camera property state (via Darwin notify slots, multi-page).
     private var propSlotTokens: [Int32] = []
-    private var propCmdToken: Int32 = 0
 
     private var extCameras: [String: ExtCamera] = [:]
 
@@ -126,9 +125,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             darwin_notify_register_check(kDarwinPropertySlotPrefix + "\(i)", &token)
             return token
         }
-        // Property command slot: agent writes SET_PROP command here before posting kDarwinCameraPropertyCmd.
-        darwin_notify_register_check(kDarwinPropertyCmdSlot, &propCmdToken)
-        // Per-camera claim channels are registered on-the-fly in sendClaimCommand.
+        // Per-camera claim and property-command channels are registered on-the-fly
+        // in sendClaimCommand / postPropertyCommand (same vid.pid.crc suffix scheme).
         // Subscribe to property state notifications from extension.
         var propStateToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
@@ -331,6 +329,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         default:     vendor = .unknown
         }
         extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
+                                         vid: vid, pid: pid, serial: serial,
                                          properties: properties, orderedPropertyIds: orderedIds,
                                          vendor: vendor)
         AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(claimKey) props=\(properties.count)")
@@ -370,11 +369,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     // MARK: - Property Command (agent → extension)
 
-    private func postPropertyCommand(propId: UInt32, value: NSNumber) {
+    private func postPropertyCommand(cameraId: String, propId: UInt32, value: NSNumber) {
+        guard let camera = extCameras[cameraId] else {
+            AppDelegate.log("PtpCameraAgent: postPropertyCommand — unknown cameraId \(cameraId)")
+            return
+        }
+        // Route the command to the per-camera channel (same vid.pid.crc suffix
+        // scheme as claim commands). The previous single shared channel sent
+        // every property set to whichever camera happened to be first in the
+        // extension's `usbCameras` dict, which broke multi-camera setups.
+        let crc = crc32OfString(camera.serial) & 0x00FFFFFF
+        let suffix = String(format: "%04x.%04x.%06x", camera.vid, camera.pid, crc)
+        let slotName   = kDarwinPropertyCmdSlot     + "." + suffix
+        let notifyName = kDarwinCameraPropertyCmd   + "." + suffix
         let packed: UInt64 = (UInt64(3) << 56) | (UInt64(propId) << 32) | UInt64(value.uint32Value)
-        darwin_notify_set_state(propCmdToken, packed)
-        darwin_notify_post(kDarwinCameraPropertyCmd)
-        AppDelegate.log("PtpCameraAgent: posted SET_PROP 0x\(String(propId, radix:16)) = \(value)")
+        var slotToken: Int32 = 0
+        darwin_notify_register_check(slotName, &slotToken)
+        darwin_notify_set_state(slotToken, packed)
+        darwin_notify_post(notifyName)
+        notify_cancel(slotToken)
+        AppDelegate.log("PtpCameraAgent: posted SET_PROP 0x\(String(propId, radix:16)) = \(value) on \(camera.name) (\(cameraId))")
     }
 
     // MARK: - Live View Command Handling (extension → agent)
@@ -685,6 +699,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                                      camera: ExtCamera, vendor: CameraVendor = .unknown,
                                      parentItem: NSMenuItem? = nil) -> NSMenu? {
         guard prop.writable else { return nil }
+        // Some cameras (notably Sony A7) report intrinsically read-only sensor
+        // properties as writable in GetAllPropData. Suppress submenu building
+        // for the known-physical-read-only set so they don't get sliders.
+        if intrinsicallyReadOnlyProps.contains(propId) { return nil }
 
         // Grid view for WB fine-tune matrix properties (only for the known 0-168 / 0-1224 encodings).
         if nikonWbTuneIds.contains(propId),
@@ -752,7 +770,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         grid.rangeMax  = rangeMax
         grid.currentValue = prop.value.intValue
         grid.onValueSelected = { [weak self] val in
-            self?.postPropertyCommand(propId: propId, value: NSNumber(value: val))
+            self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
         }
         let gridItem = NSMenuItem()
         gridItem.view = grid
@@ -769,7 +787,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                                     parentItem: NSMenuItem? = nil) -> NSMenu {
         let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
         let holder = SliderActionHolder(propId: propId, rangeMin: rMin, rangeStep: rStep) {
-            [weak self] val in self?.postPropertyCommand(propId: propId, value: NSNumber(value: val))
+            [weak self] val in self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
         }
         if let parentItem {
             holder.onDisplay = { [weak self, weak parentItem] val in
@@ -810,7 +828,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         if let change = sender.representedObject as? PropertyChangeInfo {
             change.camera.setProperty(change.propertyId, value: change.value)
         } else if let change = sender.representedObject as? ExtPropertyChangeInfo {
-            postPropertyCommand(propId: change.propertyId, value: change.value)
+            postPropertyCommand(cameraId: change.cameraId, propId: change.propertyId, value: change.value)
         }
     }
 
@@ -1095,6 +1113,9 @@ struct ExtCamera {
     let cameraId: String
     let name: String
     let claimKey: String
+    let vid: UInt16
+    let pid: UInt16
+    let serial: String
     var properties: [UInt32: ExtCameraProperty]
     let orderedPropertyIds: [UInt32]
     let vendor: CameraVendor
@@ -1145,6 +1166,18 @@ class SliderActionHolder: NSObject {
 private let nikonWbTuneIds: Set<UInt32> = [
     0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
     0xD150, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
+]
+
+// Properties that are intrinsically read-only sensor readings, even if the
+// camera reports them as writable in its property descriptor. Sony A7 in
+// particular flags battery / focal length / focus-found as "writable" in
+// GetAllPropData; the menu must not build a submenu (slider, enum, etc.) for
+// these or the user gets a misleading control that can't actually be applied.
+private let intrinsicallyReadOnlyProps: Set<UInt32> = [
+    0x5001,   // Standard PTP Battery Level
+    0x5008,   // Standard PTP Focal Length
+    0xD213,   // Sony Focus Found (sensor)
+    0xD218,   // Sony Battery Level
 ]
 
 // WB mode value → list of sub-property IDs shown below that value's menu item.
