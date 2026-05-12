@@ -87,86 +87,8 @@ private let nikonUiPropertyIds: [UInt16] = [
     0xD150,  // WB Color Temp Tune
 ]
 
-// MARK: - NikonDiscoveredProperty
-
-struct NikonDiscoveredProperty {
-    let propertyId: UInt16
-    let dataType: UInt16
-    let writable: Bool
-    let value: NSNumber
-    let enumValues: [NSNumber]?
-    let rangeMin: NSNumber?
-    let rangeMax: NSNumber?
-    let rangeStep: NSNumber?
-}
-
-// MARK: - PropParser (minimal PTP data parser, no ImageCapture dependency)
-
-private class PropParser {
-    private let data: Data
-    private var offset: Int = 0
-
-    init(_ data: Data) { self.data = data }
-
-    func readU8() -> UInt8? {
-        guard offset + 1 <= data.count else { return nil }
-        let v = data[offset]; offset += 1; return v
-    }
-    func readU16() -> UInt16? {
-        guard offset + 2 <= data.count else { return nil }
-        let v = UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
-        offset += 2; return v
-    }
-    func readU32() -> UInt32? {
-        guard offset + 4 <= data.count else { return nil }
-        var v: UInt32 = 0
-        for i in 0..<4 { v |= UInt32(data[offset + i]) << (i * 8) }
-        offset += 4; return v
-    }
-    func readNum(ofType dt: UInt16) -> NSNumber? {
-        switch dt {
-        case 1: return readU8().map  { NSNumber(value: Int8(bitPattern: $0)) }
-        case 2: return readU8().map  { NSNumber(value: $0) }
-        case 3: return readU16().map { NSNumber(value: Int16(bitPattern: $0)) }
-        case 4: return readU16().map { NSNumber(value: $0) }
-        case 5: return readU32().map { NSNumber(value: Int32(bitPattern: $0)) }
-        case 6: return readU32().map { NSNumber(value: $0) }
-        default: return nil
-        }
-    }
-    func skip(type dt: UInt16) {
-        _ = readNum(ofType: dt)
-    }
-
-    // PTP string: 1-byte char count (including null terminator), then count × UTF-16LE chars.
-    @discardableResult
-    func skipPtpString() -> Bool {
-        guard let charCount = readU8() else { return false }
-        guard offset + Int(charCount) * 2 <= data.count else { return false }
-        offset += Int(charCount) * 2
-        return true
-    }
-
-    // PTP array: UInt32 count, followed by count elements of the given data type (1=u8, 2=u8, 4=u16, 6=u32).
-    func readU16Array() -> [UInt16]? {
-        guard let count = readU32() else { return nil }
-        var result: [UInt16] = []
-        result.reserveCapacity(Int(count))
-        for _ in 0..<count {
-            guard let v = readU16() else { return nil }
-            result.append(v)
-        }
-        return result
-    }
-
-    // Skip a PTP array of fixed-width elements (elementSize in bytes: 1, 2, or 4).
-    func skipArray(elementSize: Int) {
-        guard let count = readU32() else { return }
-        let skip = Int(count) * elementSize
-        guard offset + skip <= data.count else { return }
-        offset += skip
-    }
-}
+// NikonDiscoveredProperty is now UsbCameraProperty (defined in UsbCameraProtocol.swift).
+// PtpPropParser replaces PropParser (defined in UsbCameraProtocol.swift).
 
 // MARK: - UsbNikonCamera
 
@@ -178,7 +100,7 @@ private class PropParser {
 ///   startLiveView()           — call when CMIO streaming begins
 ///   stopLiveView()            — call when CMIO streaming stops (session stays open)
 ///   close()                   — call at camera disconnect (closes session + transport)
-final class UsbNikonCamera {
+final class UsbNikonCamera: UsbCameraProtocol {
 
     private let transport: UsbPtpTransport
     private let headerLen: Int
@@ -197,7 +119,7 @@ final class UsbNikonCamera {
 
     // Pending property-set commands. Appended from any thread under pendingLock;
     // drained on the camera queue between live view frames (or immediately when not streaming).
-    private struct PendingSet { let propId: UInt16; let value: UInt32; let dataType: UInt16 }
+    private struct PendingSet { let propId: UInt32; let value: UInt32; let dataType: UInt16 }
     private var pendingSets: [PendingSet] = []
     private let pendingLock = NSLock()
 
@@ -205,7 +127,7 @@ final class UsbNikonCamera {
     var onJpegFrame: ((Data) -> Void)?
 
     // Called on queue after property discovery completes (and after each setProperty).
-    var onPropertiesDiscovered: (([UInt16: NikonDiscoveredProperty]) -> Void)?
+    var onPropertiesDiscovered: (([UInt32: UsbCameraProperty]) -> Void)?
 
     init(transport: UsbPtpTransport) {
         self.transport = transport
@@ -295,7 +217,7 @@ final class UsbNikonCamera {
         let discovered = discoverAllProperties()
         if !discovered.isEmpty {
             cameraLog.fault("UsbNikonCamera: discovered \(discovered.count, privacy: .public) properties")
-            onPropertiesDiscovered?(discovered)
+            onPropertiesDiscovered?(discovered)  // keys are UInt32
         }
     }
 
@@ -349,56 +271,64 @@ final class UsbNikonCamera {
         cameraLog.fault("UsbNikonCamera: entering live view loop (cmd=0x\(String(lvCmd, radix:16), privacy: .public) headerLen=\(lvHeaderLen, privacy: .public))")
         let targetInterval: TimeInterval = 1.0 / 30.0
         var frameCount = 0
+        var pollCounter = 0
         var notLiveViewCount = 0
 
         while !stopLv && !closing {
-            // Execute any queued property-set commands before the next frame.
-            drainPendingSets()
-            if stopLv || closing { break }
+            autoreleasepool {
+                // Execute any queued property-set commands before the next frame.
+                drainPendingSets()
+                guard !stopLv && !closing else { return }
 
-            let frameStart = Date()
+                // Poll interrupt-IN for PTP_EVENT_DEVICEPROPCHANGED events every ~5 frames.
+                pollCounter += 1
+                if pollCounter % 5 == 0 { pollInterruptEvents() }
 
-            do {
-                let cmd = transport.buildCommand(code: lvCmd)
-                let (inData, rsp) = try transport.sendPtpCommand(cmd)
-                let rspCode = transport.responseCode(from: rsp)
+                let frameStart = Date()
 
-                if rspCode == PTP_RSP_NIKON_NOTLIVEVIEW {
-                    notLiveViewCount += 1
-                    if notLiveViewCount > 20 {
-                        cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW after \(notLiveViewCount, privacy: .public) restarts — giving up")
-                        return
-                    }
-                    cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW — restarting (\(notLiveViewCount, privacy: .public))")
-                    restartLiveView()
-                    continue
-                }
+                do {
+                    let cmd = transport.buildCommand(code: lvCmd)
+                    let (inData, rsp) = try transport.sendPtpCommand(cmd)
+                    let rspCode = transport.responseCode(from: rsp)
 
-                if let data = inData, data.count > lvHeaderLen {
-                    if let jpeg = extractJpeg(from: data) {
-                        frameCount += 1
-                        if frameCount == 1 || frameCount == 10 || frameCount % 150 == 0 {
-                            cameraLog.fault("UsbNikonCamera: frame #\(frameCount, privacy: .public) \(jpeg.count, privacy: .public)B → CMIO")
+                    if rspCode == PTP_RSP_NIKON_NOTLIVEVIEW {
+                        notLiveViewCount += 1
+                        if notLiveViewCount > 20 {
+                            cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW after \(notLiveViewCount, privacy: .public) restarts — giving up")
+                            stopLv = true
+                            return
                         }
-                        onJpegFrame?(jpeg)
-                    } else {
-                        cameraLog.fault("UsbNikonCamera: no JPEG found in \(data.count, privacy: .public)B frame")
+                        cameraLog.fault("UsbNikonCamera: NOTLIVEVIEW — restarting (\(notLiveViewCount, privacy: .public))")
+                        restartLiveView()
+                        return  // next iteration will retry
                     }
-                } else if inData == nil && rspCode == PTP_RSP_DEVICEBUSY {
-                    Thread.sleep(forTimeInterval: 0.033)
-                } else if let data = inData {
-                    cameraLog.fault("UsbNikonCamera: frame too small (\(data.count, privacy: .public)B, lvHeaderLen=\(lvHeaderLen, privacy: .public))")
-                }
-            } catch {
-                if !stopLv && !closing {
-                    cameraLog.fault("UsbNikonCamera: GETLIVEVIEWIMG error: \(String(describing: error), privacy: .public) — pausing")
-                    Thread.sleep(forTimeInterval: 0.5)
-                }
-            }
 
-            let elapsed = -frameStart.timeIntervalSinceNow
-            let remaining = targetInterval - elapsed
-            if remaining > 0.001 { Thread.sleep(forTimeInterval: remaining) }
+                    if let data = inData, data.count > lvHeaderLen {
+                        if let jpeg = extractJpegFromLiveViewData(data) {
+                            frameCount += 1
+                            if frameCount == 1 || frameCount == 10 || frameCount % 150 == 0 {
+                                cameraLog.fault("UsbNikonCamera: frame #\(frameCount, privacy: .public) \(jpeg.count, privacy: .public)B → CMIO")
+                            }
+                            onJpegFrame?(jpeg)
+                        } else {
+                            cameraLog.fault("UsbNikonCamera: no JPEG found in \(data.count, privacy: .public)B frame")
+                        }
+                    } else if inData == nil && rspCode == PTP_RSP_DEVICEBUSY {
+                        Thread.sleep(forTimeInterval: 0.033)
+                    } else if let data = inData {
+                        cameraLog.fault("UsbNikonCamera: frame too small (\(data.count, privacy: .public)B, lvHeaderLen=\(lvHeaderLen, privacy: .public))")
+                    }
+                } catch {
+                    if !stopLv && !closing {
+                        cameraLog.fault("UsbNikonCamera: GETLIVEVIEWIMG error: \(String(describing: error), privacy: .public) — pausing")
+                        Thread.sleep(forTimeInterval: 0.5)
+                    }
+                }
+
+                let elapsed = -frameStart.timeIntervalSinceNow
+                let remaining = targetInterval - elapsed
+                if remaining > 0.001 { Thread.sleep(forTimeInterval: remaining) }
+            }
         }
 
         cameraLog.fault("UsbNikonCamera: LV loop exited (stopLv=\(self.stopLv, privacy: .public) closing=\(self.closing, privacy: .public))")
@@ -454,7 +384,7 @@ final class UsbNikonCamera {
             return nikonUiPropertyIds
         }
 
-        let p = PropParser(data)
+        let p = PtpPropParser(data)
         _ = p.readU16()              // standard version
         _ = p.readU32()              // vendor extension ID
         _ = p.readU16()              // vendor extension version
@@ -482,7 +412,7 @@ final class UsbNikonCamera {
             if let (vData, vRsp) = try? transport.sendPtpCommand(vcmd),
                transport.responseCode(from: vRsp) == PTP_RSP_OK,
                let vd = vData, vd.count >= 4 {
-                let vp = PropParser(vd)
+                let vp = PtpPropParser(vd)
                 if let vendorProps = vp.readU16Array() {
                     allProps.append(contentsOf: vendorProps)
                     cameraLog.fault("UsbNikonCamera: GetVendorProps — \(vendorProps.count, privacy: .public) additional props")
@@ -494,7 +424,7 @@ final class UsbNikonCamera {
                transport.responseCode(from: vRsp) == PTP_RSP_OK,
                let vd = vData, vd.count >= 4 {
                 // GetVendorCodes returns UInt32 count + UInt32 entries
-                let vp = PropParser(vd)
+                let vp = PtpPropParser(vd)
                 if let count = vp.readU32() {
                     var vendorProps: [UInt16] = []
                     for _ in 0..<count {
@@ -513,77 +443,36 @@ final class UsbNikonCamera {
         return unique
     }
 
-    private func discoverAllProperties() -> [UInt16: NikonDiscoveredProperty] {
+    private func discoverAllProperties() -> [UInt32: UsbCameraProperty] {
         let propertyIds = querySupportedPropertyIds()
-        var result: [UInt16: NikonDiscoveredProperty] = [:]
+        var result: [UInt32: UsbCameraProperty] = [:]
         for pid in propertyIds {
             if closing { break }
             if let prop = discoverSingleProperty(pid) {
-                result[pid] = prop
+                result[UInt32(pid)] = prop
             }
         }
         return result
     }
 
-    private func discoverSingleProperty(_ propId: UInt16) -> NikonDiscoveredProperty? {
+    private func discoverSingleProperty(_ propId: UInt16) -> UsbCameraProperty? {
         let cmd = transport.buildCommand(code: PTP_CMD_GETPROPDESC, parameters: [UInt32(propId)])
-        guard let (inData, rsp) = try? transport.sendPtpCommand(cmd) else { return nil }
-        guard transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData else { return nil }
-        return parsePropDesc(data)
-    }
-
-    private func parsePropDesc(_ data: Data) -> NikonDiscoveredProperty? {
-        let p = PropParser(data)
-        guard let propId   = p.readU16(),
-              let dataType = p.readU16(),
-              let rwFlag   = p.readU8() else { return nil }
-        p.skip(type: dataType)                      // default value
-        guard let currentValue = p.readNum(ofType: dataType) else { return nil }
-        guard let formFlag = p.readU8() else { return nil }
-
-        var enumValues: [NSNumber]?
-        var rangeMin: NSNumber?
-        var rangeMax: NSNumber?
-        var rangeStep: NSNumber?
-
-        if formFlag == 0x01 {
-            rangeMin  = p.readNum(ofType: dataType)
-            rangeMax  = p.readNum(ofType: dataType)
-            rangeStep = p.readNum(ofType: dataType)
-            // Synthesize enum values for writable range-form properties with ≤64 steps,
-            // so the menu can show a submenu of choices rather than a non-interactive item.
-            if rwFlag != 0, let mn = rangeMin, let mx = rangeMax, let st = rangeStep {
-                let minD = mn.doubleValue; let maxD = mx.doubleValue; let stepD = st.doubleValue
-                if stepD > 0 {
-                    let count = Int((maxD - minD) / stepD) + 1
-                    if count >= 2 && count <= 64 {
-                        var synth: [NSNumber] = []
-                        for i in 0..<count {
-                            let v = minD + Double(i) * stepD
-                            synth.append(NSNumber(value: v))
-                        }
-                        enumValues = synth
-                    }
-                }
-            }
-        } else if formFlag == 0x02 {
-            guard let count = p.readU16() else { return nil }
-            var values: [NSNumber] = []
-            for _ in 0..<count {
-                if let v = p.readNum(ofType: dataType) { values.append(v) }
-            }
-            enumValues = values
+        guard let (inData, rsp) = try? transport.sendPtpCommand(cmd) else {
+            cameraLog.fault("UsbNikonCamera: GetDevicePropDesc 0x\(String(propId, radix:16), privacy: .public) — transport error")
+            return nil
         }
-
-        return NikonDiscoveredProperty(
-            propertyId: propId, dataType: dataType, writable: rwFlag != 0,
-            value: currentValue, enumValues: enumValues,
-            rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep)
+        let code = transport.responseCode(from: rsp)
+        guard code == PTP_RSP_OK, let data = inData else {
+            cameraLog.fault("UsbNikonCamera: GetDevicePropDesc 0x\(String(propId, radix:16), privacy: .public) — rsp=0x\(String(code, radix:16), privacy: .public) inData=\(inData != nil, privacy: .public)")
+            return nil
+        }
+        guard let prop = PtpPropParser(data).parsePropDesc() else {
+            cameraLog.fault("UsbNikonCamera: GetDevicePropDesc 0x\(String(propId, radix:16), privacy: .public) — parsePropDesc returned nil (dataLen=\(data.count, privacy: .public))")
+            return nil
+        }
+        return prop
     }
 
-    /// Set a camera property. Safe to call at any time, including during live view:
-    /// the command is enqueued and executed between the next live view frame.
-    /// Set a property synchronously on the camera queue. Only call from within the camera queue.
     private func setPropertyDirect(propId: UInt16, value: UInt32, dataType: UInt16) {
         var outData = Data()
         switch dataType {
@@ -598,7 +487,7 @@ final class UsbNikonCamera {
         _ = try? transport.sendPtpCommand(cmd, outData: outData)
     }
 
-    func setProperty(propId: UInt16, value: UInt32, dataType: UInt16) {
+    func setProperty(propId: UInt32, value: UInt32, dataType: UInt16) {
         pendingLock.lock()
         pendingSets.append(PendingSet(propId: propId, value: value, dataType: dataType))
         pendingLock.unlock()
@@ -627,16 +516,32 @@ final class UsbNikonCamera {
             case 6:  outData.appendLE(cmd.value)
             default: outData.appendLE(UInt16(cmd.value & 0xFFFF))
             }
-            let ptpCmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL, parameters: [UInt32(cmd.propId)])
+            let ptpCmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL, parameters: [cmd.propId])
             do {
                 let (_, rsp) = try transport.sendPtpCommand(ptpCmd, outData: outData)
                 let code = transport.responseCode(from: rsp)
                 cameraLog.fault("UsbNikonCamera: setProperty 0x\(String(cmd.propId, radix:16), privacy: .public) = \(cmd.value, privacy: .public) → 0x\(String(code, radix:16), privacy: .public)")
-                if code == PTP_RSP_OK, let updated = discoverSingleProperty(cmd.propId) {
+                let propId16 = UInt16(cmd.propId & 0xFFFF)
+                if code == PTP_RSP_OK, let updated = discoverSingleProperty(propId16) {
                     onPropertiesDiscovered?([cmd.propId: updated])
                 }
             } catch {
                 cameraLog.fault("UsbNikonCamera: setProperty error: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: - Interrupt event polling (Nikon DEVICEPROPCHANGED)
+
+    private func pollInterruptEvents() {
+        while let eventData = transport.readInterruptEvent(timeout: 0.01) {
+            guard eventData.count >= 16 else { continue }
+            let eventCode = eventData.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+            guard eventCode == 0x4006 else { continue }  // PTP_EVENT_DEVICEPROPCHANGED
+            let propId16 = eventData.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt16.self) }
+            cameraLog.fault("UsbNikonCamera: DEVICEPROPCHANGED 0x\(String(propId16, radix:16), privacy: .public)")
+            if let prop = discoverSingleProperty(propId16) {
+                onPropertiesDiscovered?([UInt32(propId16): prop])
             }
         }
     }
@@ -652,60 +557,47 @@ final class UsbNikonCamera {
         cameraLog.fault("UsbNikonCamera: transport closed")
     }
 
-    // MARK: - JPEG extraction
-
-    /// Finds the last SOI…EOI region in the live view data blob.
-    private func extractJpeg(from data: Data) -> Data? {
-        let soi = Data([0xFF, 0xD8])
-        let eoi = Data([0xFF, 0xD9])
-
-        var lastSoi: Data.Index? = nil
-        var search = data.startIndex
-        while let r = data.range(of: soi, in: search ..< data.endIndex) {
-            lastSoi = r.lowerBound
-            search  = r.upperBound
-        }
-        guard let start = lastSoi else { return nil }
-        let afterSoi = data.index(start, offsetBy: 2)
-        guard afterSoi < data.endIndex else { return nil }
-        guard let eoiRange = data.range(of: eoi, in: afterSoi ..< data.endIndex) else { return nil }
-        return data[start ..< eoiRange.upperBound]
-    }
 }
 
 // MARK: - JPEG → CVPixelBuffer
 
 /// Decode JPEG into a 32-BGRA CVPixelBuffer at the JPEG's native dimensions.
 /// No scaling or stretching — aspect ratio is preserved exactly.
-func jpegToPixelBuffer(_ jpegData: Data) -> CVPixelBuffer? {
-    guard let src = CGImageSourceCreateWithData(jpegData as CFData, nil),
-          let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+/// Decode a JPEG into a pre-allocated CVPixelBuffer (pool-allocated, any size).
+/// CG scales the image to fill the buffer dimensions.
+/// Must be called inside an autoreleasepool to ensure CG objects are released promptly.
+func jpegIntoPixelBuffer(_ jpegData: Data) -> CVPixelBuffer? {
+    // Disable ImageIO's global decoded-pixel cache. Without this every frame's
+    // decoded image data is retained in a process-wide cache and memory grows
+    // continuously at ~30 fps. kCGImageSourceShouldCache controls the source-level
+    // cache; kCGImageSourceShouldCacheImmediately controls the per-image cache.
+    let sourceOpts = [kCGImageSourceShouldCache: false] as CFDictionary
+    let imageOpts  = [kCGImageSourceShouldCacheImmediately: false] as CFDictionary
+    guard let src = CGImageSourceCreateWithData(jpegData as CFData, sourceOpts),
+          let cgImage = CGImageSourceCreateImageAtIndex(src, 0, imageOpts) else { return nil }
 
-    let width = cgImage.width
+    let width  = cgImage.width
     let height = cgImage.height
+    guard width > 0, height > 0 else { return nil }
 
-    var pb: CVPixelBuffer?
-    let attrs: [String: Any] = [
-        kCVPixelBufferIOSurfacePropertiesKey as String: [:],
-        kCVPixelBufferWidthKey as String: width,
-        kCVPixelBufferHeightKey as String: height,
-    ]
+    var pixelBuffer: CVPixelBuffer?
     CVPixelBufferCreate(kCFAllocatorDefault, width, height,
                         kCVPixelFormatType_32BGRA,
-                        attrs as CFDictionary, &pb)
-    guard let pixelBuffer = pb else { return nil }
+                        [kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary,
+                        &pixelBuffer)
+    guard let pixelBuffer = pixelBuffer else { return nil }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, [])
     defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
 
     guard let ctx = CGContext(
-        data:              CVPixelBufferGetBaseAddress(pixelBuffer),
-        width:             width,
-        height:            height,
-        bitsPerComponent:  8,
-        bytesPerRow:       CVPixelBufferGetBytesPerRow(pixelBuffer),
-        space:             CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo:        CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        data:             CVPixelBufferGetBaseAddress(pixelBuffer),
+        width:            width,
+        height:           height,
+        bitsPerComponent: 8,
+        bytesPerRow:      CVPixelBufferGetBytesPerRow(pixelBuffer),
+        space:            CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo:       CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
     ) else { return nil }
 
     ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))

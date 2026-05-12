@@ -32,8 +32,6 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 	private let _timerQueue = DispatchQueue(label: "timerQueue", qos: .userInteractive, attributes: [], autoreleaseFrequency: .workItem, target: .global(qos: .userInteractive))
 
 	private var _videoDescription: CMFormatDescription!
-	private var _bufferPool: CVPixelBufferPool!
-	private var _bufferAuxAttributes: NSDictionary!
 
 	private var _whiteStripeStartRow: UInt32 = 0
 	private var _whiteStripeIsAscending: Bool = false
@@ -66,16 +64,7 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 		let dims = CMVideoDimensions(width: 1920, height: 1080)
 		CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: kCVPixelFormatType_32BGRA, width: dims.width, height: dims.height, extensions: nil, formatDescriptionOut: &_videoDescription)
 
-		let pixelBufferAttributes: NSDictionary = [
-			kCVPixelBufferWidthKey: dims.width,
-			kCVPixelBufferHeightKey: dims.height,
-			kCVPixelBufferPixelFormatTypeKey: _videoDescription.mediaSubType,
-			kCVPixelBufferIOSurfacePropertiesKey: [:] as NSDictionary
-		]
-		CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, pixelBufferAttributes, &_bufferPool)
-
 		let videoStreamFormat = CMIOExtensionStreamFormat(formatDescription: _videoDescription, maxFrameDuration: CMTime(value: 1, timescale: Int32(kFrameRate)), minFrameDuration: CMTime(value: 1, timescale: Int32(kFrameRate)), validFrameDurations: nil)
-		_bufferAuxAttributes = [kCVPixelBufferPoolAllocationThresholdKey: 5]
 
 		let videoID = UUID()
 		_streamSource = PtpWebcamCameraExtensionStreamSource(localizedName: "\(localizedName) Video", streamID: videoID, streamFormat: videoStreamFormat, device: device)
@@ -105,7 +94,6 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 	}
 
 	func startStreaming() {
-		guard _bufferPool != nil else { return }
 		_streamingCounter += 1
 		if _streamingCounter == 1 {
 			onStreamingStarted?()
@@ -124,30 +112,22 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 		}
 	}
 
-	// Allocate a CVPixelBuffer from the pool for live view frames.
-	func createPixelBuffer() -> CVPixelBuffer? {
-		guard _bufferPool != nil else { return nil }
-		var pb: CVPixelBuffer?
-		let err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
-			kCFAllocatorDefault, _bufferPool, _bufferAuxAttributes, &pb)
-		guard err == kCVReturnSuccess else { return nil }
-		return pb
-	}
-
-	// Send a live-view frame to CMIO, deriving format description from actual pixel buffer dimensions.
+	// Send a live-view frame to CMIO.
+	// The format description is derived from the pixel buffer itself so any camera
+	// resolution is accepted without reconfiguring a pool or cached descriptor.
 	func sendLiveViewFrame(_ pixelBuffer: CVPixelBuffer) {
 		guard _streamingCounter > 0 else { return }
 
-		var formatDesc: CMVideoFormatDescription?
-		CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDesc)
-		guard let fd = formatDesc else { return }
+		var fmtDesc: CMVideoFormatDescription?
+		CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &fmtDesc)
+		guard let fmtDesc = fmtDesc else { return }
 
 		var timingInfo = CMSampleTimingInfo()
 		timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock())
 		var sbuf: CMSampleBuffer?
 		let err = CMSampleBufferCreateForImageBuffer(
 			allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, dataReady: true,
-			makeDataReadyCallback: nil, refcon: nil, formatDescription: fd,
+			makeDataReadyCallback: nil, refcon: nil, formatDescription: fmtDesc,
 			sampleTiming: &timingInfo, sampleBufferOut: &sbuf)
 		if err == 0, let sbuf = sbuf {
 			_streamSource.stream.send(sbuf, discontinuity: [],
@@ -169,7 +149,11 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 	private func sendDemoFrame() {
 		var err: OSStatus = 0
 		var pixelBuffer: CVPixelBuffer?
-		err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, _bufferPool, _bufferAuxAttributes, &pixelBuffer)
+		let dims = CMVideoFormatDescriptionGetDimensions(_videoDescription)
+		CVPixelBufferCreate(kCFAllocatorDefault, Int(dims.width), Int(dims.height),
+			kCVPixelFormatType_32BGRA,
+			[kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary,
+			&pixelBuffer)
 		guard err == 0, let pixelBuffer = pixelBuffer else { return }
 
 		CVPixelBufferLockBaseAddress(pixelBuffer, [])
@@ -205,11 +189,14 @@ class PtpWebcamCameraExtensionDeviceSource: NSObject, CMIOExtensionDeviceSource 
 
 		CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
 
-		var sbuf: CMSampleBuffer!
+		var fmtDesc: CMVideoFormatDescription?
+		CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &fmtDesc)
+		guard let fmtDesc = fmtDesc else { return }
+		var sbuf: CMSampleBuffer?
 		var timingInfo = CMSampleTimingInfo()
 		timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock())
-		err = CMSampleBufferCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, dataReady: true, makeDataReadyCallback: nil, refcon: nil, formatDescription: _videoDescription, sampleTiming: &timingInfo, sampleBufferOut: &sbuf)
-		if err == 0 {
+		err = CMSampleBufferCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, dataReady: true, makeDataReadyCallback: nil, refcon: nil, formatDescription: fmtDesc, sampleTiming: &timingInfo, sampleBufferOut: &sbuf)
+		if err == 0, let sbuf = sbuf {
 			_streamSource.stream.send(sbuf, discontinuity: [], hostTimeInNanoseconds: UInt64(timingInfo.presentationTimeStamp.seconds * Double(NSEC_PER_SEC)))
 		}
 	}
@@ -302,13 +289,13 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	}
 
 	// USB cameras keyed by cameraId — opened on claim.
-	private var usbCameras: [String: UsbNikonCamera] = [:]
+	private var usbCameras: [String: any UsbCameraProtocol] = [:]
 
 	// Camera IDs that received a streaming-start request before the USB camera was ready.
 	private var pendingLiveViewStart: Set<String> = []
 
 	// Discovered camera properties keyed by cameraId, then by propertyId.
-	private var cameraProperties: [String: [UInt16: NikonDiscoveredProperty]] = [:]
+	private var cameraProperties: [String: [UInt32: UsbCameraProperty]] = [:]
 
 	// VID, PID, serial keyed by cameraId — populated at IOKit attach time.
 	private var cameraIdentity: [String: (vid: UInt16, pid: UInt16, serial: String)] = [:]
@@ -449,7 +436,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		var packed: UInt64 = 0
 		darwin_notify_get_state(propCmdToken, &packed)
 		let cmd    = UInt8((packed >> 56) & 0xFF)
-		let propId = UInt16((packed >> 32) & 0xFFFF)
+		let propId = UInt32((packed >> 32) & 0xFFFF)
 		let value  = UInt32(packed & 0xFFFFFFFF)
 
 		guard cmd == 3 else {
@@ -611,11 +598,17 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			return
 		}
 
-		let camera = UsbNikonCamera(transport: t)
+		guard let camera = UsbCameraRegistry.makeCamera(transport: t) else {
+			PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: unsupported vendor 0x\(String(t.vendorId, radix:16)) — closing transport")
+			t.close()
+			return
+		}
 		camera.onJpegFrame = { [weak deviceSource] jpegData in
 			guard let ds = deviceSource else { return }
-			if let pb = jpegToPixelBuffer(jpegData) {
-				ds.sendLiveViewFrame(pb)
+			autoreleasepool {
+				if let pb = jpegIntoPixelBuffer(jpegData) {
+					ds.sendLiveViewFrame(pb)
+				}
 			}
 		}
 		camera.onPropertiesDiscovered = { [weak self] discovered in

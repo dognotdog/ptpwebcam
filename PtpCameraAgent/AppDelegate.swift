@@ -323,8 +323,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         }
 
         let name = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
+        let vendor: CameraVendor
+        switch vid {
+        case 0x04B0: vendor = .nikon
+        case 0x054C: vendor = .sony
+        case 0x04A9: vendor = .canon
+        default:     vendor = .unknown
+        }
         extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
-                                         properties: properties, orderedPropertyIds: orderedIds)
+                                         properties: properties, orderedPropertyIds: orderedIds,
+                                         vendor: vendor)
         AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(claimKey) props=\(properties.count)")
 
         // Auto-claim if this camera was previously claimed and the session isn't open yet.
@@ -583,10 +591,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             return
         }
 
-        // Curated ordered list matching old DAL plugin uiPtpProperties for Nikon.
+        let vendor  = camera.vendor
+        let isNikon = vendor == .nikon
+        let isSony  = vendor == .sony
+
         // nil entries become separators (deferred so trailing/double separators are skipped).
-        // WB tune sub-properties (0xD017–0xD150) are NOT listed here — they appear as
-        // sub-menus inside the WB mode value items instead.
         let nikonUiList: [UInt32?] = [
             0x5001,   // Battery Level
             0x5008,   // Focal Length
@@ -612,18 +621,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             0xD1AC,   // Live Image Size
         ]
 
-        // Still/video mode filtering (matches currentUiPtpProperties in old Nikon DAL plugin).
-        let movieOnlyProps: Set<UInt32> = [0xD1A9, 0xD1A8, 0xD1AB]
-        let stillOnlyProps: Set<UInt32> = [0x5007, 0xD100, 0x5010]
+        // Sony UI property list mirrors PtpCameraSony.uiProperties.
+        // WB tune offsets (0xD210, 0xD21C) appear as sub-items after 0x5005.
+        let sonyUiList: [UInt32?] = [
+            0x5001,   // Battery Level
+            0xD218,   // Sony Battery Level
+            nil,
+            0x500E,   // Exposure Program
+            0x5007,   // Aperture
+            0x500F,   // ISO
+            0xD21E,   // Sony ISO
+            0xD20D,   // Sony Shutter Speed
+            nil,
+            0x5005,   // White Balance
+            0xD20F,   // WB Color Temp (Kelvin)
+            0xD210,   // WB Tune Green–Magenta
+            0xD21C,   // WB Tune Amber–Blue
+            nil,
+            0x5010,   // Exposure Bias
+            0x500A,   // Focus Mode
+        ]
+
+        let uiList = isSony ? sonyUiList : nikonUiList
+
+        // Still/video mode filtering (Nikon only; not needed for Sony).
+        let movieOnlyProps: Set<UInt32> = isNikon ? [0xD1A9, 0xD1A8, 0xD1AB] : []
+        let stillOnlyProps: Set<UInt32> = isNikon ? [0x5007, 0xD100, 0x5010] : []
         var inVideoMode: Bool? = nil
-        if let lvSelector = camera.properties[0xD1A6] {
+        if isNikon, let lvSelector = camera.properties[0xD1A6] {
             inVideoMode = lvSelector.value.uint32Value == 1
         }
 
         var pendingSeparator = false
         var addedAny = false
 
-        for entry in nikonUiList {
+        for entry in uiList {
             guard let propId = entry else {
                 if addedAny { pendingSeparator = true }
                 continue
@@ -639,9 +671,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             addedAny = true
 
             let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
-            let valueStr = formatExtPropValue(prop)
+            let valueStr = formatExtPropValue(prop, vendor: vendor)
             let item = NSMenuItem(title: "  \(displayName): \(valueStr)", action: nil, keyEquivalent: "")
-            item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera)
+            item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera, vendor: vendor, parentItem: item)
             menu.addItem(item)
         }
 
@@ -650,12 +682,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // Build the appropriate submenu for a writable ext-camera property.
     // Priority: grid (WB tune) → enum (with optional WB sub-props) → slider (range, no enum).
     private func buildExtPropSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
-                                     camera: ExtCamera) -> NSMenu? {
+                                     camera: ExtCamera, vendor: CameraVendor = .unknown,
+                                     parentItem: NSMenuItem? = nil) -> NSMenu? {
         guard prop.writable else { return nil }
 
-        // Grid view for WB fine-tune matrix properties.
+        // Grid view for WB fine-tune matrix properties (only for the known 0-168 / 0-1224 encodings).
         if nikonWbTuneIds.contains(propId),
-           let rMin = prop.rangeMin, let rMax = prop.rangeMax {
+           let rMin = prop.rangeMin, let rMax = prop.rangeMax,
+           rMin.intValue == 0, rMax.intValue == 168 || rMax.intValue == 1224 {
             return buildWbTuneGridSubmenu(prop, propId: propId, cameraId: camera.cameraId,
                                          rangeMin: rMin.intValue, rangeMax: rMax.intValue)
         }
@@ -664,7 +698,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         if let enumValues = prop.enumValues, !enumValues.isEmpty {
             let submenu = NSMenu()
             for enumVal in enumValues {
-                let valStr = formatExtPropRaw(enumVal, propId: propId)
+                let valStr = formatExtPropRaw(enumVal, propId: propId, vendor: vendor)
                 let subItem = NSMenuItem(title: valStr,
                                         action: #selector(changePropertyAction(_:)),
                                         keyEquivalent: "")
@@ -680,11 +714,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                     for subId in subPropIds {
                         guard let subProp = camera.properties[subId] else { continue }
                         let subName = extPropDisplayNames[subId] ?? String(format: "0x%04X", subId)
-                        let subVal  = formatExtPropValue(subProp)
+                        let subVal  = formatExtPropValue(subProp, vendor: vendor)
                         let subItem2 = NSMenuItem(title: "\(subName): \(subVal)",
                                                   action: nil, keyEquivalent: "")
                         subItem2.submenu = buildExtPropSubmenu(subProp, propId: subId,
-                                                               camera: camera)
+                                                               camera: camera, vendor: vendor,
+                                                               parentItem: subItem2)
                         subPropMenu.addItem(subItem2)
                     }
                     if subPropMenu.numberOfItems > 0 { subItem.submenu = subPropMenu }
@@ -700,7 +735,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
            rStep.doubleValue > 0 {
             return buildSliderSubmenu(prop, propId: propId, cameraId: camera.cameraId,
                                      rMin: rMin.doubleValue, rMax: rMax.doubleValue,
-                                     rStep: rStep.doubleValue)
+                                     rStep: rStep.doubleValue, vendor: vendor,
+                                     parentItem: parentItem)
         }
 
         return nil
@@ -725,20 +761,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         return submenu
     }
 
-    // NSMenuItem containing an NSSlider (fires only on mouse-up, not continuously).
+    // NSMenuItem containing an NSSlider. Updates parent item title live while dragging.
     private func buildSliderSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
                                     cameraId: String,
-                                    rMin: Double, rMax: Double, rStep: Double) -> NSMenu {
+                                    rMin: Double, rMax: Double, rStep: Double,
+                                    vendor: CameraVendor = .unknown,
+                                    parentItem: NSMenuItem? = nil) -> NSMenu {
+        let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
         let holder = SliderActionHolder(propId: propId, rangeMin: rMin, rangeStep: rStep) {
             [weak self] val in self?.postPropertyCommand(propId: propId, value: NSNumber(value: val))
+        }
+        if let parentItem {
+            holder.onDisplay = { [weak self, weak parentItem] val in
+                guard let self, let parentItem else { return }
+                let formatted = formatExtPropRaw(NSNumber(value: val), propId: propId, vendor: vendor)
+                parentItem.title = "  \(displayName): \(formatted)"
+            }
         }
         menuActionHolders.append(holder)
 
         let slider = NSSlider(frame: NSRect(x: 0, y: 0, width: 160, height: 16))
-        slider.minValue    = rMin
-        slider.maxValue    = rMax
-        slider.doubleValue = prop.value.doubleValue
-        slider.isContinuous = false
+        slider.minValue     = rMin
+        slider.maxValue     = rMax
+        slider.doubleValue  = prop.value.doubleValue
+        slider.isContinuous = true
         slider.target = holder
         slider.action = #selector(SliderActionHolder.sliderChanged(_:))
 
@@ -749,45 +795,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         return submenu
     }
 
-    private func formatExtPropValue(_ prop: ExtCameraProperty) -> String {
-        formatExtPropRaw(prop.value, propId: prop.propertyId)
-    }
-
-    private func formatNikonShutterSpeed(_ val: UInt32) -> String {
-        let nom = UInt16(val >> 16)
-        let den = UInt16(val & 0xFFFF)
-        if val == 0xFFFFFFFF { return "Bulb" }
-        if val == 0xFFFFFFFE { return "Flash" }
-        if den == 10 && nom != 1 {
-            let secs = 0.1 * Double(nom)
-            return secs == Double(Int(secs)) ? "\(Int(secs))\"" : String(format: "%.1f\"", secs)
-        } else if nom == 10 && den != 1 {
-            let fps = 0.1 * Double(den)
-            return fps == Double(Int(fps)) ? "1/\(Int(fps))" : String(format: "1/%.0f", fps)
-        } else if den > 1 {
-            return "\(nom)/\(den)"
-        } else {
-            return "\(nom)\""
-        }
-    }
-
-    private func formatExtPropRaw(_ value: NSNumber, propId: UInt32) -> String {
-        if let name = nikonExtPropValueNames[propId]?[value.uint32Value] { return name }
-        switch propId {
-        case 0x5001:         return "\(value.intValue)%"
-        case 0x5007, 0xD1A9: return String(format: "f/%.1f", Double(value.intValue) * 0.01)
-        case 0x5008:         return String(format: "%.1f mm", Double(value.intValue) * 0.01)
-        case 0x500F:         return "\(value.intValue)"
-        case 0xD100, 0xD1A8: return formatNikonShutterSpeed(value.uint32Value)
-        case 0x5010, 0xD1AB: return String(format: "%+.1f EV", Double(value.intValue) * 0.001)
-        case 0xD01E:         return "\(value.intValue) K"
-        case 0xD1A2, 0xD1A5, 0xD17B: return value.boolValue ? "On" : "Off"
-        // WB tuning: signed int, range typically -3…+3
-        case 0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
-             0xD150, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B:
-            return value.intValue >= 0 ? "+\(value.intValue)" : "\(value.intValue)"
-        default:             return "\(value)"
-        }
+    private func formatExtPropValue(_ prop: ExtCameraProperty, vendor: CameraVendor = .unknown) -> String {
+        formatExtPropRaw(prop.value, propId: prop.propertyId, vendor: vendor)
     }
 
     // MARK: - Menu Actions
@@ -1064,6 +1073,13 @@ private class PropertyChangeInfo {
 
 // MARK: - Extension-published camera types
 
+enum CameraVendor {
+    case nikon
+    case sony
+    case canon
+    case unknown
+}
+
 struct ExtCameraProperty {
     let propertyId: UInt32
     let dataType: UInt16
@@ -1081,6 +1097,7 @@ struct ExtCamera {
     let claimKey: String
     var properties: [UInt32: ExtCameraProperty]
     let orderedPropertyIds: [UInt32]
+    let vendor: CameraVendor
 }
 
 private class ExtPropertyChangeInfo {
@@ -1096,21 +1113,31 @@ private class ExtPropertyChangeInfo {
 }
 
 // Keeps a slider's action alive for the duration of the menu.
-private class SliderActionHolder: NSObject {
+class SliderActionHolder: NSObject {
     let propId: UInt32
     let rangeMin: Double
     let rangeStep: Double
-    let callback: (Double) -> Void
+    let onCommand: (Double) -> Void
+    var onDisplay: ((Double) -> Void)?
 
-    init(propId: UInt32, rangeMin: Double, rangeStep: Double, callback: @escaping (Double) -> Void) {
+    private var debounceTimer: Timer?
+    private var pendingValue: Double = 0
+
+    init(propId: UInt32, rangeMin: Double, rangeStep: Double, onCommand: @escaping (Double) -> Void) {
         self.propId = propId; self.rangeMin = rangeMin
-        self.rangeStep = rangeStep; self.callback = callback
+        self.rangeStep = rangeStep; self.onCommand = onCommand
     }
 
     @objc func sliderChanged(_ sender: NSSlider) {
         let step = rangeStep > 0 ? rangeStep : 1
         let snapped = rangeMin + floor((sender.doubleValue - rangeMin) / step) * step
-        callback(snapped)
+        onDisplay?(snapped)
+        pendingValue = snapped
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.onCommand(self.pendingValue)
+        }
     }
 }
 
@@ -1261,87 +1288,16 @@ private let extPropDisplayNames: [UInt32: String] = [
     0xD213: "Movie WB Incandescent Tune",
     0xD215: "Movie WB Fluorescent Tune",
     0xD216: "Movie WB Sunny Tune",
-    0xD218: "Movie WB Cloudy Tune",
+    // 0xD218 = Sony Battery Level (Nikon movie WB Cloudy Tune is not in the Nikon UI list)
+    0xD218: "Battery Level",
     0xD219: "Movie WB Shade Tune",
     0xD21B: "Movie WB Color Temp Tune",
+    // Sony-specific
+    0xD20D: "Shutter Speed",
+    0xD20F: "WB Color Temp",
+    0xD210: "WB Tune G–M",
+    0xD21C: "WB Tune A–B",
+    0xD21E: "ISO",
 ]
 
-// Enum value → human-readable string for Nikon UI properties.
-private let nikonExtPropValueNames: [UInt32: [UInt32: String]] = [
-    0x500E: [  // Exposure Mode (PTP standard + Nikon scene modes)
-        0x0001: "Manual (M)", 0x0002: "Program (P)",
-        0x0003: "Aperture (A)", 0x0004: "Shutter (S)",
-        0x8010: "Auto", 0x8011: "Portrait", 0x8012: "Landscape",
-        0x8013: "Close-up", 0x8014: "Sports", 0x8015: "Night Portrait",
-        0x8016: "Flash Off", 0x8017: "Child", 0x8018: "Scene",
-        0x8019: "Effects", 0x8050: "U1", 0x8051: "U2", 0x8052: "U3",
-    ],
-    0x5005: [  // White Balance (PTP standard + Nikon extras)
-        0x0001: "Manual", 0x0002: "Auto", 0x0003: "One-Push Auto",
-        0x0004: "Daylight", 0x0005: "Fluorescent", 0x0006: "Tungsten", 0x0007: "Flash",
-        0x8010: "Cloudy", 0x8011: "Shade", 0x8012: "Color Temperature",
-        0x8013: "Preset", 0x8014: "Off", 0x8016: "Natural Light Auto",
-    ],
-    0x500A: [  // Focus Mode
-        0x0001: "Manual", 0x0002: "Auto", 0x0003: "Auto Macro",
-        0x8010: "[S] Single", 0x8011: "[C] Continuous",
-        0x8012: "[A] Automatic", 0x8013: "[F] Constant",
-    ],
-    0x500B: [  // Metering Mode
-        0x0001: "Average", 0x0002: "Center-weighted",
-        0x0003: "Multi-spot", 0x0004: "Center-spot",
-    ],
-    0xD054: [  // Auto ISO
-        0x0000: "Off", 0x0001: "On",
-    ],
-    0xD1A5: [  // Exposure Preview
-        0x0000: "Off", 0x0001: "On",
-    ],
-    0xD17B: [  // Exposure Preview (apply settings)
-        0x0000: "Off", 0x0001: "On",
-    ],
-    0xD10B: [  // Recording Media
-        0x0000: "Card", 0x0001: "SDRAM", 0x0002: "Card + SDRAM",
-    ],
-    0xD141: [  // WB Auto Type
-        0x0000: "Standard", 0x0001: "Incandescent",
-    ],
-    0xD14F: [  // WB Fluorescent Type
-        0x0000: "Sodium Mixed", 0x0001: "Cool White",
-        0x0002: "Warm White", 0x0003: "White",
-        0x0004: "Day White", 0x0005: "Daylight",
-        0x0006: "High Color Temp Mercury",
-    ],
-    0xD1A0: [  // LV Mirror Mode
-        0x0000: "Mirror Down (AF)", 0x0001: "Mirror Up (AF)",
-    ],
-    0xD1A6: [  // LV Selector
-        0x0000: "Still", 0x0001: "Movie",
-    ],
-    0xD05D: [  // AF Area Mode (StillFocusMeteringMode on Z-series)
-        // DSLR values (D800-era)
-        0x0000: "Face Detect", 0x0001: "Wide Area",
-        0x0002: "Normal Area", 0x0003: "Target Tracking",
-        // Z-series values (Z8, Z9, Z6III, etc.)
-        0x8010: "Single-point",
-        0x8011: "Auto-area",
-        0x8012: "3D-Tracking",
-        0x8013: "Dynamic (M)",
-        0x8014: "Dynamic (L)",
-        0x8017: "Pinpoint",
-        0x8018: "Wide (S)",
-        0x8019: "Wide (L)",
-        0x801E: "Wide (C1)",
-        0x801F: "Wide (C2)",
-    ],
-    0xD061: [  // Focus Mode (StillFocusMode on Z-series)
-        // DSLR values (D800-era): 0=Single, 1=Constant/AF-F, 2=Continuous, 3=ManualLens, 4=Manual
-        // Z-series values: 0=AF-S, 1=AF-C, 4=MF
-        0x0000: "AF-S", 0x0001: "AF-C / AF-F",
-        0x0002: "[C] Continuous", 0x0003: "Manual Lens", 0x0004: "Manual",
-    ],
-    0xD1AC: [  // LV Image Size
-        0x0000: "Undefined", 0x0001: "QVGA (320×240)",
-        0x0002: "VGA (640×480)", 0x0003: "XGA (1024×768)",
-    ],
-]
+// nikonExtPropValueNames lives in PropertyFormatter.swift.

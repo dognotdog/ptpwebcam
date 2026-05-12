@@ -2,36 +2,175 @@
 //  CameraAgentTests.swift
 //  CameraAgentTests
 //
-//  Created by Dömötör Gulyás on 02.12.2023.
-//  Copyright © 2023 org.ptpwebcam. All rights reserved.
-//
 
 import XCTest
-@testable import CameraAgent
+import AppKit
+@testable import PtpCameraAgent
 
 final class CameraAgentTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+    // MARK: - formatExtPropRaw
+
+    func testApertureFormatNikon() {
+        // 450 = f/4.5 (encoded as f×100)
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 450), propId: 0x5007, vendor: .nikon), "f/4.5")
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+    func testApertureFormatSony() {
+        // Sony also uses f×100 encoding (same formula)
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 450), propId: 0xD1A9, vendor: .sony), "f/4.5")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 180), propId: 0xD1A9, vendor: .sony), "f/1.8")
     }
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+    func testApertureWholeNumber() {
+        // 800 = f/8.0 → should display as "f/8.0"
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 800), propId: 0x5007), "f/8.0")
     }
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+    func testShutterSpeedFraction() {
+        // nom=10, den=500 → "1/50"
+        let val = UInt32((10 << 16) | 500)
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: val), propId: 0xD100), "1/50")
+    }
+
+    func testShutterSpeedBulb() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: UInt32(0xFFFFFFFF)), propId: 0xD100), "Bulb")
+    }
+
+    func testShutterSpeedFlash() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: UInt32(0xFFFFFFFE)), propId: 0xD100), "Flash")
+    }
+
+    func testShutterSpeedSeconds() {
+        // nom=30, den=10 → "3\""  (3 seconds: 0.1 × 30)
+        let val = UInt32((30 << 16) | 10)
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: val), propId: 0xD100), "3\"")
+    }
+
+    func testWbNameLookup() {
+        // 0x8011 = Shade
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: UInt32(0x8011)), propId: 0x5005), "Shade")
+        // 0x0006 = Tungsten
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: UInt32(0x0006)), propId: 0x5005), "Tungsten")
+        // 0x0004 = Daylight
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: UInt32(0x0004)), propId: 0x5005), "Daylight")
+    }
+
+    func testExposureBiasPositive() {
+        // 1000 → "+1.0 EV"
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 1000), propId: 0x5010), "+1.0 EV")
+    }
+
+    func testExposureBiasNegative() {
+        // -1000 as Int32 bit pattern → "-1.0 EV"
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: -1000), propId: 0x5010), "-1.0 EV")
+    }
+
+    func testBatteryLevel() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 75), propId: 0x5001), "75%")
+    }
+
+    func testWbTunePositive() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 3), propId: 0xD018), "+3")
+    }
+
+    func testWbTuneNegative() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: -2), propId: 0xD018), "-2")
+    }
+
+    func testColorTempKelvin() {
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 5500), propId: 0xD01E), "5500 K")
+    }
+
+    // MARK: - CameraVendor detection
+
+    func testVendorNikon() {
+        XCTAssertEqual(vendorFrom(vid: 0x04B0), .nikon)
+    }
+
+    func testVendorSony() {
+        XCTAssertEqual(vendorFrom(vid: 0x054C), .sony)
+    }
+
+    func testVendorCanon() {
+        XCTAssertEqual(vendorFrom(vid: 0x04A9), .canon)
+    }
+
+    func testVendorUnknown() {
+        XCTAssertEqual(vendorFrom(vid: 0x0000), .unknown)
+        XCTAssertEqual(vendorFrom(vid: 0xFFFF), .unknown)
+    }
+
+    // MARK: - SliderActionHolder debounce
+
+    func testSliderOnDisplayCalledImmediately() {
+        var displayValues: [Double] = []
+        var commandValues: [Double] = []
+
+        let holder = SliderActionHolder(propId: 0x500F, rangeMin: 0, rangeStep: 1) { val in
+            commandValues.append(val)
         }
+        holder.onDisplay = { val in displayValues.append(val) }
+
+        let slider = NSSlider()
+        slider.minValue = 0; slider.maxValue = 3200
+
+        // Simulate rapid drag events
+        slider.doubleValue = 100; holder.sliderChanged(slider)
+        slider.doubleValue = 200; holder.sliderChanged(slider)
+        slider.doubleValue = 400; holder.sliderChanged(slider)
+
+        // onDisplay must be called synchronously for each event
+        XCTAssertEqual(displayValues, [100, 200, 400])
+        // onCommand must NOT have fired yet (debounce pending)
+        XCTAssertEqual(commandValues, [])
     }
 
+    func testSliderDebounceFiresOnce() {
+        var commandValues: [Double] = []
+        let exp = expectation(description: "debounce fires")
+
+        let holder = SliderActionHolder(propId: 0x500F, rangeMin: 0, rangeStep: 1) { val in
+            commandValues.append(val)
+            exp.fulfill()
+        }
+
+        let slider = NSSlider()
+        slider.minValue = 0; slider.maxValue = 3200
+
+        // Send three rapid events — only the last value should be commanded
+        slider.doubleValue = 100; holder.sliderChanged(slider)
+        slider.doubleValue = 200; holder.sliderChanged(slider)
+        slider.doubleValue = 800; holder.sliderChanged(slider)
+
+        // Wait for debounce (150 ms) + margin
+        waitForExpectations(timeout: 1.0)
+
+        XCTAssertEqual(commandValues.count, 1, "onCommand should fire exactly once")
+        XCTAssertEqual(commandValues.first, 800, "should command the last value")
+    }
+
+    func testSliderSnapsToStep() {
+        var displayValues: [Double] = []
+        let holder = SliderActionHolder(propId: 0x5007, rangeMin: 0, rangeStep: 100) { _ in }
+        holder.onDisplay = { val in displayValues.append(val) }
+
+        let slider = NSSlider()
+        slider.minValue = 0; slider.maxValue = 2000
+        slider.doubleValue = 150   // between steps 100 and 200 → snaps to 100
+        holder.sliderChanged(slider)
+
+        XCTAssertEqual(displayValues.first, 100)
+    }
+}
+
+// MARK: - Helpers
+
+private func vendorFrom(vid: UInt16) -> CameraVendor {
+    switch vid {
+    case 0x04B0: return .nikon
+    case 0x054C: return .sony
+    case 0x04A9: return .canon
+    default:     return .unknown
+    }
 }

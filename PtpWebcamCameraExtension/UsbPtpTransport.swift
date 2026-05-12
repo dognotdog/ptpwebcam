@@ -235,6 +235,17 @@ class UsbPtpTransport {
         return response.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
     }
 
+    /// Read a single PTP event packet from the interrupt-IN pipe.
+    /// Returns nil if there is no interrupt pipe, the read times out, or fewer than 12 bytes arrive.
+    func readInterruptEvent(timeout: TimeInterval) -> Data? {
+        guard let pipe = interruptIn else { return nil }
+        let buf = NSMutableData(length: 64)!
+        var received: UInt = 0
+        guard (try? pipe.receive(into: buf, bytesReceived: &received, timeout: timeout)) != nil,
+              received >= 12 else { return nil }
+        return Data(bytes: buf.bytes, count: Int(received))
+    }
+
     /// Attempt a single bulk-IN read to drain data the camera is sending.
     /// timeout: how long to wait if the pipe is empty (use short value like 0.05 s).
     /// Ignores errors; returns bytes received.
