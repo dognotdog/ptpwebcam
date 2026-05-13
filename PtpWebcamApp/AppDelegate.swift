@@ -159,42 +159,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 
 	// MARK: - Camera Agent Lifecycle
 
-	/// Registers (or restarts) PtpCameraAgent via SMAppService agent(plistName:).
+	/// Registers (or restarts) PtpWebcamAgent via SMAppService agent(plistName:).
 	/// On first launch the BTM has no record (.notFound) so we call register().
 	/// On subsequent launches the agent is already .enabled, so we unregister and
 	/// re-register to pick up any new binary (upgrade path).
 	private func installAndStartCameraAgent() {
 		let agentSvc = SMAppService.agent(plistName: agentPlistName)
 		let agentStatus = agentSvc.status
-		log.info("PtpCameraAgent agent status raw=\(agentStatus.rawValue, privacy: .public) (\(String(describing: agentStatus), privacy: .public))")
+		log.info("PtpWebcamAgent agent status raw=\(agentStatus.rawValue, privacy: .public) (\(String(describing: agentStatus), privacy: .public))")
 		handleServiceStatus(agentStatus, service: agentSvc, label: "agent")
 	}
 
 	private func handleServiceStatus(_ status: SMAppService.Status, service: SMAppService, label: String) {
 		switch status {
 		case .enabled:
-			log.info("PtpCameraAgent \(label, privacy: .public) enabled, restarting for update...")
+			log.info("PtpWebcamAgent \(label, privacy: .public) enabled, restarting for update...")
 			service.unregister { [weak self] error in
 				guard let self else { return }
 				if let error {
 					let nsErr = error as NSError
-					self.log.error("PtpCameraAgent unregister failed: \(nsErr.domain, privacy: .public)/\(nsErr.code) — \(error.localizedDescription, privacy: .public)")
+					self.log.error("PtpWebcamAgent unregister failed: \(nsErr.domain, privacy: .public)/\(nsErr.code) — \(error.localizedDescription, privacy: .public)")
 					return
 				}
-				self.log.info("PtpCameraAgent unregistered, re-registering...")
+				self.log.info("PtpWebcamAgent unregistered, re-registering...")
 				self.doRegister(service: service, label: label)
 			}
 		case .notRegistered, .requiresApproval:
 			if status == .requiresApproval {
-				log.warning("PtpCameraAgent requires user approval in Login Items settings")
+				log.warning("PtpWebcamAgent requires user approval in Login Items settings")
 			}
 			doRegister(service: service, label: label)
 		case .notFound:
 			// No BTM record yet — attempt registration so doRegister() surfaces any real error.
-			log.info("PtpCameraAgent \(label, privacy: .public) has no system record, attempting register...")
+			log.info("PtpWebcamAgent \(label, privacy: .public) has no system record, attempting register...")
 			doRegister(service: service, label: label)
 		@unknown default:
-			log.error("PtpCameraAgent unknown status \(status.rawValue) via \(label, privacy: .public), attempting register")
+			log.error("PtpWebcamAgent unknown status \(status.rawValue) via \(label, privacy: .public), attempting register")
 			doRegister(service: service, label: label)
 		}
 	}
@@ -202,10 +202,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	private func doRegister(service: SMAppService, label: String) {
 		do {
 			try service.register()
-			log.info("PtpCameraAgent registered via \(label, privacy: .public), status: \(String(describing: service.status), privacy: .public)")
+			log.info("PtpWebcamAgent registered via \(label, privacy: .public), status: \(String(describing: service.status), privacy: .public)")
 		} catch {
 			let nsErr = error as NSError
-			log.error("PtpCameraAgent register via \(label, privacy: .public) failed: \(nsErr.domain, privacy: .public)/\(nsErr.code) — \(error.localizedDescription, privacy: .public)")
+			log.error("PtpWebcamAgent register via \(label, privacy: .public) failed: \(nsErr.domain, privacy: .public)/\(nsErr.code) — \(error.localizedDescription, privacy: .public)")
 		}
 	}
 

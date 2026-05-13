@@ -38,6 +38,50 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         get { Set(UserDefaults.standard.stringArray(forKey: "claimedCameraKeys") ?? []) }
         set { UserDefaults.standard.set(Array(newValue), forKey: "claimedCameraKeys") }
     }
+
+    /// Per-camera remembered property values. Map key is
+    /// "<claimKey>:<propIdHex>" → UInt32 value. Currently used to persist the
+    /// chosen live-view stream resolution per Nikon body, so picking 1024×768
+    /// once survives reconnects (the default 640×480 would otherwise come
+    /// back every plug). Storage is a flat `[String: NSNumber]` dict in
+    /// UserDefaults — keep the schema simple so a future "forget settings"
+    /// menu can clear it without migrations.
+    private var stickyPropertyValues: [String: UInt32] {
+        get {
+            let dict = UserDefaults.standard.dictionary(forKey: "stickyPropertyValues") ?? [:]
+            var result: [String: UInt32] = [:]
+            for (k, v) in dict { if let n = v as? NSNumber { result[k] = n.uint32Value } }
+            return result
+        }
+        set {
+            let dict = newValue.mapValues { NSNumber(value: $0) }
+            UserDefaults.standard.set(dict, forKey: "stickyPropertyValues")
+        }
+    }
+
+    /// Property IDs that should be persisted across reconnects, per vendor.
+    /// Right now only Nikon's "Live Image Size" (0xD1AC) — the camera resets
+    /// to its default (often 640×480) on every fresh PTP session, so without
+    /// this the user has to repick their preferred resolution every plug.
+    /// Extend the set as we identify more "remember-the-last-pick" properties.
+    private static let stickyPropIds: [CameraVendor: Set<UInt32>] = [
+        .nikon: [0xD1AC],   // LV Image Size
+    ]
+
+    private static func stickyKey(_ claimKey: String, _ propId: UInt32) -> String {
+        String(format: "%@:%04x", claimKey, propId)
+    }
+
+    /// True if `propId` is in the sticky list for this vendor.
+    private static func isStickyProperty(propId: UInt32, vendor: CameraVendor) -> Bool {
+        stickyPropIds[vendor]?.contains(propId) ?? false
+    }
+
+    /// Cameras for which we've already replayed sticky values during this
+    /// process lifetime. Prevents re-firing SET commands every time the
+    /// extension republishes property state (post-set, or via the
+    /// kDarwinCameraStateRepublish handshake).
+    private var stickyApplied: Set<String> = []
     // Page-reassembly state for multi-page property state transfers.
     private var propPageBuffer: Data? = nil
     private var propPageTotal: Int = 0
@@ -131,6 +175,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         var propStateToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
             self?.handlePropertyStateChange()
+        }
+
+        // Darwin notify posts are NOT replayed for subscribers that weren't
+        // running when the post fired. After a fresh launch (launchd
+        // respawn, reinstall, user-cycled camera causing agent restart),
+        // we'd have no record of currently-connected cameras until the next
+        // attach event. Ask the extension to republish everything it knows.
+        // Tiny delay so the extension's dispatch handler is wired up before
+        // we fire — both processes register on .main and the agent might
+        // have come up before the extension dispatched its registration.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            darwin_notify_post(kDarwinCameraStateRepublish)
         }
     }
 
@@ -286,6 +342,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
         if let removed = json["disconnected"] as? Bool, removed {
             extCameras.removeValue(forKey: cameraId)
+            // Re-arm sticky-replay for this cameraId — if it reconnects later
+            // (or under a fresh IOKit registry entry id), we want to replay
+            // saved values again.
+            stickyApplied.remove(cameraId)
             AppDelegate.log("PtpCameraAgent: camera removed from menu: \(cameraId)")
             rebuildMenu()
             return
@@ -338,6 +398,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         if properties.isEmpty, claimedCameraKeys.contains(claimKey), vid != 0 {
             AppDelegate.log("PtpCameraAgent: auto-claiming \(claimKey)")
             sendClaimCommand(vid: vid, pid: pid, serial: serial, claim: true)
+        }
+
+        // Replay saved sticky property values exactly once per camera-session
+        // (first property publish after connect). For each sticky propId we
+        // know about, if the user has a remembered value and the camera's
+        // current value differs, post a SET. The `stickyApplied` guard keeps
+        // us from re-firing on every subsequent state republish (e.g. after
+        // a successful SET or the agent-startup republish handshake).
+        if !properties.isEmpty, !stickyApplied.contains(cameraId) {
+            stickyApplied.insert(cameraId)
+            let saved = stickyPropertyValues
+            for propId in Self.stickyPropIds[vendor] ?? [] {
+                guard let savedVal = saved[Self.stickyKey(claimKey, propId)],
+                      let current = properties[propId] else { continue }
+                if current.value.uint32Value != savedVal {
+                    AppDelegate.log("PtpCameraAgent: replaying sticky prop \(claimKey)/0x\(String(propId, radix:16)) = \(savedVal) (camera has \(current.value))")
+                    postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: savedVal))
+                }
+            }
         }
 
         rebuildMenu()
@@ -473,9 +552,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         for camera in extCameras.values {
             addExtCameraMenu(camera, to: menu)
         }
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit PTP Camera Agent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         statusItem.menu = menu
     }
@@ -670,9 +746,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             0x500A,   // Focus Mode
         ]
 
-        let uiList = isSony ? sonyUiList : nikonUiList
+        // Canon EOS UI list — mirrors UsbCanonCamera.canonUiPropertyIds in the
+        // extension. The agent's PropertyFormatter has Canon-specific mappings
+        // for the 0xD1xx codes; without the right uiList here only battery
+        // (which Nikon and Canon share) would appear in the menu.
+        // The DSLR T5i has no electronic viewfinder; the 0xD1Bx "EVF" props
+        // are internal Live View state (output device, exposure preview,
+        // etc.) that aren't useful in the menu and don't correspond to
+        // physical controls on this camera. Drop them.
+        let canonUiList: [UInt32?] = [
+            0x5001,   // Battery Level
+            nil,
+            0xD105,   // Exposure Mode (Auto Exposure)
+            0xD101,   // Aperture
+            0xD103,   // ISO
+            0xD102,   // Shutter Speed
+            nil,
+            0xD10A,   // WB Color Temp
+            0xD104,   // Exposure Bias
+            0xD108,   // Focus Mode
+            0xD107,   // Metering Mode
+        ]
 
-        // Still/video mode filtering (Nikon only; not needed for Sony).
+        let uiList: [UInt32?]
+        switch vendor {
+        case .sony:  uiList = sonyUiList
+        case .canon: uiList = canonUiList
+        default:     uiList = nikonUiList
+        }
+
+        // Still/video mode filtering (Nikon only; not needed for Sony or Canon).
         let movieOnlyProps: Set<UInt32> = isNikon ? [0xD1A9, 0xD1A8, 0xD1AB] : []
         let stillOnlyProps: Set<UInt32> = isNikon ? [0x5007, 0xD100, 0x5010] : []
         var inVideoMode: Bool? = nil
@@ -698,7 +801,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             if pendingSeparator { menu.addItem(NSMenuItem.separator()); pendingSeparator = false }
             addedAny = true
 
-            let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
+            let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
             let valueStr = formatExtPropValue(prop, vendor: vendor)
             let item = NSMenuItem(title: "  \(displayName): \(valueStr)", action: nil, keyEquivalent: "")
             item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera, vendor: vendor, parentItem: item)
@@ -706,10 +809,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         }
 
         // Autofocus trigger. Nikon: AfDrive (0x90C1). Sony: AutofocusButton
-        // toggle (0xD2C1). Canon: not yet implemented at the extension side.
+        // toggle (0xD2C1) — known unreliable on A7-series in tethered mode,
+        // so we label it experimental. Canon: not yet implemented at the
+        // extension side.
         if vendor == .nikon || (vendor == .sony && camera.properties[0xD2C1] != nil) {
             menu.addItem(NSMenuItem.separator())
-            let afItem = NSMenuItem(title: "  Autofocus",
+            let title = vendor == .sony ? "  Autofocus (experimental)" : "  Autofocus"
+            let afItem = NSMenuItem(title: title,
                                     action: #selector(extAutofocusAction(_:)),
                                     keyEquivalent: "")
             afItem.target = self
@@ -756,7 +862,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                     let subPropMenu = NSMenu()
                     for subId in subPropIds {
                         guard let subProp = camera.properties[subId] else { continue }
-                        let subName = extPropDisplayNames[subId] ?? String(format: "0x%04X", subId)
+                        let subName = displayName(for: subId, vendor: vendor) ?? String(format: "0x%04X", subId)
                         let subVal  = formatExtPropValue(subProp, vendor: vendor)
                         let subItem2 = NSMenuItem(title: "\(subName): \(subVal)",
                                                   action: nil, keyEquivalent: "")
@@ -810,7 +916,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                                     rMin: Double, rMax: Double, rStep: Double,
                                     vendor: CameraVendor = .unknown,
                                     parentItem: NSMenuItem? = nil) -> NSMenu {
-        let displayName = extPropDisplayNames[propId] ?? String(format: "0x%04X", propId)
+        let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
         let holder = SliderActionHolder(propId: propId, rangeMin: rMin, rangeStep: rStep) {
             [weak self] val in self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
         }
@@ -859,6 +965,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             change.camera.setProperty(change.propertyId, value: change.value)
         } else if let change = sender.representedObject as? ExtPropertyChangeInfo {
             postPropertyCommand(cameraId: change.cameraId, propId: change.propertyId, value: change.value)
+
+            // Remember the user's pick for properties in the sticky list so
+            // the value gets reapplied automatically on the next reconnect.
+            if let camera = extCameras[change.cameraId],
+               Self.isStickyProperty(propId: change.propertyId, vendor: camera.vendor) {
+                var sticky = stickyPropertyValues
+                sticky[Self.stickyKey(camera.claimKey, change.propertyId)] = change.value.uint32Value
+                stickyPropertyValues = sticky
+                AppDelegate.log("PtpCameraAgent: sticky prop saved \(camera.claimKey)/0x\(String(change.propertyId, radix:16)) = \(change.value)")
+            }
         }
     }
 
@@ -1259,6 +1375,10 @@ private let extPropDisplayNames: [UInt32: String] = [
     0x5020: "Video Frame Rate",
     0x5021: "Video Contrast",
     0x5022: "Video Brightness",
+    // Canon EOS vendor names are kept in a separate `canonExtPropDisplayNames`
+    // dictionary below — many Canon 0xD1xx codes collide with Nikon ones
+    // (e.g. Canon 0xD103 = ISO; Nikon 0xD103 = Auto DX Crop). The lookup
+    // helper `displayName(for:vendor:)` picks the vendor-specific table first.
     // Nikon vendor (0xDxxx) — from PtpCameraNikon.propertyNames
     0xD017: "WB Auto Tune",
     0xD018: "WB Incandescent Tune",
@@ -1362,5 +1482,36 @@ private let extPropDisplayNames: [UInt32: String] = [
     0xD21C: "WB Tune A–B",
     0xD21E: "ISO",
 ]
+
+// Canon EOS vendor display names — kept separate from extPropDisplayNames
+// because many of these codes mean something different on Nikon bodies. The
+// `displayName(for:vendor:)` helper picks this table first when the camera
+// vendor is Canon. Codes match UsbCanonCamera.canonUiPropertyIds.
+private let canonExtPropDisplayNames: [UInt32: String] = [
+    0xD101: "Aperture",
+    0xD102: "Shutter Speed",
+    0xD103: "ISO",
+    0xD104: "Exposure Bias",
+    0xD105: "Exposure Mode",
+    0xD107: "Metering Mode",
+    0xD108: "Focus Mode",
+    0xD10A: "WB Color Temp",
+    0xD129: "Picture Style",
+    0xD12C: "LV Eye Detect",
+    0xD1B0: "EVF Output Device",
+    0xD1B1: "EVF Mode",
+    0xD1B2: "EVF DoF Preview",
+    0xD1B4: "EVF White Balance",
+    0xD1B6: "EVF Color Temperature",
+    0xD1B7: "EVF Exposure Preview",
+]
+
+/// Vendor-aware lookup into the display-name tables. Falls back to the
+/// generic (Nikon/standard-PTP) table when the camera-specific table doesn't
+/// know the code.
+func displayName(for propId: UInt32, vendor: CameraVendor) -> String? {
+    if vendor == .canon, let n = canonExtPropDisplayNames[propId] { return n }
+    return extPropDisplayNames[propId]
+}
 
 // nikonExtPropValueNames lives in PropertyFormatter.swift.

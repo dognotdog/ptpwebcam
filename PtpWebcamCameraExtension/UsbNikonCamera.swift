@@ -304,9 +304,9 @@ final class UsbNikonCamera: UsbPtpCameraBase {
     override func pollEvents() {
         while let eventData = transport.readInterruptEvent(timeout: 0.01) {
             guard eventData.count >= 16 else { continue }
-            let eventCode = eventData.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+            let eventCode = eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt16.self) }
             guard eventCode == PTP_EVENT_DEVICEPROPCHANGED else { continue }
-            let propId16 = eventData.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt16.self) }
+            let propId16 = eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: UInt16.self) }
             cameraLog.fault("DEVICEPROPCHANGED 0x\(String(propId16, radix:16), privacy: .public)")
             if let prop = discoverSingleProperty(propId16) {
                 discoveredProperties[UInt32(propId16)] = prop

@@ -42,7 +42,7 @@ extension UsbCameraProtocol {
 /// Minimal PTP data parser shared by all USB camera implementations.
 class PtpPropParser {
     private let data: Data
-    private var offset: Int = 0
+    private(set) var offset: Int = 0
 
     init(_ data: Data) { self.data = data }
 
@@ -86,6 +86,22 @@ class PtpPropParser {
         guard offset + Int(charCount) * 2 <= data.count else { return false }
         offset += Int(charCount) * 2
         return true
+    }
+
+    /// Read a PTP string (UCS-2 LE, length-prefixed by a single byte that
+    /// counts characters INCLUDING the trailing NUL). Returns the decoded
+    /// string without the terminating NUL, or nil if the buffer is short.
+    /// Empty strings (charCount == 0) decode to "".
+    func readPtpString() -> String? {
+        guard let charCount = readU8() else { return nil }
+        if charCount == 0 { return "" }
+        let byteCount = Int(charCount) * 2
+        guard offset + byteCount <= data.count else { return nil }
+        // Strip the trailing NUL character (2 bytes of 0x00).
+        let payloadBytes = byteCount > 1 ? byteCount - 2 : byteCount
+        let bytes = data.subdata(in: offset ..< offset + payloadBytes)
+        offset += byteCount
+        return String(data: bytes, encoding: .utf16LittleEndian)
     }
 
     func readU16Array() -> [UInt16]? {

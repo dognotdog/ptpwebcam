@@ -662,7 +662,6 @@
 				DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */,
 				AA001111000000000000AA00 /* WbTuneGridView.swift */,
 				FF001111000000000000FF00 /* PropertyFormatter.swift */,
-				BB001111000000000000BB00 /* CameraPreviewWindowController.swift */,
 				DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */,
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
@@ -1700,18 +1699,18 @@
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
-		DA1B26712B1BBCD80075AAAB /* MainMenu.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				DA1B26722B1BBCD80075AAAB /* Base */,
-			);
-			name = MainMenu.xib;
-			sourceTree = "<group>";
-		};
 		DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */ = {
 			isa = PBXVariantGroup;
 			children = (
 				DA1B26A52B1BC1A30075AAAB /* Base */,
+			);
+			name = MainMenu.xib;
+			sourceTree = "<group>";
+		};
+		DA1B26712B1BBCD80075AAAB /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				DA1B26722B1BBCD80075AAAB /* Base */,
 			);
 			name = MainMenu.xib;
 			sourceTree = "<group>";
@@ -1783,7 +1782,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "PTP Webcam";
 				SKIP_INSTALL = NO;
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_SWIFT_SYMBOLS = NO;
@@ -1826,7 +1825,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "PTP Webcam";
 				SKIP_INSTALL = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -1959,7 +1958,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpCameraAgent;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = PtpWebcamAgent;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -1995,7 +1994,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpCameraAgent;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = PtpWebcamAgent;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};

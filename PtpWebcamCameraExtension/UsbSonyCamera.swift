@@ -186,9 +186,9 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             while let eventData = transport.readInterruptEvent(timeout: 0.05) {
                 got = true
                 guard eventData.count >= 16 else { continue }
-                let eventCode = eventData.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+                let eventCode = eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt16.self) }
                 guard eventCode == PTP_EVENT_SONY_PROPVALCHANGED else { continue }
-                let propId = UInt32(eventData.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt16.self) })
+                let propId = UInt32(eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: UInt16.self) })
                 totalEvents += 1
                 if let (inData, rsp) = try? transport.sendPtpCommand(
                     transport.buildCommand(code: PTP_CMD_SONY_GETPROPDESC, parameters: [propId])),
@@ -249,10 +249,10 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     override func pollEvents() {
         while let eventData = transport.readInterruptEvent(timeout: 0.01) {
             guard eventData.count >= 16 else { continue }
-            let eventCode = eventData.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+            let eventCode = eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt16.self) }
             cameraLog.fault("Sony event 0x\(String(eventCode, radix:16), privacy: .public) raw=\(eventData.prefix(20).map { String(format: "%02x", $0) }.joined(separator: " "), privacy: .public)")
             guard eventCode == PTP_EVENT_SONY_PROPVALCHANGED else { continue }
-            let propId = UInt32(eventData.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt16.self) })
+            let propId = UInt32(eventData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: UInt16.self) })
             do {
                 let (inData, rsp) = try transport.sendPtpCommand(
                     transport.buildCommand(code: PTP_CMD_SONY_GETPROPDESC, parameters: [propId]))
@@ -468,13 +468,26 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             let cur = existing!.value
             if let oldIdx = enumValues.firstIndex(of: cur),
                let newIdx = enumValues.firstIndex(of: targetVal) {
-                var step = Int32(newIdx - oldIdx)
-                let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [pending.propId])
-                if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &step, count: 4)) {
-                    setSucceeded = transport.responseCode(from: rsp) == PTP_RSP_OK
+                // Sony's SetPropStep moves exactly ONE enum position per call,
+                // regardless of the magnitude we send. Sending step=N with |N|>1
+                // doesn't get us there in one shot; the firmware also treats
+                // step=0 as "move 1 in some default direction" instead of a
+                // no-op, which causes the menu to drift away from the camera
+                // when the user re-clicks the current value.
+                // Clamp to ±1, and short-circuit step=0 entirely.
+                let raw = newIdx - oldIdx
+                if raw == 0 {
+                    setSucceeded = true
+                    cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) already at target \(pending.value, privacy: .public) — skipping")
+                } else {
+                    var step = Int32(raw > 0 ? 1 : -1)
+                    let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [pending.propId])
+                    if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &step, count: 4)) {
+                        setSucceeded = transport.responseCode(from: rsp) == PTP_RSP_OK
+                    }
+                    cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) \(cur, privacy: .public)→\(pending.value, privacy: .public) step=\(step, privacy: .public) (raw=\(raw, privacy: .public)) ok=\(setSucceeded, privacy: .public)")
+                    usedStep = true
                 }
-                cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) \(cur, privacy: .public)→\(pending.value, privacy: .public) step=\(step, privacy: .public) ok=\(setSucceeded, privacy: .public)")
-                usedStep = true
             } else {
                 cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) — enum index not found cur=\(cur, privacy: .public) target=\(pending.value, privacy: .public) enumCount=\(enumValues.count, privacy: .public)")
             }

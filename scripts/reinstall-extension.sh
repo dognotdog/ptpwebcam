@@ -14,7 +14,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$PROJECT_DIR/PTP Webcam.xcodeproj"
 EXT_BUNDLE_ID="org.ptpwebcam.CameraExtension"
 EXT_BIN="org.ptpwebcam.CameraExtension"
-INSTALL_PATH="/Applications/PtpWebcamApp.app"
+INSTALL_PATH="/Applications/PTP Webcam.app"
 TEAM_ID="ZYF8X9Z6M2"
 
 RESET=false
@@ -111,8 +111,8 @@ if $RESTART_ONLY; then
         2>/dev/null || echo "?")
     echo "    App bundle version: $CURRENT_VER"
 
-    echo "[1/2] Stopping PtpWebcamApp and extension..."
-    killall PtpWebcamApp 2>/dev/null || true
+    echo "[1/2] Stopping PTP Webcam and extension..."
+    killall "PTP Webcam" 2>/dev/null || true
     # Also kill the extension process if it's running — CMIO will restart it
     pkill -f "$EXT_BIN" 2>/dev/null || true
     sleep 1
@@ -163,8 +163,16 @@ else
 fi
 
 # ── 2. Stop the running app (so the build can overwrite it) ───────────
-echo "[2/5] Stopping PtpWebcamApp..."
-killall PtpWebcamApp 2>/dev/null || true
+echo "[2/5] Stopping PTP Webcam..."
+killall "PTP Webcam" 2>/dev/null || true
+killall PtpWebcamAgent 2>/dev/null || true
+# Legacy names from before the v68 rename — kill so they don't conflict with
+# the freshly-built bundles when we open the new one below.
+killall PtpWebcamApp    2>/dev/null || true
+killall PtpCameraAgent  2>/dev/null || true
+# Remove the legacy bundle so /Applications doesn't accumulate two copies
+# of the same app under the old + new name. Safe because we just killed it.
+rm -rf "/Applications/PtpWebcamApp.app" 2>/dev/null || true
 pkill -f "$EXT_BIN" 2>/dev/null || true
 sleep 0.3
 

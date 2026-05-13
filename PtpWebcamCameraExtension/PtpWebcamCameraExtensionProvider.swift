@@ -332,10 +332,16 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	// would otherwise overwrite each other in the slots — the kernel coalesces
 	// the `darwin_notify_post` calls and the agent only ever sees the LAST data.
 	private let publishQueue = DispatchQueue(label: "org.ptpwebcam.publish", qos: .userInteractive)
-	// Per-camera claim tokens: (slotToken, notifyToken) keyed by cameraId.
-	private var claimTokens: [String: (slot: Int32, notify: Int32)] = [:]
-	// Per-camera property command tokens (agent → extension, per camera).
-	private var propCmdTokens: [String: (slot: Int32, notify: Int32)] = [:]
+	// Per-camera claim tokens: array of (slotToken, notifyToken) keyed by cameraId.
+	// We may register more than one suffix per camera (initially the USB
+	// descriptor serial, then again with the PTP serial once GetDeviceInfo
+	// returns) so commands reach us regardless of which suffix the agent uses.
+	private var claimTokens: [String: [(slot: Int32, notify: Int32)]] = [:]
+	// Per-camera property command tokens (agent → extension). Same multi-suffix
+	// approach as claimTokens.
+	private var propCmdTokens: [String: [(slot: Int32, notify: Int32)]] = [:]
+	// Suffixes already registered for this camera, to dedupe re-registration.
+	private var registeredSuffixes: [String: Set<String>] = [:]
 
 	// IOKit USB device detection (replaces ICDeviceBrowser / Darwin notify camera state).
 	private var ioNotificationPort: IONotificationPortRef?
@@ -355,6 +361,16 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		}
 
 		// Per-camera claim and property-command channels are registered in cameraConnected.
+
+		// Republish handler: when the agent restarts (launchd respawn, app
+		// reinstall, etc.) it loses every Darwin notify slot it was tracking.
+		// Posts kDarwinCameraStateRepublish on startup so we can re-emit
+		// cameraConnected + propertyState for every known camera, otherwise
+		// the menu stays blank until the user replugs.
+		_ = Self.registerDispatchToken(kDarwinCameraStateRepublish, queue: .main,
+		                               label: "republish") { [weak self] _ in
+			self?.republishAllCameraState()
+		}
 
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
 		PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension started build=\(buildVersion)")
@@ -382,7 +398,11 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 				"w": prop.writable ? 1 : 0,
 				"v": prop.value,
 			]
-			if prop.writable, let e = prop.enumValues { entry["e"] = Array(e.prefix(32)) }
+			// Cap at 128 values to keep the JSON bounded — Canon's shutter
+			// list has 53 entries and 32 was truncating it mid-table (cutting
+			// off 1/100 and faster). 128 covers every camera we've seen and
+			// still fits comfortably in the 16 KB property-state slot pages.
+			if prop.writable, let e = prop.enumValues { entry["e"] = Array(e.prefix(128)) }
 			if let rmin = prop.rangeMin, let rmax = prop.rangeMax, let rstep = prop.rangeStep {
 				entry["r"] = ["min": rmin, "max": rmax, "step": rstep]
 			}
@@ -409,6 +429,51 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
 		writeJsonToPropertySlots(jsonData)
 		PtpWebcamCameraExtensionProviderSource.log("publishCameraConnected: \(cameraId) \(name)")
+	}
+
+	/// Re-emit cameraConnected and (if known) propertyState for every camera
+	/// we currently have. Triggered by the agent posting
+	/// kDarwinCameraStateRepublish on startup — Darwin notify posts don't
+	/// replay for late subscribers, so a freshly-respawned agent would
+	/// otherwise have an empty menu until the user replugs the camera.
+	private func republishAllCameraState() {
+		PtpWebcamCameraExtensionProviderSource.log("republishAllCameraState: \(cameraIdentity.count) cameras")
+		for cameraId in cameraIdentity.keys {
+			publishCameraConnected(cameraId: cameraId)
+			if cameraProperties[cameraId]?.isEmpty == false {
+				publishPropertyState(cameraId: cameraId)
+			}
+		}
+	}
+
+	/// Register per-camera claim + property-command channels under the
+	/// `vid.pid.crc(serial)` suffix. Safe to call multiple times for the same
+	/// camera with different serials — subsequent calls add additional listener
+	/// tokens so commands match whichever suffix the agent computed.
+	private func registerPerCameraNotifyChannels(cameraId: String, vid: UInt16, pid: UInt16, serial: String) {
+		let crc = crc32OfString(serial) & 0x00FFFFFF
+		let suffix = String(format: "%04x.%04x.%06x", vid, pid, crc)
+
+		if registeredSuffixes[cameraId, default: []].contains(suffix) { return }
+		registeredSuffixes[cameraId, default: []].insert(suffix)
+
+		let slotToken = Self.registerCheckToken(kDarwinClaimCameraSlot + "." + suffix,
+		                                        label: "claim slot \(cameraId) [\(suffix)]")
+		let notifyToken = Self.registerDispatchToken(kDarwinClaimCamera + "." + suffix, queue: .main,
+		                                             label: "claim notify \(cameraId) [\(suffix)]") { [weak self] _ in
+			self?.handleClaimCommand(cameraId: cameraId, slotToken: slotToken)
+		}
+		claimTokens[cameraId, default: []].append((slot: slotToken, notify: notifyToken))
+
+		let propSlotToken = Self.registerCheckToken(kDarwinPropertyCmdSlot + "." + suffix,
+		                                            label: "propcmd slot \(cameraId) [\(suffix)]")
+		let propNotifyToken = Self.registerDispatchToken(kDarwinCameraPropertyCmd + "." + suffix, queue: .main,
+		                                                 label: "propcmd notify \(cameraId) [\(suffix)]") { [weak self] _ in
+			self?.handlePropertyCommand(cameraId: cameraId, slotToken: propSlotToken)
+		}
+		propCmdTokens[cameraId, default: []].append((slot: propSlotToken, notify: propNotifyToken))
+
+		PtpWebcamCameraExtensionProviderSource.log("registered per-camera notify channels for \(cameraId) suffix=\(suffix)")
 	}
 
 	private func publishCameraRemoved(cameraId: String) {
@@ -652,13 +717,31 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 				}
 			}
 		}
-		camera.onPropertiesDiscovered = { [weak self] discovered in
+		camera.onPropertiesDiscovered = { [weak self, weak camera] discovered in
 			guard let self = self else { return }
 			DispatchQueue.main.async {
 				if self.cameraProperties[cameraId] == nil {
 					self.cameraProperties[cameraId] = discovered
 				} else {
 					for (k, v) in discovered { self.cameraProperties[cameraId]![k] = v }
+				}
+				// If the USB device descriptor didn't provide a serial number
+				// (common on Canon EOS bodies), use the one extracted from
+				// the PTP GetDeviceInfo response instead.
+				if let ptpSerial = (camera as? UsbPtpCameraBase)?.deviceSerial,
+				   !ptpSerial.isEmpty,
+				   let existing = self.cameraIdentity[cameraId],
+				   existing.serial.isEmpty {
+					self.cameraIdentity[cameraId] = (vid: existing.vid, pid: existing.pid, serial: ptpSerial)
+					PtpWebcamCameraExtensionProviderSource.log("PTP serial \(ptpSerial) replaces empty USB-descriptor serial for \(cameraId)")
+					// The agent computes the notify suffix from the PUBLISHED
+					// serial; we just changed what we publish, so we must also
+					// listen on the new suffix or SET_PROP commands sent under
+					// the new key never reach us.
+					self.registerPerCameraNotifyChannels(cameraId: cameraId,
+					                                    vid: existing.vid,
+					                                    pid: existing.pid,
+					                                    serial: ptpSerial)
 				}
 				self.publishPropertyState(cameraId: cameraId)
 			}
@@ -755,28 +838,13 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 			PtpWebcamCameraExtensionProviderSource.log("Failed to add device: \(error.localizedDescription)")
 		}
 
-		// Register per-camera claim channel (agent → extension, keyed by vid.pid.crc).
-		let crc = crc32OfString(serial) & 0x00FFFFFF
-		let suffix = String(format: "%04x.%04x.%06x", vid, pid, crc)
-		let slotToken = Self.registerCheckToken(kDarwinClaimCameraSlot + "." + suffix,
-		                                        label: "claim slot \(cameraId)")
-		let notifyToken = Self.registerDispatchToken(kDarwinClaimCamera + "." + suffix, queue: .main,
-		                                             label: "claim notify \(cameraId)") { [weak self] _ in
-			self?.handleClaimCommand(cameraId: cameraId, slotToken: slotToken)
-		}
-		claimTokens[cameraId] = (slot: slotToken, notify: notifyToken)
-
-		// Register per-camera property command channel.  Without this, all
-		// property sets would arrive on the single shared channel and be routed
-		// to whichever camera happens to be `usbCameras.first`, which is wrong
-		// whenever more than one camera is connected.
-		let propSlotToken = Self.registerCheckToken(kDarwinPropertyCmdSlot + "." + suffix,
-		                                            label: "propcmd slot \(cameraId)")
-		let propNotifyToken = Self.registerDispatchToken(kDarwinCameraPropertyCmd + "." + suffix, queue: .main,
-		                                                 label: "propcmd notify \(cameraId)") { [weak self] _ in
-			self?.handlePropertyCommand(cameraId: cameraId, slotToken: propSlotToken)
-		}
-		propCmdTokens[cameraId] = (slot: propSlotToken, notify: propNotifyToken)
+		// Register per-camera claim + property-command channels keyed by
+		// vid.pid.crc(serial). For Canon EOS bodies the USB descriptor reports
+		// an empty serial; the real PTP serial only becomes available after
+		// GetDeviceInfo runs. We register a SECOND set of channels under the
+		// PTP-derived suffix in the onPropertiesDiscovered callback so that
+		// the agent's commands (which use the published PTP serial) reach us.
+		registerPerCameraNotifyChannels(cameraId: cameraId, vid: vid, pid: pid, serial: serial)
 
 		// Announce to agent so it can show the camera in the menu (unclaimed state).
 		publishCameraConnected(cameraId: cameraId)
@@ -790,14 +858,15 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		}
 		cameraProperties.removeValue(forKey: cameraId)
 		cameraIdentity.removeValue(forKey: cameraId)
-		if let tokens = claimTokens.removeValue(forKey: cameraId) {
+		for tokens in claimTokens.removeValue(forKey: cameraId) ?? [] {
 			notify_cancel(tokens.slot)
 			notify_cancel(tokens.notify)
 		}
-		if let tokens = propCmdTokens.removeValue(forKey: cameraId) {
+		for tokens in propCmdTokens.removeValue(forKey: cameraId) ?? [] {
 			notify_cancel(tokens.slot)
 			notify_cancel(tokens.notify)
 		}
+		registeredSuffixes.removeValue(forKey: cameraId)
 
 		// Tell the agent to remove this camera from its menu before we drop the device.
 		publishCameraRemoved(cameraId: cameraId)

@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "DA1B269D2B1BC1A10075AAAB"
-               BuildableName = "PtpCameraAgent.app"
+               BuildableName = "PtpWebcamAgent.app"
                BlueprintName = "PtpCameraAgent"
                ReferencedContainer = "container:PTP Webcam.xcodeproj">
             </BuildableReference>
@@ -70,7 +70,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DA1B269D2B1BC1A10075AAAB"
-            BuildableName = "PtpCameraAgent.app"
+            BuildableName = "PtpWebcamAgent.app"
             BlueprintName = "PtpCameraAgent"
             ReferencedContainer = "container:PTP Webcam.xcodeproj">
          </BuildableReference>
@@ -87,7 +87,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DA1B269D2B1BC1A10075AAAB"
-            BuildableName = "PtpCameraAgent.app"
+            BuildableName = "PtpWebcamAgent.app"
             BlueprintName = "PtpCameraAgent"
             ReferencedContainer = "container:PTP Webcam.xcodeproj">
          </BuildableReference>

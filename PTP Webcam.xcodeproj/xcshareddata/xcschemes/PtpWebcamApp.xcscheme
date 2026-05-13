@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "DA1B266A2B1BBCD70075AAAB"
-               BuildableName = "PtpWebcamApp.app"
+               BuildableName = "PTP Webcam.app"
                BlueprintName = "PtpWebcamApp"
                ReferencedContainer = "container:PTP Webcam.xcodeproj">
             </BuildableReference>
@@ -56,7 +56,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DA1B266A2B1BBCD70075AAAB"
-            BuildableName = "PtpWebcamApp.app"
+            BuildableName = "PTP Webcam.app"
             BlueprintName = "PtpWebcamApp"
             ReferencedContainer = "container:PTP Webcam.xcodeproj">
          </BuildableReference>
@@ -73,7 +73,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DA1B266A2B1BBCD70075AAAB"
-            BuildableName = "PtpWebcamApp.app"
+            BuildableName = "PTP Webcam.app"
             BlueprintName = "PtpWebcamApp"
             ReferencedContainer = "container:PTP Webcam.xcodeproj">
          </BuildableReference>

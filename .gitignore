@@ -4,3 +4,6 @@ DerivedData/
 *.xcodeproj/project.xcworkspace/
 references/
 Package/
+.claude/
+build/
+

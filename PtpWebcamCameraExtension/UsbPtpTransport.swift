@@ -176,7 +176,7 @@ class UsbPtpTransport {
 
         // Extract this command's transaction ID for potential CancelTransaction.
         let txnId: UInt32 = command.count >= 12
-            ? command.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt32.self) }
+            ? command.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self) }
             : 0
 
         // ── 1. Send command container ────────────────────────────────────────
@@ -189,7 +189,7 @@ class UsbPtpTransport {
 
         // ── 2. Optionally send data container ────────────────────────────────
         if let outData = outData {
-            let code = command.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+            let code = command.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt16.self) }
             var dc = Data()
             dc.appendLE(UInt32(12 + outData.count))
             dc.appendLE(kPtpContainerData)
@@ -213,14 +213,43 @@ class UsbPtpTransport {
             cancelTransaction(txnId: txnId)
             throw error
         }
-        guard first.count >= 6 else { throw UsbPtpError.shortRead(first.count) }
-        let containerType = first.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }
+        guard first.count >= 12 else { throw UsbPtpError.shortRead(first.count) }
+        let containerType = first.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt16.self) }
 
         switch containerType {
         case kPtpContainerData:
+            // The data container's declared length covers the 12-byte header
+            // plus payload. Canon EOS bodies often send data + response in
+            // a SINGLE bulk transfer — libgphoto2's `ptp_usb_getdata` handles
+            // that "surplus" case by stashing the response from the tail of
+            // the same read. Without this, a second bulk read for the
+            // response blocks waiting for bytes that already arrived,
+            // triggering CancelTransaction and a USB reset on the camera.
+            let declaredLen = Int(first.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) })
+            var buffer = first
+            // 3a. Keep reading until the data container is complete.
+            while buffer.count < declaredLen {
+                do {
+                    let more = try readBulkIn()
+                    if more.isEmpty { break }
+                    buffer.append(more)
+                } catch {
+                    cancelTransaction(txnId: txnId)
+                    throw error
+                }
+            }
+            // 3b. Slice out the data payload (skip 12-byte header).
+            let dataEnd = min(buffer.count, declaredLen)
+            let dataBlock = dataEnd > 12 ? buffer.subdata(in: 12..<dataEnd) : Data()
+            // 3c. If the tail contains a response container, return it; else
+            // do a separate read for the response.
+            if buffer.count > declaredLen {
+                let respBlock = buffer.subdata(in: declaredLen..<buffer.count)
+                return (inData: dataBlock, response: respBlock)
+            }
             do {
                 let resp = try readBulkIn()
-                return (inData: Data(first.dropFirst(12)), response: resp)
+                return (inData: dataBlock, response: resp)
             } catch {
                 cancelTransaction(txnId: txnId)
                 throw error
@@ -276,7 +305,7 @@ class UsbPtpTransport {
 
     func responseCode(from response: Data) -> UInt16 {
         guard response.count >= 8 else { return 0 }
-        return response.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+        return response.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt16.self) }
     }
 
     /// Read a single PTP event packet from the interrupt-IN pipe.

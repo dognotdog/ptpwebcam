@@ -248,6 +248,11 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     /// Property codes listed by the most recent `parseDeviceInfo()` call.
     var standardPropertyIds: [UInt16] = []
 
+    /// Serial number reported by the camera in its GetDeviceInfo response, if
+    /// any. Some cameras (Canon EOS DSLRs in particular) leave the USB device
+    /// descriptor serial empty but still expose a serial through PTP.
+    var deviceSerial: String?
+
     /// GetDeviceInfo → `supportedOps` and `standardPropertyIds`. Subclasses can
     /// call this from `performVendorConnect` (it's already the default) or
     /// override entirely.
@@ -260,11 +265,11 @@ class UsbPtpCameraBase: UsbCameraProtocol {
             return
         }
         let p = PtpPropParser(data)
-        _ = p.readU16()              // standard version
-        _ = p.readU32()              // vendor extension ID
-        _ = p.readU16()              // vendor extension version
-        p.skipPtpString()            // vendor extension desc
-        _ = p.readU16()              // functional mode
+        _ = p.readU16()              // StandardVersion
+        _ = p.readU32()              // VendorExtensionID
+        _ = p.readU16()              // VendorExtensionVersion
+        p.skipPtpString()            // VendorExtensionDesc
+        _ = p.readU16()              // FunctionalMode
         if let ops = p.readU16Array() {
             supportedOps = Set(ops)
         }
@@ -272,7 +277,22 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         if let props = p.readU16Array() {
             standardPropertyIds = props
         }
+        p.skipArray(elementSize: 2)  // CaptureFormats
+        p.skipArray(elementSize: 2)  // ImageFormats
+        let manufacturer = p.readPtpString() ?? "?"
+        let model        = p.readPtpString() ?? "?"
+        let version      = p.readPtpString() ?? "?"
+        // Diagnostic: log raw bytes at the SerialNumber offset so we can
+        // verify the parser landed at the right place. The first byte
+        // should be a sensible charCount (typically 6–20 for a real serial).
+        let serialOffset = p.offset
+        let preview = data.subdata(in: serialOffset ..< min(serialOffset + 32, data.count))
+        let previewHex = preview.map { String(format: "%02x", $0) }.joined(separator: " ")
+        let serial = p.readPtpString()
+        if let s = serial, !s.isEmpty { deviceSerial = s }
         cameraLog.fault("GetDeviceInfo — \(self.supportedOps.count, privacy: .public) ops, \(self.standardPropertyIds.count, privacy: .public) standard props")
+        cameraLog.fault("  manufacturer=\(manufacturer, privacy: .public) model=\(model, privacy: .public) version=\(version, privacy: .public)")
+        cameraLog.fault("  serial offset=\(serialOffset, privacy: .public) raw=\(previewHex, privacy: .public) decoded=\(self.deviceSerial ?? "(none)", privacy: .public)")
     }
 
     // MARK: - Phase 2: live view loop
@@ -336,13 +356,35 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     /// frame iteration, and also as a one-shot kick when the LV loop isn't
     /// running so commands aren't held up.
     final func drainPendingOps() {
+        // Snapshot under lock so we can release before doing slow PTP work.
         pendingLock.lock()
         let ops = pendingOps
         pendingOps.removeAll()
         pendingLock.unlock()
 
-        for op in ops {
-            guard sessionOpen else { break }
+        // If the session isn't open (still in settle delay, or already closed),
+        // re-queue every op for the next drain attempt instead of silently
+        // discarding them. The session-state transitions on the same camera
+        // queue, so this drain will be re-invoked shortly.
+        guard sessionOpen else {
+            pendingLock.lock()
+            pendingOps.insert(contentsOf: ops, at: 0)
+            pendingLock.unlock()
+            return
+        }
+
+        for (index, op) in ops.enumerated() {
+            // Re-check between ops: the camera may have been disconnected
+            // mid-batch (close() flips sessionOpen → false). Save the
+            // remaining work for the next drain.
+            guard sessionOpen else {
+                let remaining = Array(ops[index...])
+                pendingLock.lock()
+                pendingOps.insert(contentsOf: remaining, at: 0)
+                pendingLock.unlock()
+                cameraLog.fault("drainPendingOps: session closed mid-drain, re-queued \(remaining.count, privacy: .public) op(s)")
+                return
+            }
             switch op {
             case .setProperty(let cmd):
                 performPropertySet(cmd)

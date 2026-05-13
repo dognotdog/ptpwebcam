@@ -56,6 +56,14 @@ let kDarwinCameraPropertyState = "org.ptpwebcam.darwin.PropertyState"
 let kDarwinPropertySlotPrefix  = "org.ptpwebcam.darwin.prop."
 let kDarwinPropertySlotCount   = 2048
 
+// Agent → Extension: please republish current camera + property state for
+// every connected camera. Posted by the agent on startup, since Darwin
+// notify posts aren't replayed for subscribers that weren't running. The
+// extension reacts by re-firing publishCameraConnected + publishPropertyState
+// for each known camera, so a freshly-relaunched agent recovers the menu
+// instead of staying blank until the next camera plug event.
+let kDarwinCameraStateRepublish = "org.ptpwebcam.darwin.CameraStateRepublish"
+
 // Agent → Extension: camera claim/release command
 // Agent writes packed uint64 to kDarwinClaimCameraSlot, then posts kDarwinClaimCamera.
 // Bit layout: [63:56] cmd (1=claim, 2=release) | [55:32] crc32(serial.utf8) | [31:16] VID | [15:0] PID
