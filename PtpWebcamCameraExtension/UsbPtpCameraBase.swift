@@ -50,7 +50,17 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         let value: UInt32
         let dataType: UInt16
     }
-    private var pendingSets: [PendingSet] = []
+
+    /// One unit of deferred work to be carried out on the camera queue.
+    /// Keeping `setProperty` and `autofocus` as labelled cases — rather than
+    /// flattening them into an opaque flags struct — means readers and future
+    /// vendors can see at a glance what kinds of operations the base class
+    /// schedules between live-view frames.
+    enum PendingOp {
+        case setProperty(PendingSet)
+        case autofocus
+    }
+    private var pendingOps: [PendingOp] = []
     private let pendingLock = NSLock()
 
     var onJpegFrame: ((Data) -> Void)?
@@ -105,29 +115,17 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         queue.async { [weak self] in self?.runCleanUpPhase() }
     }
 
-    /// Set when the user requests autofocus. Drained per-frame inside the LV
-    /// loop (and as a one-shot when not in LV) so the AF request actually runs
-    /// even though `runLiveViewPhase` monopolises the camera queue.
-    private var pendingAf = false
-    private let pendingAfLock = NSLock()
-
-    /// Entry point for autofocus. Marks the AF flag and kicks the camera queue
-    /// — if the LV loop is running, the flag gets picked up by `drainPendingAf`
-    /// on the next iteration; otherwise the queued closure handles it.
+    /// Entry point for autofocus. Enqueues an `.autofocus` op (collapsing
+    /// successive rapid clicks into a single trigger) and kicks the camera
+    /// queue — if the LV loop is running, the op gets picked up by
+    /// `drainPendingOps` on the next iteration; otherwise the queued closure
+    /// handles it immediately.
     final func triggerAutofocus() {
-        pendingAfLock.lock()
-        pendingAf = true
-        pendingAfLock.unlock()
-        queue.async { [weak self] in self?.drainPendingAf() }
-    }
-
-    /// Run the queued AF request, if any. Safe to call repeatedly.
-    final func drainPendingAf() {
-        pendingAfLock.lock()
-        let run = pendingAf
-        pendingAf = false
-        pendingAfLock.unlock()
-        if run, sessionOpen { performAutofocus() }
+        pendingLock.lock()
+        let alreadyQueued = pendingOps.contains { if case .autofocus = $0 { return true } else { return false } }
+        if !alreadyQueued { pendingOps.append(.autofocus) }
+        pendingLock.unlock()
+        queue.async { [weak self] in self?.drainPendingOps() }
     }
 
     /// Vendor-specific autofocus trigger. Override per subclass.
@@ -135,10 +133,10 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
     final func setProperty(propId: UInt32, value: UInt32, dataType: UInt16) {
         pendingLock.lock()
-        pendingSets.append(PendingSet(propId: propId, value: value, dataType: dataType))
+        pendingOps.append(.setProperty(PendingSet(propId: propId, value: value, dataType: dataType)))
         pendingLock.unlock()
         // If the live view loop isn't running, drain immediately on the camera queue.
-        queue.async { [weak self] in self?.drainPendingSets() }
+        queue.async { [weak self] in self?.drainPendingOps() }
     }
 
     // MARK: - Hooks (override in subclasses)
@@ -297,8 +295,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
         while !stopLv && !closing {
             autoreleasepool {
-                drainPendingSets()
-                drainPendingAf()
+                drainPendingOps()
                 guard !stopLv && !closing else { return }
 
                 pollCounter += 1
@@ -334,17 +331,31 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
     /// Execute all queued property-set commands. Runs on the camera queue
     /// (between LV frames, or as a standalone dispatch when LV isn't running).
-    final func drainPendingSets() {
+    /// Drain the pending-ops queue. Runs deferred SetProperty and Autofocus
+    /// work in FIFO order on the camera queue — called once per live-view
+    /// frame iteration, and also as a one-shot kick when the LV loop isn't
+    /// running so commands aren't held up.
+    final func drainPendingOps() {
         pendingLock.lock()
-        let cmds = pendingSets
-        pendingSets.removeAll()
+        let ops = pendingOps
+        pendingOps.removeAll()
         pendingLock.unlock()
 
-        for cmd in cmds {
+        for op in ops {
             guard sessionOpen else { break }
-            performPropertySet(cmd)
+            switch op {
+            case .setProperty(let cmd):
+                performPropertySet(cmd)
+            case .autofocus:
+                performAutofocus()
+            }
         }
     }
+
+    /// Backwards-compatible alias for callers (vendor subclasses or external
+    /// code) that still refer to the older name. Just drains the unified
+    /// pending-ops queue.
+    final func drainPendingSets() { drainPendingOps() }
 
     // MARK: - Cleanup
 

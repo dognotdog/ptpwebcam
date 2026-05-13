@@ -288,6 +288,31 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		extLogger.fault("\(msg, privacy: .public)")
 	}
 
+	/// Wrap `notify_register_check` so silent failures (e.g. kernel notify-token
+	/// limit reached, ~1024 per process) are at least visible in the log. A
+	/// failed registration returns token 0; downstream slot reads/writes then
+	/// silently no-op, which is hard to debug.
+	@discardableResult
+	static func registerCheckToken(_ name: String, label: String) -> Int32 {
+		var token: Int32 = 0
+		let status = darwin_notify_register_check(name, &token)
+		if status != 0 {
+			log("notify_register_check failed status=\(status) name=\(name) (\(label))")
+		}
+		return token
+	}
+
+	@discardableResult
+	static func registerDispatchToken(_ name: String, queue: DispatchQueue, label: String,
+	                                  handler: @escaping @convention(block) (Int32) -> Void) -> Int32 {
+		var token: Int32 = 0
+		let status = darwin_notify_register_dispatch(name, &token, queue, handler)
+		if status != 0 {
+			log("notify_register_dispatch failed status=\(status) name=\(name) (\(label))")
+		}
+		return token
+	}
+
 	// USB cameras keyed by cameraId — opened on claim.
 	private var usbCameras: [String: any UsbCameraProtocol] = [:]
 
@@ -325,9 +350,8 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 		// Register property state slots (extension → agent).
 		propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
-			var token: Int32 = 0
-			darwin_notify_register_check(kDarwinPropertySlotPrefix + "\(i)", &token)
-			return token
+			let name = kDarwinPropertySlotPrefix + "\(i)"
+			return Self.registerCheckToken(name, label: "propSlot[\(i)]")
 		}
 
 		// Per-camera claim and property-command channels are registered in cameraConnected.
@@ -641,8 +665,17 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		}
 
 		// Store camera on main, then open session. Check pending live view request.
+		// If the camera was unplugged during our ~3 s of retries above,
+		// `cameraDisconnected` has already run and cleared `cameraIdentity` —
+		// in that case bail and close the transport instead of leaking a
+		// live IOUSBLib handle for a service that no longer exists.
 		DispatchQueue.main.async { [weak self] in
 			guard let self = self else { return }
+			guard self.cameraIdentity[cameraId] != nil else {
+				PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: camera \(cameraId) disconnected during claim — discarding")
+				camera.close()
+				return
+			}
 			self.usbCameras[cameraId] = camera
 			PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: camera stored, opening session for \(cameraId)")
 			camera.openSessionAndDiscover()
@@ -725,10 +758,10 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		// Register per-camera claim channel (agent → extension, keyed by vid.pid.crc).
 		let crc = crc32OfString(serial) & 0x00FFFFFF
 		let suffix = String(format: "%04x.%04x.%06x", vid, pid, crc)
-		var slotToken: Int32 = 0
-		var notifyToken: Int32 = 0
-		darwin_notify_register_check(kDarwinClaimCameraSlot + "." + suffix, &slotToken)
-		darwin_notify_register_dispatch(kDarwinClaimCamera + "." + suffix, &notifyToken, .main) { [weak self] _ in
+		let slotToken = Self.registerCheckToken(kDarwinClaimCameraSlot + "." + suffix,
+		                                        label: "claim slot \(cameraId)")
+		let notifyToken = Self.registerDispatchToken(kDarwinClaimCamera + "." + suffix, queue: .main,
+		                                             label: "claim notify \(cameraId)") { [weak self] _ in
 			self?.handleClaimCommand(cameraId: cameraId, slotToken: slotToken)
 		}
 		claimTokens[cameraId] = (slot: slotToken, notify: notifyToken)
@@ -737,10 +770,10 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		// property sets would arrive on the single shared channel and be routed
 		// to whichever camera happens to be `usbCameras.first`, which is wrong
 		// whenever more than one camera is connected.
-		var propSlotToken:   Int32 = 0
-		var propNotifyToken: Int32 = 0
-		darwin_notify_register_check(kDarwinPropertyCmdSlot + "." + suffix, &propSlotToken)
-		darwin_notify_register_dispatch(kDarwinCameraPropertyCmd + "." + suffix, &propNotifyToken, .main) { [weak self] _ in
+		let propSlotToken = Self.registerCheckToken(kDarwinPropertyCmdSlot + "." + suffix,
+		                                            label: "propcmd slot \(cameraId)")
+		let propNotifyToken = Self.registerDispatchToken(kDarwinCameraPropertyCmd + "." + suffix, queue: .main,
+		                                                 label: "propcmd notify \(cameraId)") { [weak self] _ in
 			self?.handlePropertyCommand(cameraId: cameraId, slotToken: propSlotToken)
 		}
 		propCmdTokens[cameraId] = (slot: propSlotToken, notify: propNotifyToken)

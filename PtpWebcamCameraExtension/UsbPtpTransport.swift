@@ -43,6 +43,13 @@ class UsbPtpTransport {
 
     private var txnCounter: UInt32 = 0
 
+    // Reusable 4 MB read scratch buffer. PTP transactions, especially live-view
+    // frames at 30 fps, were previously allocating + freeing a fresh
+    // NSMutableData(length: 4 MB) per call — ~120 MB/s of malloc churn.
+    // The transport is single-threaded (all calls on the camera's serial
+    // DispatchQueue) so a single shared buffer is safe.
+    private let readBuf: NSMutableData = NSMutableData(length: 4 * 1024 * 1024)!
+
     // MARK: - Discovery
 
     /// Returns IOKit service handles for attached PTP Still Imaging (class 6) USB interfaces.
@@ -242,16 +249,16 @@ class UsbPtpTransport {
     }
 
     private func readBulkIn() throws -> Data {
-        // 4 MB buffer — large enough for any live view frame.
-        let buf = NSMutableData(length: 4 * 1024 * 1024)!
         var received: UInt = 0
         do {
-            try bulkIn.receive(into: buf, bytesReceived: &received, timeout: 5.0)
+            try bulkIn.receive(into: readBuf, bytesReceived: &received, timeout: 5.0)
         } catch {
             throw UsbPtpError.bulkInFailed(error)
         }
         guard received >= 12 else { throw UsbPtpError.shortRead(Int(received)) }
-        return Data(bytes: buf.bytes, count: Int(received))
+        // Copy the received bytes out into a fresh Data — the buffer itself is
+        // reused on the next call and may not outlive the returned value.
+        return Data(bytes: readBuf.bytes, count: Int(received))
     }
 
     // MARK: - Command Building
@@ -283,14 +290,22 @@ class UsbPtpTransport {
         return Data(bytes: buf.bytes, count: Int(received))
     }
 
-    /// Attempt a single bulk-IN read to drain data the camera is sending.
-    /// timeout: how long to wait if the pipe is empty (use short value like 0.05 s).
-    /// Ignores errors; returns bytes received.
+    /// Drain any bytes the camera is sending on bulk-IN. Loops until a read
+    /// returns no data, since the camera may have queued multiple packets for
+    /// a cancelled transaction — reading only the first leaves the rest in
+    /// the pipe to corrupt the next legitimate read.
+    /// `timeout` applies per attempt (use short values like 0.05–0.1 s).
+    @discardableResult
     func drainBulkIn(timeout: TimeInterval) -> UInt {
-        let buf = NSMutableData(length: 4 * 1024 * 1024)!
-        var received: UInt = 0
-        let _ = try? bulkIn.receive(into: buf, bytesReceived: &received, timeout: timeout)
-        return received
+        var total: UInt = 0
+        // Cap iterations so a misbehaving camera streaming nonsense can't hang us.
+        for _ in 0..<32 {
+            var received: UInt = 0
+            let ok = (try? bulkIn.receive(into: readBuf, bytesReceived: &received, timeout: timeout)) != nil
+            if !ok || received == 0 { break }
+            total &+= received
+        }
+        return total
     }
 }
 
