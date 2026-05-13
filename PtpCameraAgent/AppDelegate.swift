@@ -370,25 +370,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // MARK: - Property Command (agent → extension)
 
     private func postPropertyCommand(cameraId: String, propId: UInt32, value: NSNumber) {
+        let packed: UInt64 = (UInt64(3) << 56) | (UInt64(propId) << 32) | UInt64(value.uint32Value)
+        postCameraCommand(cameraId: cameraId, packed: packed,
+                          label: "SET_PROP 0x\(String(propId, radix:16)) = \(value)")
+    }
+
+    /// Trigger an autofocus cycle on the named camera. Encoded as cmd=4 on the
+    /// per-camera property command channel; the extension routes it to
+    /// `camera.triggerAutofocus()` which dispatches to the vendor implementation.
+    private func postAutofocusCommand(cameraId: String) {
+        let packed: UInt64 = UInt64(4) << 56
+        postCameraCommand(cameraId: cameraId, packed: packed, label: "TRIGGER_AF")
+    }
+
+    /// Common per-camera Darwin-notify post for both SET_PROP and TRIGGER_AF.
+    private func postCameraCommand(cameraId: String, packed: UInt64, label: String) {
         guard let camera = extCameras[cameraId] else {
-            AppDelegate.log("PtpCameraAgent: postPropertyCommand — unknown cameraId \(cameraId)")
+            AppDelegate.log("PtpCameraAgent: postCameraCommand — unknown cameraId \(cameraId)")
             return
         }
-        // Route the command to the per-camera channel (same vid.pid.crc suffix
-        // scheme as claim commands). The previous single shared channel sent
-        // every property set to whichever camera happened to be first in the
-        // extension's `usbCameras` dict, which broke multi-camera setups.
         let crc = crc32OfString(camera.serial) & 0x00FFFFFF
         let suffix = String(format: "%04x.%04x.%06x", camera.vid, camera.pid, crc)
         let slotName   = kDarwinPropertyCmdSlot     + "." + suffix
         let notifyName = kDarwinCameraPropertyCmd   + "." + suffix
-        let packed: UInt64 = (UInt64(3) << 56) | (UInt64(propId) << 32) | UInt64(value.uint32Value)
         var slotToken: Int32 = 0
         darwin_notify_register_check(slotName, &slotToken)
         darwin_notify_set_state(slotToken, packed)
         darwin_notify_post(notifyName)
         notify_cancel(slotToken)
-        AppDelegate.log("PtpCameraAgent: posted SET_PROP 0x\(String(propId, radix:16)) = \(value) on \(camera.name) (\(cameraId))")
+        AppDelegate.log("PtpCameraAgent: posted \(label) on \(camera.name) (\(cameraId))")
     }
 
     // MARK: - Live View Command Handling (extension → agent)
@@ -575,19 +585,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
 
     private func addExtCameraMenu(_ camera: ExtCamera, to menu: NSMenu) {
         menu.addItem(NSMenuItem.separator())
-        let header = NSMenuItem(title: camera.name, action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
 
         let isClaimed = claimedCameraKeys.contains(camera.claimKey)
 
-        let claimItem = NSMenuItem(title: "  Claim for PTP Webcam",
-                                   action: #selector(claimCameraAction(_:)),
-                                   keyEquivalent: "")
-        claimItem.target = self
-        claimItem.representedObject = camera.cameraId
-        claimItem.state = isClaimed ? .on : .off
-        menu.addItem(claimItem)
+        // Single clickable camera header that doubles as the claim toggle.
+        //   Claimed:    "<Camera Name> [serial]"                  with checkmark, click to release
+        //   Unclaimed:  "<Camera Name> [serial] (click to claim)" no checkmark
+        let nameWithSerial = camera.serial.isEmpty
+            ? camera.name
+            : "\(camera.name) [\(camera.serial)]"
+        let title = isClaimed ? nameWithSerial : "\(nameWithSerial) (click to claim)"
+        let header = NSMenuItem(title: title,
+                                action: #selector(claimCameraAction(_:)),
+                                keyEquivalent: "")
+        header.target = self
+        header.representedObject = camera.cameraId
+        header.state = isClaimed ? .on : .off
+        menu.addItem(header)
 
         if !isClaimed { return }
 
@@ -691,6 +705,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             menu.addItem(item)
         }
 
+        // Autofocus trigger. Nikon: AfDrive (0x90C1). Sony: AutofocusButton
+        // toggle (0xD2C1). Canon: not yet implemented at the extension side.
+        if vendor == .nikon || (vendor == .sony && camera.properties[0xD2C1] != nil) {
+            menu.addItem(NSMenuItem.separator())
+            let afItem = NSMenuItem(title: "  Autofocus",
+                                    action: #selector(extAutofocusAction(_:)),
+                                    keyEquivalent: "")
+            afItem.target = self
+            afItem.representedObject = camera.cameraId
+            menu.addItem(afItem)
+        }
     }
 
     // Build the appropriate submenu for a writable ext-camera property.
@@ -822,6 +847,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     @objc private func autofocusAction(_ sender: NSMenuItem) {
         guard let camera = sender.representedObject as? PtpCamera else { return }
         camera.performAutofocus()
+    }
+
+    @objc private func extAutofocusAction(_ sender: NSMenuItem) {
+        guard let cameraId = sender.representedObject as? String else { return }
+        postAutofocusCommand(cameraId: cameraId)
     }
 
     @objc private func changePropertyAction(_ sender: NSMenuItem) {

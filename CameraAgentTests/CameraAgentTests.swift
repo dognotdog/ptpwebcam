@@ -79,6 +79,21 @@ final class CameraAgentTests: XCTestCase {
         XCTAssertEqual(formatExtPropRaw(NSNumber(value: -1), propId: 0xD218), "External")
     }
 
+    func testSonyFocusModes() {
+        // FocusMode values differ between Sony and Nikon despite sharing 0x500A
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0001), propId: 0x500A, vendor: .sony), "MF")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0002), propId: 0x500A, vendor: .sony), "AF-S")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0003), propId: 0x500A, vendor: .sony), "AF-C")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0004), propId: 0x500A, vendor: .sony), "AF-A")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0006), propId: 0x500A, vendor: .sony), "DMF")
+    }
+
+    func testNikonFocusModesUnaffected() {
+        // Same propId 0x500A on Nikon keeps its existing labels
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x0002), propId: 0x500A, vendor: .nikon), "Auto")
+        XCTAssertEqual(formatExtPropRaw(NSNumber(value: 0x8010), propId: 0x500A, vendor: .nikon), "[S] Single")
+    }
+
     func testNikonWbTunePositive() {
         // Camera reports raw 9, neutral=6, so display +3
         XCTAssertEqual(formatExtPropRaw(NSNumber(value: 9), propId: 0xD018), "+3")

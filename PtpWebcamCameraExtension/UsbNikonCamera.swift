@@ -11,6 +11,7 @@ import os.log
 // MARK: - Nikon PTP constants
 
 private let PTP_CMD_NIKON_GETVENDORPROPS:    UInt16 = 0x90CA
+private let PTP_CMD_NIKON_AFDRIVE:           UInt16 = 0x90C1
 private let PTP_CMD_NIKON_CHANGECAMERAMODE:  UInt16 = 0x90C2  // param 0=PC camera, 1=remote/tethered
 private let PTP_CMD_NIKON_STARTLIVEVIEW:     UInt16 = 0x9201
 private let PTP_CMD_NIKON_STOPLIVEVIEW:      UInt16 = 0x9202
@@ -322,6 +323,20 @@ final class UsbNikonCamera: UsbPtpCameraBase {
         if code == PTP_RSP_OK, let updated = discoverSingleProperty(UInt16(pending.propId & 0xFFFF)) {
             discoveredProperties[pending.propId] = updated
             onPropertiesDiscovered?([pending.propId: updated])
+        }
+    }
+
+    // MARK: - Autofocus
+
+    override func performAutofocus() {
+        guard sessionOpen else { return }
+        do {
+            let (_, rsp) = try transport.sendPtpCommand(
+                transport.buildCommand(code: PTP_CMD_NIKON_AFDRIVE))
+            let code = transport.responseCode(from: rsp)
+            cameraLog.fault("AfDrive → 0x\(String(code, radix:16), privacy: .public)")
+        } catch {
+            cameraLog.fault("AfDrive error: \(String(describing: error), privacy: .public)")
         }
     }
 

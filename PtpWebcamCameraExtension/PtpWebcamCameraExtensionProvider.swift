@@ -453,20 +453,25 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		let propId = UInt32((packed >> 32) & 0xFFFF)
 		let value  = UInt32(packed & 0xFFFFFFFF)
 
-		guard cmd == 3 else {
-			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown cmd=\(cmd)")
-			return
-		}
 		guard let camera = usbCameras[cameraId] else {
 			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: camera not claimed")
 			return
 		}
-		guard let dataType = cameraProperties[cameraId]?[propId]?.dataType else {
-			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown propId=0x\(String(propId, radix:16))")
-			return
+
+		switch cmd {
+		case 3:  // SET_PROP
+			guard let dataType = cameraProperties[cameraId]?[propId]?.dataType else {
+				PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown propId=0x\(String(propId, radix:16))")
+				return
+			}
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: SET_PROP 0x\(String(propId, radix:16))=\(value) on \(cameraId)")
+			camera.setProperty(propId: propId, value: value, dataType: dataType)
+		case 4:  // TRIGGER_AF
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: TRIGGER_AF on \(cameraId)")
+			camera.triggerAutofocus()
+		default:
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown cmd=\(cmd)")
 		}
-		PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: SET_PROP 0x\(String(propId, radix:16))=\(value) on \(cameraId)")
-		camera.setProperty(propId: propId, value: value, dataType: dataType)
 	}
 
 	private func handleClaimCommand(cameraId: String, slotToken: Int32) {

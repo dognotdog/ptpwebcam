@@ -105,6 +105,34 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         queue.async { [weak self] in self?.runCleanUpPhase() }
     }
 
+    /// Set when the user requests autofocus. Drained per-frame inside the LV
+    /// loop (and as a one-shot when not in LV) so the AF request actually runs
+    /// even though `runLiveViewPhase` monopolises the camera queue.
+    private var pendingAf = false
+    private let pendingAfLock = NSLock()
+
+    /// Entry point for autofocus. Marks the AF flag and kicks the camera queue
+    /// — if the LV loop is running, the flag gets picked up by `drainPendingAf`
+    /// on the next iteration; otherwise the queued closure handles it.
+    final func triggerAutofocus() {
+        pendingAfLock.lock()
+        pendingAf = true
+        pendingAfLock.unlock()
+        queue.async { [weak self] in self?.drainPendingAf() }
+    }
+
+    /// Run the queued AF request, if any. Safe to call repeatedly.
+    final func drainPendingAf() {
+        pendingAfLock.lock()
+        let run = pendingAf
+        pendingAf = false
+        pendingAfLock.unlock()
+        if run, sessionOpen { performAutofocus() }
+    }
+
+    /// Vendor-specific autofocus trigger. Override per subclass.
+    func performAutofocus() { }
+
     final func setProperty(propId: UInt32, value: UInt32, dataType: UInt16) {
         pendingLock.lock()
         pendingSets.append(PendingSet(propId: propId, value: value, dataType: dataType))
@@ -270,6 +298,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         while !stopLv && !closing {
             autoreleasepool {
                 drainPendingSets()
+                drainPendingAf()
                 guard !stopLv && !closing else { return }
 
                 pollCounter += 1

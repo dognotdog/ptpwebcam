@@ -27,7 +27,14 @@ protocol UsbCameraProtocol: AnyObject {
     func startLiveView()
     func stopLiveView()
     func setProperty(propId: UInt32, value: UInt32, dataType: UInt16)
+    /// Trigger an autofocus cycle. Vendor-specific (Nikon AfDrive, Sony
+    /// AutofocusButton toggle, etc.). Default no-op.
+    func triggerAutofocus()
     func close()
+}
+
+extension UsbCameraProtocol {
+    func triggerAutofocus() { }
 }
 
 // MARK: - PtpPropParser

@@ -247,18 +247,22 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     // MARK: - Event polling
 
     override func pollEvents() {
-        // Drain PROPVALCHANGED events and refresh the changed properties via
-        // GetDevicePropDesc (0x9203). The original DAL plugin uses this and it
-        // works as long as the Connect handshake completes cleanly first.
         while let eventData = transport.readInterruptEvent(timeout: 0.01) {
             guard eventData.count >= 16 else { continue }
             let eventCode = eventData.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self) }
+            cameraLog.fault("Sony event 0x\(String(eventCode, radix:16), privacy: .public) raw=\(eventData.prefix(20).map { String(format: "%02x", $0) }.joined(separator: " "), privacy: .public)")
             guard eventCode == PTP_EVENT_SONY_PROPVALCHANGED else { continue }
             let propId = UInt32(eventData.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt16.self) })
-            if let (inData, rsp) = try? transport.sendPtpCommand(
-                transport.buildCommand(code: PTP_CMD_SONY_GETPROPDESC, parameters: [propId])),
-               transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData {
-                parseSonyPropDescResponse(data)
+            do {
+                let (inData, rsp) = try transport.sendPtpCommand(
+                    transport.buildCommand(code: PTP_CMD_SONY_GETPROPDESC, parameters: [propId]))
+                let code = transport.responseCode(from: rsp)
+                cameraLog.fault("PROPVALCHANGED 0x\(String(propId, radix:16), privacy: .public) → GetPropDesc 0x\(String(code, radix:16), privacy: .public) len=\(inData?.count ?? -1, privacy: .public)")
+                if code == PTP_RSP_OK, let data = inData {
+                    parseSonyPropDescResponse(data)
+                }
+            } catch {
+                cameraLog.fault("PROPVALCHANGED 0x\(String(propId, radix:16), privacy: .public) → GetPropDesc threw: \(String(describing: error), privacy: .public)")
             }
         }
     }
@@ -271,7 +275,21 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     // Standard PTP `parsePropDesc()` omits the flags byte and misaligns everything.
 
     @discardableResult
-    private func parseSonyAllPropertyDataResponse(_ data: Data, publish: Bool = true) -> [UInt32: UsbCameraProperty] {
+    /// Parse a Sony GetAllPropData response.
+    /// - parameter publish: emit `onPropertiesDiscovered` for changed entries.
+    /// - parameter mergePreserveZeros: when true (default), if the camera reports
+    ///   `CurrentValue=0` for a property whose cached value is non-zero, keep the
+    ///   cached value rather than overwriting (protects real values from
+    ///   placeholder zeros during init). Set false when called right after a
+    ///   set, so the camera's actual response wins.
+    /// - parameter propIdToTrust: if set, this property's value is always
+    ///   accepted from the response even if `mergePreserveZeros` is true.
+    private func parseSonyAllPropertyDataResponse(
+        _ data: Data,
+        publish: Bool = true,
+        mergePreserveZeros: Bool = true,
+        propIdToTrust: UInt32? = nil
+    ) -> [UInt32: UsbCameraProperty] {
         guard data.count > 8 else { return [:] }
         let p = PtpPropParser(data.subdata(in: 8 ..< data.count))
         var changed: [UInt32: UsbCameraProperty] = [:]
@@ -324,7 +342,13 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             // 0 and the old one was non-zero. The post-connect bulk dump
             // contains placeholder zeros for many properties that the
             // pre-connect 0x1014 fetch returned with real values.
-            if let existing = discoveredProperties[propId],
+            //   `mergePreserveZeros = false` disables this protection entirely
+            //   (e.g. right after a set, where the camera's truth wins).
+            //   `propIdToTrust == propId` likewise: that one specific property
+            //   accepts the camera's value verbatim.
+            let trustThis = !mergePreserveZeros || propIdToTrust == propId
+            if !trustThis,
+               let existing = discoveredProperties[propId],
                current.intValue == 0, existing.value.intValue != 0 {
                 // Keep existing value but update other descriptor fields.
                 let merged = UsbCameraProperty(
@@ -396,6 +420,28 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             cameraLog.fault("parseSonyPropDescResponse 0x\(String(propId, radix:16), privacy: .public) value=\(current, privacy: .public)")
             onPropertiesDiscovered?([propId: updated])
         }
+    }
+
+    // MARK: - Autofocus
+
+    /// Sony AF trigger is a "button" property at 0xD2C1. Button properties on
+    /// Sony cameras are written via `SetPropStep` (0x9207) with the raw value
+    /// encoded as a 4-byte Int32 step — NOT via SetPropAbs. The DAL plugin's
+    /// `incrementProperty(_:by:)` always used 4-byte Int32, and so does our
+    /// `performPropertySet` button branch.
+    override func performAutofocus() {
+        guard sessionOpen else { return }
+        let propId: UInt32 = 0xD2C1
+        sendSonyButtonStep(propId: propId, step: 2)   // press
+        Thread.sleep(forTimeInterval: 0.2)
+        sendSonyButtonStep(propId: propId, step: 1)   // release
+        cameraLog.fault("Sony AF trigger (0xD2C1 step 2 → 1)")
+    }
+
+    private func sendSonyButtonStep(propId: UInt32, step: Int32) {
+        var s = step
+        let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [propId])
+        _ = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &s, count: 4))
     }
 
     // MARK: - Property set
@@ -472,7 +518,14 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 transport.buildCommand(code: PTP_CMD_SONY_GETALLPROPDATA)),
                transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData {
                 cameraLog.fault("GetAllPropData after set 0x\(hexId, privacy: .public) len=\(data.count, privacy: .public)")
-                parseSonyAllPropertyDataResponse(data)
+                // For the property we just set, trust the camera's response
+                // even if it's 0 — otherwise the merge logic preserves our
+                // stale cached value and the menu never reflects reality.
+                parseSonyAllPropertyDataResponse(data, mergePreserveZeros: false,
+                                                 propIdToTrust: pending.propId)
+                if let after = discoveredProperties[pending.propId] {
+                    cameraLog.fault("post-set 0x\(hexId, privacy: .public) cached=\(after.value, privacy: .public) (target was \(pending.value, privacy: .public))")
+                }
             } else {
                 cameraLog.fault("GetAllPropData after set failed for 0x\(hexId, privacy: .public)")
             }

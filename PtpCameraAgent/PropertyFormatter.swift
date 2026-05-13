@@ -108,7 +108,27 @@ func formatNikonShutterSpeed(_ val: UInt32) -> String {
     }
 }
 
+// Sony-specific enum value names. The values for properties like FocusMode
+// differ between vendors despite using the same standard PTP property code,
+// so we check this table first when the camera is identified as Sony.
+let sonyExtPropValueNames: [UInt32: [UInt32: String]] = [
+    0x500A: [  // FocusMode — Sony A7-series values
+        0x0001: "MF",       // Manual Focus
+        0x0002: "AF-S",     // Single-shot AF
+        0x0003: "AF-C",     // Continuous AF
+        0x0004: "AF-A",     // Automatic AF
+        0x0006: "DMF",      // Direct Manual Focus
+        // Sony-extended (0x80xx) values used on newer bodies / movie modes
+        0x8004: "AF-D",     // Predictive Continuous AF
+        0x8005: "AF-F",     // Full-time continuous (movie)
+        0x8006: "PF",       // Power Focus
+        0x8007: "DMF (Push)",
+        0x8008: "AF (0x8008)",   // observed on A7-series — exact name unknown
+    ],
+]
+
 func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: CameraVendor = .unknown) -> String {
+    if vendor == .sony, let name = sonyExtPropValueNames[propId]?[value.uint32Value] { return name }
     if let name = nikonExtPropValueNames[propId]?[value.uint32Value] { return name }
     switch propId {
     case 0x5001: return "\(value.intValue)%"  // Standard PTP Battery Level
