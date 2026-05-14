@@ -70,7 +70,11 @@ struct MainWindowView: View {
     }
 
     private var entitlementBadge: some View {
-        let (label, color): (String, Color) = {
+        // Typed as `LocalizedStringKey` (not `String`) so `Text(_:)` treats it
+        // as a localization lookup key rather than a verbatim string. With
+        // `String` here, the badge text would skip the .xcstrings catalog
+        // entirely no matter what locale the system is in.
+        let (label, color): (LocalizedStringKey, Color) = {
             switch store.entitlement {
             case .unknown:        return ("Checking…", .secondary)
             case .subscribed:     return ("Active", .green)

@@ -131,6 +131,7 @@
 		DD002222000000000000DD03 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD002222000000000000DD02 /* MainWindowView.swift */; };
 		DD003333000000000000DD05 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD003333000000000000DD04 /* MainWindowController.swift */; };
 		DD005555000000000000DD09 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = DD005555000000000000DD08 /* AppIcon.icon */; };
+		DD006666000000000000DD0B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DD006666000000000000DD0A /* Localizable.xcstrings */; };
 		E9E54BE2BF3F31F6EC68A67C /* PtpCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0F4F0DBF7C2E04CC9FB5A6 /* PtpCamera.swift */; };
 		FF001111000000000000FF01 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
 /* End PBXBuildFile section */
@@ -499,6 +500,7 @@
 		DD002222000000000000DD02 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MainWindowView.swift; path = PtpWebcamApp/MainWindowView.swift; sourceTree = SOURCE_ROOT; };
 		DD003333000000000000DD04 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MainWindowController.swift; path = PtpWebcamApp/MainWindowController.swift; sourceTree = SOURCE_ROOT; };
 		DD005555000000000000DD08 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = PtpWebcamApp/AppIcon.icon; sourceTree = SOURCE_ROOT; };
+		DD006666000000000000DD0A /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = PtpWebcamApp/Localizable.xcstrings; sourceTree = SOURCE_ROOT; };
 		FF001111000000000000FF00 /* PropertyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyFormatter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -631,6 +633,7 @@
 				DD002222000000000000DD02 /* MainWindowView.swift */,
 				DD003333000000000000DD04 /* MainWindowController.swift */,
 				DD005555000000000000DD08 /* AppIcon.icon */,
+				DD006666000000000000DD0A /* Localizable.xcstrings */,
 				DA1B266F2B1BBCD80075AAAB /* Assets.xcassets */,
 				DA1B26712B1BBCD80075AAAB /* MainMenu.xib */,
 				DA1B26742B1BBCD80075AAAB /* PtpWebcamApp.entitlements */,
@@ -1334,6 +1337,7 @@
 				DA1B26702B1BBCD80075AAAB /* Assets.xcassets in Resources */,
 				DA1B26732B1BBCD80075AAAB /* MainMenu.xib in Resources */,
 				DD005555000000000000DD09 /* AppIcon.icon in Resources */,
+				DD006666000000000000DD0B /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

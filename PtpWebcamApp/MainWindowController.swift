@@ -19,7 +19,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         // the third one was disappearing below the title bar).
         host.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: host)
-        window.title = "PTP Webcam"
+        // Use NSLocalizedString so the title is extracted into the strings
+        // catalog. Brand-name passes through unchanged in English; other
+        // locales can override (e.g. for transliteration) via the catalog.
+        window.title = NSLocalizedString("PTP Webcam", comment: "Main window title")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
