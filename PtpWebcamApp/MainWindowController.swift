@@ -33,7 +33,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     /// Bring the window to the front, creating it lazily on first call.
+    ///
+    /// Also touches the "last subscription reminder shown" timestamp so that
+    /// AppDelegate's preview-close auto-prompt respects the same 24-hour
+    /// window regardless of how the window got opened (auto-after-preview,
+    /// About menu from the app or agent, Dock click, Finder launch). We
+    /// don't want to nag a user who already looked at the page this morning.
     func present() {
+        UserDefaults.standard.set(Date(), forKey: "lastSubscriptionReminderAt")
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

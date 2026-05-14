@@ -35,6 +35,22 @@
       "hidden" : false,
       "layers" : [
         {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.79958,1.00000,0.86983,1.00000",
+              "display-p3:1.00000,0.88377,0.98445,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.8510632987220448,
+                "y" : 0.8808406549520766
+              },
+              "stop" : {
+                "x" : 0.11471645367412141,
+                "y" : 0.1785143769968051
+              }
+            }
+          },
           "image-name" : "Image 10.png",
           "name" : "Image 10"
         },
@@ -56,9 +72,44 @@
       }
     },
     {
+      "blur-material" : 0.5,
+      "hidden" : true,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "display-p3:0.00000,0.00000,0.00000,1.00000"
+          },
+          "glass" : true,
+          "image-name" : "Image 3.png",
+          "name" : "Image 3"
+        }
+      ],
+      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.1
+      }
+    },
+    {
       "blur-material" : null,
       "layers" : [
         {
+          "hidden" : true,
+          "image-name" : "Image 2.png",
+          "name" : "Image 2"
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image.png",
+          "name" : "Image"
+        },
+        {
+          "hidden" : false,
           "image-name" : "Image 8.png",
           "name" : "Image 8"
         }

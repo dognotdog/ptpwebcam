@@ -553,7 +553,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             addExtCameraMenu(camera, to: menu)
         }
 
+        // Always-available "About" entry — surfaces the main app window
+        // (subscription / project info) without the user having to find the
+        // App's Dock icon. Routes via the `ptpwebcam://about` URL scheme so
+        // we don't need an XPC channel from the agent to the app process.
+        menu.addItem(NSMenuItem.separator())
+        let aboutItem = NSMenuItem(title: "About PTP Webcam…",
+                                   action: #selector(openAboutAction(_:)),
+                                   keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
         statusItem.menu = menu
+    }
+
+    /// Opens the App's main window. Posted as a `ptpwebcam://about` URL so
+    /// the App handles it via `application(_:open:)` (already wired). If the
+    /// App isn't running, NSWorkspace launches it; if it is, the URL routes
+    /// to the live instance via Apple Events.
+    @objc private func openAboutAction(_ sender: NSMenuItem) {
+        guard let url = URL(string: "ptpwebcam://about") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func addCameraMenu(_ camera: PtpCamera, to menu: NSMenu) {

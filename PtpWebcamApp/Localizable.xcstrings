@@ -4,11 +4,11 @@
     "Active" : {
       "comment" : "Subscription status badge — entitlement is currently active"
     },
-    "Checking…" : {
-      "comment" : "Subscription status badge — entitlement check still in flight"
-    },
     "Checking your subscription…" : {
       "comment" : "Body text while StoreKit resolves the user's current entitlement"
+    },
+    "Checking…" : {
+      "comment" : "Subscription status badge — entitlement check still in flight"
     },
     "Current plan:" : {
       "comment" : "Label preceding the name of the user's active subscription tier"
@@ -23,7 +23,7 @@
       "comment" : "Subscription status badge — user has no active entitlement"
     },
     "PTP Webcam" : {
-      "comment" : "App name — main window title and header"
+      "comment" : "Main window title"
     },
     "PTP Webcam is free, but if you like PTP Webcam, you can support development with one of the following subscriptions." : {
       "comment" : "Description shown above the list of subscription tiers when the user is not yet subscribed"

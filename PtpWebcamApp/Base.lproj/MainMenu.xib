@@ -16,14 +16,14 @@
         <customObject id="YLy-65-1bz" customClass="NSFontManager"/>
         <menu title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
             <items>
-                <menuItem title="PtpWebcamApp" id="1Xt-HY-uBw">
+                <menuItem title="PTP Webcam" id="1Xt-HY-uBw">
                     <modifierMask key="keyEquivalentModifierMask"/>
-                    <menu key="submenu" title="PtpWebcamApp" systemMenu="apple" id="uQy-DD-JDr">
+                    <menu key="submenu" title="PTP Webcam" systemMenu="apple" id="uQy-DD-JDr">
                         <items>
-                            <menuItem title="About PtpWebcamApp" id="5kV-Vb-QxS">
+                            <menuItem title="About PTP Webcam…" id="5kV-Vb-QxS">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
-                                    <action selector="orderFrontStandardAboutPanel:" target="-1" id="Exp-CZ-Vem"/>
+                                    <action selector="showMainWindow:" target="Voe-Tx-rLC" id="Exp-CZ-Vem"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="VOq-y0-SEH"/>
@@ -34,7 +34,7 @@
                                 <menu key="submenu" title="Services" systemMenu="services" id="hz9-B4-Xy5"/>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>
-                            <menuItem title="Hide PtpWebcamApp" keyEquivalent="h" id="Olw-nP-bQN">
+                            <menuItem title="Hide PTP Webcam" keyEquivalent="h" id="Olw-nP-bQN">
                                 <connections>
                                     <action selector="hide:" target="-1" id="PnN-Uc-m68"/>
                                 </connections>
@@ -52,7 +52,7 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="kCx-OE-vgT"/>
-                            <menuItem title="Quit PtpWebcamApp" keyEquivalent="q" id="4sb-4s-VLi">
+                            <menuItem title="Quit PTP Webcam" keyEquivalent="q" id="4sb-4s-VLi">
                                 <connections>
                                     <action selector="terminate:" target="-1" id="Te7-pn-YzF"/>
                                 </connections>
@@ -665,7 +665,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="F2S-fz-NVQ">
                         <items>
-                            <menuItem title="PtpWebcamApp Help" keyEquivalent="?" id="FKE-Sm-Kum">
+                            <menuItem title="PTP Webcam Help" keyEquivalent="?" id="FKE-Sm-Kum">
                                 <connections>
                                     <action selector="showHelp:" target="-1" id="y7X-2Q-9no"/>
                                 </connections>

@@ -11,6 +11,7 @@ import ServiceManagement
 import SystemExtensions
 import OSLog
 import AVFoundation
+import StoreKit
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDelegate {
@@ -100,13 +101,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		return true
 	}
 
+	/// Action wired up from MainMenu.xib (PTP Webcam menu → "About PTP Webcam…").
+	/// Brings up the main subscription/about window. Same effect as a Dock
+	/// click, but reachable from the menu bar while a stream-preview window
+	/// has focus.
+	@IBAction func showMainWindow(_ sender: Any?) {
+		MainWindowController.shared.present()
+	}
+
 	// MARK: - URL Scheme (ptpwebcam://preview?name=<camera>)
 
 	func application(_ application: NSApplication, open urls: [URL]) {
-		for url in urls where url.scheme == "ptpwebcam" && url.host == "preview" {
-			guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-				  let name = components.queryItems?.first(where: { $0.name == "name" })?.value else { continue }
-			openPreview(cameraName: name)
+		for url in urls where url.scheme == "ptpwebcam" {
+			switch url.host {
+			case "preview":
+				guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+					  let name = components.queryItems?.first(where: { $0.name == "name" })?.value else { continue }
+				openPreview(cameraName: name)
+			case "about":
+				// Lets the agent (a separate process) ask us to show the main
+				// window without needing an XPC channel. `NSWorkspace.open`
+				// of this URL launches us if we're not running, or routes
+				// the URL to the live instance via Apple Events if we are.
+				MainWindowController.shared.present()
+			default:
+				log.info("Ignoring unknown ptpwebcam:// URL host=\(url.host ?? "nil", privacy: .public)")
+			}
 		}
 	}
 
@@ -118,10 +138,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 			return
 		}
 		let controller = CameraPreviewWindowController(cameraName: cameraName)
-		controller.onClose = { [weak self] in self?.previewWindows.removeValue(forKey: cameraName) }
+		controller.onClose = { [weak self] in
+			guard let self = self else { return }
+			self.previewWindows.removeValue(forKey: cameraName)
+			// Closing the preview is the moment of least friction: the user is
+			// already shifting attention. Show the subscription window now,
+			// but only when (a) the user has no active subscription and (b)
+			// we haven't already nudged them today. Otherwise the reminder
+			// becomes spam and the user starts dismissing it reflexively.
+			self.maybeShowSubscriptionReminderAfterPreviewClose()
+		}
 		previewWindows[cameraName] = controller
 		controller.showWindow(nil)
 		NSApp.activate(ignoringOtherApps: true)
+	}
+
+	// MARK: - Subscription Reminder
+
+	/// Last-shown timestamp for the "consider subscribing" main-window prompt.
+	/// Stored in UserDefaults so the 24-hour throttle persists across relaunches
+	/// (each preview launch starts a fresh process via the URL handler).
+	private static let lastReminderKey = "lastSubscriptionReminderAt"
+	private static let reminderInterval: TimeInterval = 24 * 60 * 60
+
+	private func maybeShowSubscriptionReminderAfterPreviewClose() {
+		// Throttle check is cheap; do it first so we don't bother StoreKit
+		// when we're definitely going to skip.
+		let defaults = UserDefaults.standard
+		if let last = defaults.object(forKey: Self.lastReminderKey) as? Date,
+		   Date().timeIntervalSince(last) < Self.reminderInterval {
+			log.info("subscription reminder skipped: shown <24h ago")
+			return
+		}
+
+		// Entitlement check goes straight to StoreKit's `currentEntitlements`
+		// stream — avoids spinning up a whole SubscriptionStore observable
+		// just to read one bit. Verified-and-current auto-renewable
+		// transactions count; anything else (revoked, expired, refunded)
+		// is filtered out by StoreKit already.
+		Task { @MainActor in
+			var isSubscribed = false
+			for await result in Transaction.currentEntitlements {
+				if case .verified(let txn) = result, txn.productType == .autoRenewable {
+					isSubscribed = true
+					break
+				}
+			}
+			if isSubscribed {
+				self.log.info("subscription reminder skipped: user is already subscribed")
+				return
+			}
+			// Timestamp update happens inside MainWindowController.present()
+			// so EVERY path that opens the window — auto, About menu, Dock
+			// click — extends the throttle by the same amount.
+			self.log.info("subscription reminder shown after preview close")
+			MainWindowController.shared.present()
+		}
 	}
 
 	// MARK: - Extension Activation
