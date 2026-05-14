@@ -424,7 +424,7 @@ class PtpCamera: NSObject {
     @objc func didSendPTPCommand(_ command: Data, inData data: Data?, response: Data,
                                   error: Error?, contextInfo: UnsafeMutableRawPointer?) {
         if let error = error {
-            logger.error("PTP error: \(error.localizedDescription)")
+            logger.error("PTP error: \(error.localizedDescription, privacy: .public)")
             return
         }
         guard command.count >= 8 else { return }
@@ -479,7 +479,7 @@ class PtpCamera: NSObject {
             supportedOperations.append(contentsOf: extraOps)
         }
 
-        logger.info("\(self.manufacturer ?? "?") \(self.model ?? "?") — \(self.supportedProperties.count) properties, \(self.supportedOperations.count) operations")
+        logger.info("\(self.manufacturer ?? "?", privacy: .public) \(self.model ?? "?", privacy: .public) — \(self.supportedProperties.count, privacy: .public) properties, \(self.supportedOperations.count, privacy: .public) operations")
 
         deviceInfoReceived()
     }
@@ -537,10 +537,10 @@ class PtpCamera: NSObject {
 extension PtpCamera: ICCameraDeviceDelegate {
     func device(_ device: ICDevice, didOpenSessionWithError error: (any Error)?) {
         if let error = error {
-            logger.error("Open session failed: \(error.localizedDescription)")
+            logger.error("Open session failed: \(error.localizedDescription, privacy: .public)")
             return
         }
-        logger.info("Session opened: \(self.name)")
+        logger.info("Session opened: \(self.name, privacy: .public)")
         isSessionOpen = true
         queryDeviceInfo()
     }

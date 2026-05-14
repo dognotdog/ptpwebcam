@@ -73,6 +73,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
 			self?.log.info("PtpWebcamApp: camera access \(granted ? "granted" : "denied", privacy: .public)")
 		}
+		// Surface the main window unless this launch came in via a URL scheme
+		// (`ptpwebcam://preview?…`), in which case `application(_:open:)` will
+		// already have opened a preview window and the user probably doesn't
+		// want the main app window stealing focus on top.
+		if aNotification.userInfo?["NSApplicationLaunchUserNotificationKey"] == nil,
+		   NSApp.windows.allSatisfy({ !$0.isVisible }) {
+			MainWindowController.shared.present()
+		}
 	}
 
 	func applicationWillTerminate(_ aNotification: Notification) {}
@@ -83,8 +91,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	// re-run applicationDidFinishLaunching (which would restart the agent).
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-	// Suppress Dock-click window restore — this app has no persistent main window.
-	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { false }
+	// Dock click / "Open" again: re-show the main subscription window. Return
+	// `true` to suppress AppKit's automatic window-restore behavior — we're
+	// surfacing the window ourselves so the user always lands on the same
+	// content rather than whatever preview window happened to be last.
+	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+		MainWindowController.shared.present()
+		return true
+	}
 
 	// MARK: - URL Scheme (ptpwebcam://preview?name=<camera>)
 

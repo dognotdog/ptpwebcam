@@ -1,0 +1,38 @@
+// MainWindowController.swift
+// NSWindowController shell that hosts the SwiftUI MainWindowView. We use an
+// NSWindow (not a SwiftUI `Window` scene) because PTP Webcam's lifecycle is
+// AppKit-rooted — agent registration, system-extension activation, and URL
+// scheme handling all live in the AppDelegate, and adding a SwiftUI App
+// scene would force a bigger restructure than this single window justifies.
+
+import AppKit
+import SwiftUI
+
+final class MainWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = MainWindowController()
+
+    private init() {
+        let host = NSHostingController(rootView: MainWindowView())
+        // Let the SwiftUI hierarchy drive the window's content size. Without
+        // this the window stays at whatever `setContentSize` set it to and
+        // clips taller layouts (e.g. when more subscription rows are added
+        // the third one was disappearing below the title bar).
+        host.sizingOptions = [.preferredContentSize]
+        let window = NSWindow(contentViewController: host)
+        window.title = "PTP Webcam"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Bring the window to the front, creating it lazily on first call.
+    func present() {
+        NSApp.activate(ignoringOtherApps: true)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+}

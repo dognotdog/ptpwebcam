@@ -667,9 +667,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         // Single clickable camera header that doubles as the claim toggle.
         //   Claimed:    "<Camera Name> [serial]"                  with checkmark, click to release
         //   Unclaimed:  "<Camera Name> [serial] (click to claim)" no checkmark
-        let nameWithSerial = camera.serial.isEmpty
+        let displaySerial = formatSerialForDisplay(camera.serial, vendor: camera.vendor)
+        let nameWithSerial = displaySerial.isEmpty
             ? camera.name
-            : "\(camera.name) [\(camera.serial)]"
+            : "\(camera.name) [\(displaySerial)]"
         let title = isClaimed ? nameWithSerial : "\(nameWithSerial) (click to claim)"
         let header = NSMenuItem(title: title,
                                 action: #selector(claimCameraAction(_:)),
@@ -944,6 +945,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         return submenu
     }
 
+    /// Trim a camera's PTP-reported serial for display in the menu. Nikon
+    /// bodies (D800, Z 8, …) report their serial as a fixed-width zero-padded
+    /// decimal string ("000005004922"); strip the leading zeros so the
+    /// menu shows the human-readable form printed on the camera body
+    /// ("5004922"). Other vendors typically use alphanumeric serials where
+    /// leading zeros are significant — leave them untouched.
+    private func formatSerialForDisplay(_ serial: String, vendor: CameraVendor) -> String {
+        guard vendor == .nikon, !serial.isEmpty else { return serial }
+        let trimmed = String(serial.drop(while: { $0 == "0" }))
+        // Don't return "" if the camera literally reported all zeros — show
+        // the original so it's obvious something odd is going on.
+        return trimmed.isEmpty ? serial : trimmed
+    }
+
     private func formatExtPropValue(_ prop: ExtCameraProperty, vendor: CameraVendor = .unknown) -> String {
         formatExtPropRaw(prop.value, propId: prop.propertyId, vendor: vendor)
     }
@@ -1214,7 +1229,7 @@ extension AppDelegate: PtpCameraAgentProtocol {
     }
 
     func setPropertyValue(_ value: Any, forProperty propertyId: NSNumber, onCamera cameraId: String) {
-        logger.info("setProperty \(propertyId) requested for \(cameraId)")
+        logger.info("setProperty \(propertyId, privacy: .public) requested for \(cameraId, privacy: .public)")
         guard let camera = cameras[cameraId], let numValue = value as? NSNumber else { return }
         camera.setProperty(propertyId.uint32Value, value: numValue)
     }

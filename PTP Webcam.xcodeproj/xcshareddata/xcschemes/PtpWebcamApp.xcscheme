@@ -61,6 +61,9 @@
             ReferencedContainer = "container:PTP Webcam.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <StoreKitConfigurationFileReference
+         identifier = "../../PtpWebcamApp/PtpWebcamApp.storekit">
+      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

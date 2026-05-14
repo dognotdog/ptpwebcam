@@ -292,10 +292,10 @@ final class UsbNikonCamera: UsbPtpCameraBase {
         do {
             let (_, rsp) = try transport.sendPtpCommand(
                 transport.buildCommand(code: PTP_CMD_NIKON_STARTLIVEVIEW))
-            cameraLog.info("restart STARTLIVEVIEW code=0x\(String(self.transport.responseCode(from: rsp), radix:16))")
+            cameraLog.info("restart STARTLIVEVIEW code=0x\(String(self.transport.responseCode(from: rsp), radix:16), privacy: .public)")
             waitForDeviceReady()
         } catch {
-            cameraLog.error("restart error: \(error)")
+            cameraLog.error("restart error: \(String(describing: error), privacy: .public)")
         }
     }
 
