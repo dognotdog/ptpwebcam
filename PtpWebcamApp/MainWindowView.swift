@@ -60,8 +60,8 @@ struct MainWindowView: View {
             case .unknown:
                 ProgressView("Checking your subscription…").frame(maxWidth: .infinity, alignment: .leading)
 
-            case .subscribed(_, let expires):
-                subscribedBody(expires: expires)
+            case .subscribed(let productId, let expires):
+                subscribedBody(productId: productId, expires: expires)
 
             case .notSubscribed:
                 notSubscribedBody
@@ -85,9 +85,19 @@ struct MainWindowView: View {
             .clipShape(Capsule())
     }
 
-    private func subscribedBody(expires: Date?) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func subscribedBody(productId: String, expires: Date?) -> some View {
+        // Show the localized name of the active subscription tier, falling
+        // back to the raw product ID if products haven't loaded yet (e.g. on
+        // a cold launch the entitlement check resolves before the StoreKit
+        // catalog round-trip finishes).
+        let tierName: String = store.products.first(where: { $0.id == productId })?.displayName ?? productId
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Thanks for supporting PTP Webcam.")
+            HStack(spacing: 6) {
+                Text("Current plan:").foregroundStyle(.secondary)
+                Text(tierName).bold()
+            }
+            .font(.callout)
             if let expires {
                 Text("Renews \(expires.formatted(date: .abbreviated, time: .omitted))")
                     .font(.callout).foregroundStyle(.secondary)
@@ -99,14 +109,13 @@ struct MainWindowView: View {
                 Button("Restore Purchases") {
                     Task { await store.restorePurchases() }
                 }
-                .buttonStyle(.borderless)
             }
         }
     }
 
     private var notSubscribedBody: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Subscribe to unlock continued updates and support development.")
+            Text("PTP Webcam is free, but if you like PTP Webcam, you can support development with one of the following subscriptions.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -126,7 +135,6 @@ struct MainWindowView: View {
                 Button("Restore Purchases") {
                     Task { await store.restorePurchases() }
                 }
-                .buttonStyle(.borderless)
                 Spacer()
             }
         }
@@ -168,12 +176,13 @@ struct MainWindowView: View {
 
     private var footer: some View {
         HStack {
-            Link("Privacy Policy", destination: URL(string: "https://ptpwebcam.org/privacy")!)
-            Text("·").foregroundStyle(.tertiary)
-            Link("Terms of Use",   destination: URL(string: "https://ptpwebcam.org/terms")!)
+            Button("Visit ptpwebcam.org") {
+                if let url = URL(string: "https://ptpwebcam.org") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
             Spacer()
         }
-        .font(.caption)
     }
 }
 
