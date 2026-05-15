@@ -20,6 +20,46 @@ private let SONY_LV_IMAGE_OBJECTID:        UInt32 = 0xFFFFC002
 
 private let PTP_EVENT_SONY_PROPVALCHANGED: UInt16 = 0xC203
 
+// MARK: - Synthesized stop tables
+//
+// Sony reports shutter speed (0xD20D) and aperture (0x5007) as form=range with
+// an effectively-infinite range (min=0, max=type-max, step=1) — their wire
+// format is "any encoded value is technically valid; the host must know the
+// standard stop table." We synthesize the canonical 1/3-stop tables here.
+//
+// Shutter speed encoding: UInt32 = (numerator << 16) | denominator
+//   1/8000 = (1<<16)|8000 = 0x00011F40   30"   = (30<<16)|1    = 0x001E0001
+//   0.4"   = (4<<16)|10   = 0x0004000A
+//   BULB   = 0 (Sony convention; also matches "0/0" semantics)
+//
+// Aperture encoding: UInt16 = f-number × 100
+//   f/1.0 = 100,  f/4.5 = 450,  f/22 = 2200
+private let sonyShutterStopsTable: [UInt32] = {
+    // Numerator-shifted-16 with denominator. Ordered fast→slow to match Sony's
+    // descending-order convention for exposure-style properties.
+    let pairs: [(UInt32, UInt32)] = [
+        (1, 8000), (1, 6400), (1, 5000), (1, 4000), (1, 3200), (1, 2500),
+        (1, 2000), (1, 1600), (1, 1250), (1, 1000), (1, 800),  (1, 640),
+        (1, 500),  (1, 400),  (1, 320),  (1, 250),  (1, 200),  (1, 160),
+        (1, 125),  (1, 100),  (1, 80),   (1, 60),   (1, 50),   (1, 40),
+        (1, 30),   (1, 25),   (1, 20),   (1, 15),   (1, 13),   (1, 10),
+        (1, 8),    (1, 6),    (1, 5),    (1, 4),
+        (3, 10),   (4, 10),   (5, 10),   (6, 10),   (8, 10),
+        (1, 1),    (13, 10),  (16, 10),
+        (2, 1),    (25, 10),  (32, 10),
+        (4, 1),    (5, 1),    (6, 1),    (8, 1),    (10, 1),
+        (13, 1),   (15, 1),   (20, 1),   (25, 1),   (30, 1),
+    ]
+    return pairs.map { (num, den) in (num << 16) | den }
+}()
+
+private let sonyApertureStopsTable: [UInt16] = [
+    // f-number × 100, ascending (small f = wide open, big f = stopped down)
+    100, 110, 120, 140, 160, 180, 200, 220, 250, 280, 320, 350,
+    400, 450, 500, 560, 630, 710, 800, 900, 1000, 1100, 1300, 1400,
+    1600, 1800, 2000, 2200, 2500, 2900, 3200,
+]
+
 // MARK: - UsbSonyCamera
 
 final class UsbSonyCamera: UsbPtpCameraBase {
@@ -362,15 +402,71 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 rangeMin  = p.readNum(ofType: dataType)
                 rangeMax  = p.readNum(ofType: dataType)
                 rangeStep = p.readNum(ofType: dataType)
+                if discoveredProperties[propId] == nil {
+                    cameraLog.fault("RANGE 0x\(String(propId, radix:16), privacy: .public) dt=\(dataType, privacy: .public) cur=\(current, privacy: .public) min=\(rangeMin ?? 0, privacy: .public) max=\(rangeMax ?? 0, privacy: .public) step=\(rangeStep ?? 0, privacy: .public)")
+                }
+                // Shutter speed (0xD20D) and aperture (0x5007) come as form=
+                // range with an effectively-infinite range. The camera expects
+                // the host to know the standard 1/3-stop table. Synthesize it.
+                // We also splice in the camera's current value if it isn't on
+                // the standard grid (e.g. 1/2-stop position, BULB) so the
+                // menu's selection markers can still light up correctly.
+                if propId == 0xD20D {
+                    var vals = sonyShutterStopsTable.map { NSNumber(value: $0) }
+                    if !vals.contains(current) { vals.append(current) }
+                    enumValues = vals
+                    rangeMin = nil; rangeMax = nil; rangeStep = nil
+                } else if propId == 0x5007 {
+                    var vals = sonyApertureStopsTable.map { NSNumber(value: $0) }
+                    if !vals.contains(current) {
+                        // Insert at sorted position so the picker stays ordered.
+                        let curU = current.uint16Value
+                        let idx = vals.firstIndex { $0.uint16Value >= curU } ?? vals.count
+                        vals.insert(current, at: idx)
+                    }
+                    enumValues = vals
+                    rangeMin = nil; rangeMax = nil; rangeStep = nil
+                }
             case 0x02:
                 if let count = p.readU16() {
                     var vals: [NSNumber] = []
                     for _ in 0..<count {
                         if let v = p.readNum(ofType: dataType) { vals.append(v) }
                     }
+                    // Sony quirks we filter at parse time:
+                    //
+                    // (a) ISO (0xD21E, dt=6): the camera enumerates
+                    //     Multi-Frame-NR variants with the top byte set
+                    //     (0x01xxxxxx). These aren't applicable to a live
+                    //     video feed and clutter the picker. Keep only
+                    //     entries with top byte == 0 (which preserves the
+                    //     0x00FFFFFF Auto sentinel naturally).
+                    //
+                    // (b) Signed Int16 properties (dt=3, e.g. ExpBias
+                    //     0x5010 and 0xD200): Sony prepends sentinels
+                    //     `0, 1, 2` before the actual descending EV range.
+                    //     Position 0 IS the canonical 0 EV — there is no
+                    //     other zero in the range (it jumps -300/+300).
+                    //     Positions 1 and 2 are bracket-step sentinels and
+                    //     can't be rendered as EV values. Drop them.
+                    if propId == 0xD21E {
+                        vals = vals.filter { ($0.uint32Value >> 24) == 0 }
+                    } else if dataType == 3 && vals.count > 3
+                            && vals[0].intValue == 0
+                            && vals[1].intValue == 1
+                            && vals[2].intValue == 2 {
+                        vals = [vals[0]] + vals.dropFirst(3)
+                    }
                     enumValues = vals
+                    if discoveredProperties[propId] == nil {
+                        let dump = vals.map { "\($0)" }.joined(separator: ",")
+                        cameraLog.fault("ENUM 0x\(String(propId, radix:16), privacy: .public) dt=\(dataType, privacy: .public) cur=\(current, privacy: .public) n=\(vals.count, privacy: .public) [\(dump, privacy: .public)]")
+                    }
                 }
-            default: break
+            default:
+                if discoveredProperties[propId] == nil {
+                    cameraLog.fault("FORM 0x\(String(propId, radix:16), privacy: .public) dt=\(dataType, privacy: .public) cur=\(current, privacy: .public) formFlag=0x\(String(formFlag, radix:16), privacy: .public) flags=0x\(String(flags, radix:16), privacy: .public) rw=\(readwrite, privacy: .public)")
+                }
             }
 
             let prop = UsbCameraProperty(
@@ -575,16 +671,29 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 return
             }
             // Sony SetPropStep / SDIO_ControlDevice payload is a SINGLE BYTE
-            // interpreted as Int8: 0x01 = +1, 0xFF = -1 (i.e. two's-complement
-            // signed). Sending 4 bytes (Int32 = 0xFFFFFFFF for -1) is
-            // semantically equivalent IF the camera reads only the first
-            // byte, but the Sony A1 reads the full Int32 payload — and on
-            // the A1 a 4-byte -1 step is interpreted in the WRONG direction
-            // (camera advances forward in enum order instead of backward),
-            // which is how we ended up stuck at the -5000 (last) position
-            // after a series of intended ±1 dial-down clicks.
-            // libgphoto2 sends exactly 1 byte (`PTP_DTC_UINT8`).
-            let stepByte: UInt8 = raw > 0 ? 0x01 : 0xFF
+            // Int8: 0x01 / 0xFF. libgphoto2 packs it as PTP_DTC_UINT8.
+            //
+            // CRITICAL: the byte's direction is interpreted by VALUE, not by
+            // reported-enum-position. 0x01 means "next-greater value",
+            // 0xFF means "next-lesser value". Sony's GetAllPropData reports
+            // the enum in an order that's NOT a simple value sort — for
+            // ExpBias the enum starts with [0,1,2] (special markers) then
+            // jumps to 5000 and descends to -5000. Within the main range
+            // (positions 3-42) reported order happens to be descending value,
+            // so position-up == value-down and the position-derived direction
+            // we used previously was double-inverted — it accidentally worked.
+            // At the boundaries the trick fails: from -5000 (last position)
+            // moving "value-up" needs 0x01, but position-up to -4700 sits at
+            // position 41 (LOWER index) so position math picks 0xFF, and the
+            // camera no-ops (already at the value minimum).
+            //
+            // Value-based direction (libgphoto2's `else` fallback branch)
+            // works at the boundaries and inside the main range. Count is
+            // still position-based — it gives the right magnitude as long as
+            // we don't cross the 0/1/2 head of the enum, which we generally
+            // won't with normal dial use.
+            let valueAscending = target.int64Value > existing!.value.int64Value
+            let stepByte: UInt8 = valueAscending ? 0x01 : 0xFF
             let stepCount = abs(raw)
             var okCount = 0
             for _ in 0..<stepCount {
