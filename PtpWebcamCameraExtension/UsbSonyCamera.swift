@@ -152,13 +152,33 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             cameraLog.fault("GetAllPropData (0x9209) not in supportedOps — no discovery")
             return [:]
         }
-        // After SDIOConnect(3), poll GetAllPropData until a non-empty descriptor
-        // list arrives. The camera may take a few polls to start responding with
-        // real data — early polls return an 8-byte header-only stub.
-        for attempt in 1...30 {
+        // After SDIOConnect(3), poll GetAllPropData repeatedly. Two phases:
+        //   1. The first several polls return an 8-byte header-only stub while
+        //      the camera assembles the descriptor table.
+        //   2. Once the full table arrives it carries the descriptor STRUCTURE
+        //      but many CurrentValue fields (ISO/aperture/shutter/WB/…) are
+        //      still placeholder zeros — the camera fills in real values over
+        //      the next few hundred ms.
+        // So we can't stop at the first non-empty response (that was the
+        // regression — we captured the all-zeros snapshot). Instead keep
+        // polling, letting `mergePreserveZeros` accumulate real values as they
+        // land, and stop once a few consecutive polls report no further value
+        // changes (`fetchAndParseAllPropData` returns the count of genuinely
+        // changed properties).
+        var gotDescriptors = false
+        var quietPolls = 0
+        for attempt in 1...60 {           // hard cap ≈ 3 s (60 × 50 ms)
             if closing { break }
-            let count = fetchAndParseAllPropData(label: "poll #\(attempt)")
-            if count > 0 { break }
+            let changedCount = fetchAndParseAllPropData(label: "poll #\(attempt)")
+            if changedCount > 0 {
+                gotDescriptors = true
+                quietPolls = 0
+            } else if gotDescriptors {
+                quietPolls += 1
+            }
+            // Three quiet polls in a row after the table arrived → the camera
+            // has settled. 3 × 50 ms = 150 ms of stability.
+            if gotDescriptors && quietPolls >= 3 { break }
             Thread.sleep(forTimeInterval: 0.05)
         }
         cameraLog.fault("Sony bulk descriptor pass: \(self.discoveredProperties.count, privacy: .public) properties")
@@ -224,6 +244,15 @@ final class UsbSonyCamera: UsbPtpCameraBase {
         if !chunk.isEmpty {
             cameraLog.fault("Sony props: \(chunk.joined(separator: " "), privacy: .public)")
         }
+        // Dump the enum value lists for incremental properties — those drive
+        // the dial steppers in the agent and bad/unexpected values there
+        // (e.g. 0x5010 ExpBias entries that all format the same) point at
+        // unit / encoding mismatches.
+        for id in sorted {
+            guard let p = discoveredProperties[id], p.incremental, let vals = p.enumValues else { continue }
+            let valStr = vals.map { "\($0)" }.joined(separator: ",")
+            cameraLog.fault("Sony enum 0x\(String(id, radix: 16), privacy: .public)(dt\(p.dataType, privacy: .public)) #\(vals.count, privacy: .public): \(valStr, privacy: .public)")
+        }
     }
 
     // MARK: - Frame fetch (Sony has no STARTLIVEVIEW — just GetObject in a loop)
@@ -280,15 +309,21 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     /// - parameter mergePreserveZeros: when true (default), if the camera reports
     ///   `CurrentValue=0` for a property whose cached value is non-zero, keep the
     ///   cached value rather than overwriting (protects real values from
-    ///   placeholder zeros during init). Set false when called right after a
-    ///   set, so the camera's actual response wins.
-    /// - parameter propIdToTrust: if set, this property's value is always
-    ///   accepted from the response even if `mergePreserveZeros` is true.
+    ///   placeholder zeros during init).
+    /// - parameter propIdToPreserve: if set, this property's *value* is never
+    ///   taken from the response — the existing cached value is kept and only
+    ///   the descriptor fields (enum/range/flags) are refreshed. Used for the
+    ///   post-set refresh: the property we just set already has the
+    ///   authoritative value (the optimistic update for SetPropAbs, or the
+    ///   step loop's per-iteration re-read for SetPropStep), and Sony's
+    ///   GetAllPropData lags by one transaction so its read of that property
+    ///   is stale. The refresh still updates every OTHER property to catch
+    ///   side-effects (e.g. aperture range shifting when exposure mode changes).
     private func parseSonyAllPropertyDataResponse(
         _ data: Data,
         publish: Bool = true,
         mergePreserveZeros: Bool = true,
-        propIdToTrust: UInt32? = nil
+        propIdToPreserve: UInt32? = nil
     ) -> [UInt32: UsbCameraProperty] {
         guard data.count > 8 else { return [:] }
         let p = PtpPropParser(data.subdata(in: 8 ..< data.count))
@@ -306,13 +341,18 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             let propId      = UInt32(propId16)
             let incremental = (flags & 0x01) == 0
             let isButton    = (flags & 0x80) != 0
-            // Sony uses byte 5 as a multi-state writable indicator:
-            //   0 = read-only, 1 = read-write via SetPropAbs, 2 = writable in
-            //   only some modes / via SetPropStep. Treat anything non-zero as
-            //   writable so the agent menu exposes the item as clickable; the
-            //   actual set path (SetPropAbs vs SetPropStep) is chosen by the
-            //   `incremental`/`isButton` flags below.
-            let writable    = readwrite != 0
+            // Sony's `IsEnabled` byte (offset 5 in their extended GetAllPropData
+            // format — NOT standard PTP, which only has the single GetSet byte
+            // at offset 4). Per libgphoto2's Sony driver:
+            //   0 = disabled / grayed out (read-only)
+            //   1 = enabled (read/write)
+            //   2 = display-only — currently locked by a physical control
+            //       (e.g. A1's top-deck exposure-bias dial or mode dial). The
+            //       camera will ACK SetPropAbs/SetPropStep but ignore them.
+            // Only 1 is truly writable. Marking 2 as writable produces a
+            // dial that does nothing: the camera reports unchanged values
+            // and the agent's menu falls out of sync.
+            let writable    = readwrite == 1
 
             var enumValues: [NSNumber]?
             var rangeMin, rangeMax, rangeStep: NSNumber?
@@ -338,20 +378,25 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 value: current, enumValues: enumValues,
                 rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
                 incremental: incremental, isButton: isButton)
-            // Don't overwrite a previously-fetched property if the new value is
-            // 0 and the old one was non-zero. The post-connect bulk dump
-            // contains placeholder zeros for many properties that the
-            // pre-connect 0x1014 fetch returned with real values.
-            //   `mergePreserveZeros = false` disables this protection entirely
-            //   (e.g. right after a set, where the camera's truth wins).
-            //   `propIdToTrust == propId` likewise: that one specific property
-            //   accepts the camera's value verbatim.
-            let trustThis = !mergePreserveZeros || propIdToTrust == propId
-            if !trustThis,
-               let existing = discoveredProperties[propId],
-               current.intValue == 0, existing.value.intValue != 0 {
-                // Keep existing value but update other descriptor fields.
-                let merged = UsbCameraProperty(
+            let existing = discoveredProperties[propId]
+            // Decide whether to keep the existing cached value instead of the
+            // one in this response. Two independent reasons to keep it:
+            //   1. `propIdToPreserve == propId` — the property we just set.
+            //      Sony's GetAllPropData read of it lags one transaction, so
+            //      the response value is stale; our cached value (set by the
+            //      optimistic update / step loop) is the truth.
+            //   2. placeholder-zero protection — during init the camera ships
+            //      the descriptor table before populating CurrentValue, so a
+            //      0 over a non-zero cached value is almost certainly a
+            //      not-yet-filled placeholder, not a real change.
+            let keepForPreserve = (propIdToPreserve == propId) && existing != nil
+            let keepForZero     = mergePreserveZeros && existing != nil
+                                  && current.intValue == 0 && existing!.value.intValue != 0
+            let resolved: UsbCameraProperty
+            if keepForPreserve || keepForZero, let existing {
+                // Keep the cached value; still refresh descriptor fields
+                // (enum/range/flags) from the camera's response.
+                resolved = UsbCameraProperty(
                     propertyId: propId, dataType: dataType, writable: writable,
                     value: existing.value,
                     enumValues: enumValues ?? existing.enumValues,
@@ -359,11 +404,18 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                     rangeMax: rangeMax ?? existing.rangeMax,
                     rangeStep: rangeStep ?? existing.rangeStep,
                     incremental: incremental, isButton: isButton)
-                discoveredProperties[propId] = merged
-                changed[propId] = merged
             } else {
-                discoveredProperties[propId] = prop
-                changed[propId] = prop
+                resolved = prop
+            }
+            discoveredProperties[propId] = resolved
+            // Only report a property in `changed` if it's genuinely new or its
+            // value actually moved. The discovery poll loop relies on this:
+            // "a poll that changes nothing" is its signal that the camera has
+            // finished filling in CurrentValues and we can stop polling. If we
+            // reported every parsed property every time, the loop could never
+            // detect "settled".
+            if existing == nil || existing!.value != resolved.value {
+                changed[propId] = resolved
             }
         }
 
@@ -439,109 +491,203 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     }
 
     private func sendSonyButtonStep(propId: UInt32, step: Int32) {
-        var s = step
+        // Single-byte signed payload — see performPropertySet for why 4
+        // bytes (the obvious-but-wrong choice) misbehaves on Sony A1.
+        let s8 = UInt8(truncatingIfNeeded: step)
         let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [propId])
-        _ = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &s, count: 4))
+        _ = try? transport.sendPtpCommand(cmd, outData: Data([s8]))
     }
 
     // MARK: - Property set
 
+    /// Reinterpret the raw 32-bit payload received from the agent as the
+    /// signed/unsigned NSNumber the camera's enum actually uses.
+    ///
+    /// The agent ships values over a UInt32 Darwin-notify slot. For unsigned
+    /// dataTypes (U8/U16/U32) the round-trip is identity. For SIGNED types
+    /// (I8/I16/I32) a negative value goes in as -X, becomes 0xFFFF_FFXX...
+    /// after `.uint32Value`'s sign-extension on the agent, and arrives here
+    /// as a huge positive UInt32. Without this conversion,
+    /// `enumValues.firstIndex(of: NSNumber(uint32: huge))` never matches the
+    /// stored NSNumber(int16: -X), so negative-EV / negative-bias targets
+    /// silently fall out of the step loop with an "enum index not found".
+    private static func typedNumber(_ raw: UInt32, dataType: UInt16) -> NSNumber {
+        switch dataType {
+        case 1: return NSNumber(value: Int8(bitPattern:  UInt8(truncatingIfNeeded: raw)))
+        case 2: return NSNumber(value: UInt8(truncatingIfNeeded: raw))
+        case 3: return NSNumber(value: Int16(bitPattern: UInt16(truncatingIfNeeded: raw)))
+        case 4: return NSNumber(value: UInt16(truncatingIfNeeded: raw))
+        case 5: return NSNumber(value: Int32(bitPattern: raw))
+        case 6: return NSNumber(value: raw)
+        default: return NSNumber(value: raw)
+        }
+    }
+
     override func performPropertySet(_ pending: PendingSet) {
         let existing = discoveredProperties[pending.propId]
         let hexId = String(pending.propId, radix: 16)
-        var usedStep = false
-        var setSucceeded = false
+        // Build the target as the same signed/unsigned type the enum holds.
+        // `pending.dataType` came from the agent's published descriptor and
+        // matches the camera's reported DataType, so this conversion lines
+        // up with `enumValues` for lookup, and with the camera's wire format
+        // for `encodeLE` below.
+        let target = Self.typedNumber(pending.value, dataType: pending.dataType)
+
+        // ── 1. Fire the appropriate set command(s) ────────────────────────
+        //
+        // The transport-level write is whatever the property type demands:
+        //   - button:      one SetPropStep with the value as a signed step.
+        //                  No verification (these are momentary triggers).
+        //   - incremental: a sequence of ±1 SetPropStep calls, computed from
+        //                  the cached current index. Verification below
+        //                  catches the case where the cache was wrong, the
+        //                  camera dropped a step, or the agent posted a
+        //                  target that's farther than we tried for.
+        //   - SetPropAbs:  one shot at the exact target.
+        var transportOk = false
 
         if existing?.isButton == true {
-            // Sony SetPropStep payload is Int32 (4 bytes), matching the working
-            // DAL plugin's `incrementProperty(_:by:)`.
-            var inc = Int32(bitPattern: pending.value)
+            // Sony's SDIO_ControlDevice (0x9207) for button presses takes a
+            // SINGLE-BYTE Int8 payload, not Int32. The agent ships the
+            // intended signed step in pending.value; we encode it as one
+            // signed byte. Sending 4 bytes here was tolerated by older
+            // Sony bodies but on the A1 the firmware reads it as Int32 and
+            // either ignores the high bytes or treats the whole thing as a
+            // jump magnitude, doing something different than intended.
+            let inc8 = UInt8(truncatingIfNeeded: Int32(bitPattern: pending.value))
             let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [pending.propId])
-            if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &inc, count: 4)) {
-                setSucceeded = transport.responseCode(from: rsp) == PTP_RSP_OK
+            if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data([inc8])) {
+                transportOk = transport.responseCode(from: rsp) == PTP_RSP_OK
             }
-            cameraLog.fault("SetPropStep(button) 0x\(hexId, privacy: .public) inc=\(inc, privacy: .public) ok=\(setSucceeded, privacy: .public)")
-            usedStep = true
+            cameraLog.fault("SetPropStep(button) 0x\(hexId, privacy: .public) inc8=0x\(String(inc8, radix: 16), privacy: .public) ok=\(transportOk, privacy: .public)")
+            // No verification path for buttons — they're momentary. Still
+            // do the standard side-effects refresh below.
 
         } else if existing?.incremental == true, let enumValues = existing?.enumValues {
-            let targetVal = NSNumber(value: pending.value)
-            let cur = existing!.value
-            if let oldIdx = enumValues.firstIndex(of: cur),
-               let newIdx = enumValues.firstIndex(of: targetVal) {
-                // Sony's SetPropStep moves exactly ONE enum position per call,
-                // regardless of the magnitude we send. Sending step=N with |N|>1
-                // doesn't get us there in one shot; the firmware also treats
-                // step=0 as "move 1 in some default direction" instead of a
-                // no-op, which causes the menu to drift away from the camera
-                // when the user re-clicks the current value.
-                // Clamp to ±1, and short-circuit step=0 entirely.
-                let raw = newIdx - oldIdx
-                if raw == 0 {
-                    setSucceeded = true
-                    cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) already at target \(pending.value, privacy: .public) — skipping")
-                } else {
-                    var step = Int32(raw > 0 ? 1 : -1)
-                    let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [pending.propId])
-                    if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data(bytes: &step, count: 4)) {
-                        setSucceeded = transport.responseCode(from: rsp) == PTP_RSP_OK
-                    }
-                    cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) \(cur, privacy: .public)→\(pending.value, privacy: .public) step=\(step, privacy: .public) (raw=\(raw, privacy: .public)) ok=\(setSucceeded, privacy: .public)")
-                    usedStep = true
-                }
-            } else {
-                cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) — enum index not found cur=\(cur, privacy: .public) target=\(pending.value, privacy: .public) enumCount=\(enumValues.count, privacy: .public)")
+            guard let oldIdx = enumValues.firstIndex(of: existing!.value),
+                  let newIdx = enumValues.firstIndex(of: target) else {
+                cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) — enum index not found cur=\(existing!.value, privacy: .public) target=\(target, privacy: .public) (raw=\(pending.value, privacy: .public))")
+                return
             }
+            let raw = newIdx - oldIdx
+            if raw == 0 {
+                cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) already at target \(target, privacy: .public)")
+                return
+            }
+            // Sony SetPropStep / SDIO_ControlDevice payload is a SINGLE BYTE
+            // interpreted as Int8: 0x01 = +1, 0xFF = -1 (i.e. two's-complement
+            // signed). Sending 4 bytes (Int32 = 0xFFFFFFFF for -1) is
+            // semantically equivalent IF the camera reads only the first
+            // byte, but the Sony A1 reads the full Int32 payload — and on
+            // the A1 a 4-byte -1 step is interpreted in the WRONG direction
+            // (camera advances forward in enum order instead of backward),
+            // which is how we ended up stuck at the -5000 (last) position
+            // after a series of intended ±1 dial-down clicks.
+            // libgphoto2 sends exactly 1 byte (`PTP_DTC_UINT8`).
+            let stepByte: UInt8 = raw > 0 ? 0x01 : 0xFF
+            let stepCount = abs(raw)
+            var okCount = 0
+            for _ in 0..<stepCount {
+                if closing { break }
+                let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPSTEP, parameters: [pending.propId])
+                if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: Data([stepByte])),
+                   transport.responseCode(from: rsp) == PTP_RSP_OK {
+                    okCount += 1
+                } else {
+                    cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) step \(okCount + 1, privacy: .public)/\(stepCount, privacy: .public) failed")
+                    break
+                }
+                // Small gap between steps so the firmware registers each
+                // separately. NO read here — see comment in
+                // waitForCameraToReachValue about transport corruption.
+                Thread.sleep(forTimeInterval: 0.04)
+            }
+            transportOk = okCount > 0
+            cameraLog.fault("SetPropStep 0x\(hexId, privacy: .public) target=\(target, privacy: .public) sent=\(okCount, privacy: .public)/\(stepCount, privacy: .public)")
 
         } else {
             let outData = Self.encodeLE(value: pending.value, dataType: pending.dataType)
             let cmd = transport.buildCommand(code: PTP_CMD_SONY_SETPROPABS, parameters: [pending.propId])
             if let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: outData) {
                 let code = transport.responseCode(from: rsp)
-                setSucceeded = code == PTP_RSP_OK
-                cameraLog.fault("SetPropAbs 0x\(hexId, privacy: .public)=\(pending.value, privacy: .public) → 0x\(String(code, radix:16), privacy: .public)")
+                transportOk = code == PTP_RSP_OK
+                cameraLog.fault("SetPropAbs 0x\(hexId, privacy: .public)=\(target, privacy: .public) → 0x\(String(code, radix:16), privacy: .public)")
             }
         }
 
-        // Optimistic update only for SetPropAbs paths (where the camera goes
-        // EXACTLY to `pending.value`). For SetPropStep, the actual landing
-        // value depends on the camera's real current value — which can differ
-        // from our cached one — so optimistically claiming we hit the target
-        // produces incorrect menu state. The GetAllPropData refresh below will
-        // catch the real value if the camera reports it.
-        if setSucceeded && !usedStep, let oldProp = discoveredProperties[pending.propId] {
-            let newValue = NSNumber(value: pending.value)
-            let updated = UsbCameraProperty(
-                propertyId: oldProp.propertyId, dataType: oldProp.dataType, writable: oldProp.writable,
-                value: newValue, enumValues: oldProp.enumValues,
-                rangeMin: oldProp.rangeMin, rangeMax: oldProp.rangeMax, rangeStep: oldProp.rangeStep,
-                incremental: oldProp.incremental, isButton: oldProp.isButton)
-            discoveredProperties[pending.propId] = updated
-            onPropertiesDiscovered?([pending.propId: updated])
+        guard transportOk else { return }
+
+        // ── 2. Verify the camera actually reached the target ───────────────
+        //
+        // The whole reason this feedback loop exists: command-OK from the
+        // camera does NOT mean the property has settled. Sony's GetAllPropData
+        // read of the just-set property reliably LAGS by one transaction
+        // (observed across all sets) and the per-step SetPropStep can also
+        // silently no-op when fired faster than the firmware applies them.
+        //
+        // So poll GetAllPropData until either:
+        //   - the camera reports the target value (success, cache is correct),
+        //   - or we time out (cache reflects the camera's actual state, which
+        //     may differ from the user's intent — that's fine, the menu now
+        //     shows reality on close-reopen, and the next set computes its
+        //     own ±N step from this REAL position, self-correcting).
+        //
+        // For buttons we skip verification — they're momentary, and the
+        // "value" isn't really a settled state.
+        if existing?.isButton == true {
+            // Just refresh once for side-effects on other props.
+            _ = pollOnce()
+            return
         }
 
-        // Wait for camera to apply the change before re-reading.
-        if usedStep { Thread.sleep(forTimeInterval: 0.20) }
-
-        // Re-fetch via GetAllPropData — catches side-effects on OTHER properties
-        // (e.g. aperture range changes when exposure mode changes). The merge
-        // logic in parseSonyAllPropertyDataResponse won't clobber our optimistic
-        // value with the camera's lingering placeholder 0.
-        if supportedOps.contains(PTP_CMD_SONY_GETALLPROPDATA) {
-            if let (inData, rsp) = try? transport.sendPtpCommand(
-                transport.buildCommand(code: PTP_CMD_SONY_GETALLPROPDATA)),
-               transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData {
-                cameraLog.fault("GetAllPropData after set 0x\(hexId, privacy: .public) len=\(data.count, privacy: .public)")
-                // For the property we just set, trust the camera's response
-                // even if it's 0 — otherwise the merge logic preserves our
-                // stale cached value and the menu never reflects reality.
-                parseSonyAllPropertyDataResponse(data, mergePreserveZeros: false,
-                                                 propIdToTrust: pending.propId)
-                if let after = discoveredProperties[pending.propId] {
-                    cameraLog.fault("post-set 0x\(hexId, privacy: .public) cached=\(after.value, privacy: .public) (target was \(pending.value, privacy: .public))")
-                }
-            } else {
-                cameraLog.fault("GetAllPropData after set failed for 0x\(hexId, privacy: .public)")
-            }
+        let landed = waitForCameraToReachValue(propId: pending.propId, target: target, timeout: 1.2)
+        if let cached = discoveredProperties[pending.propId] {
+            cameraLog.fault("post-set 0x\(hexId, privacy: .public) cached=\(cached.value, privacy: .public) target=\(target, privacy: .public) converged=\(landed, privacy: .public)")
         }
+    }
+
+    /// Read GetAllPropData and commit. Returns true on transport success.
+    @discardableResult
+    private func pollOnce() -> Bool {
+        guard supportedOps.contains(PTP_CMD_SONY_GETALLPROPDATA) else { return false }
+        guard let (inData, rsp) = try? transport.sendPtpCommand(
+                  transport.buildCommand(code: PTP_CMD_SONY_GETALLPROPDATA)),
+              transport.responseCode(from: rsp) == PTP_RSP_OK, let data = inData
+        else { return false }
+        // Default merge: zero-protection on, no preserve. The camera's truth
+        // wins for every property — that's exactly what we want for the
+        // verification loop. Any stale-lag read of the just-set property
+        // will be replaced by the next iteration's read once the camera has
+        // actually applied the change.
+        parseSonyAllPropertyDataResponse(data, mergePreserveZeros: true)
+        return true
+    }
+
+    /// Poll GetAllPropData until the named property's current value matches
+    /// `target`, or `timeout` elapses. Each iteration parses and commits the
+    /// full response so OTHER properties (side-effects of the set, e.g.
+    /// aperture range shifting when exposure mode changes) stay current too.
+    ///
+    /// On success: `discoveredProperties[propId].value == target`, agent
+    /// menu (eventually) shows the target value.
+    ///
+    /// On timeout: `discoveredProperties[propId].value` is whatever the
+    /// camera last reported — possibly the "stale lag" value from before
+    /// the set committed, possibly the user's target if it happened to
+    /// converge in the last iteration but we didn't notice in time. Either
+    /// way the cache reflects the camera's perspective, so the menu shows
+    /// reality on rebuild and the NEXT set's step math starts from a real
+    /// position.
+    private func waitForCameraToReachValue(propId: UInt32, target: NSNumber,
+                                           timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline && !closing {
+            // Brief wait first — the camera typically needs ~50-150 ms to
+            // commit a Sony SetPropStep/SetPropAbs to GetAllPropData's view.
+            Thread.sleep(forTimeInterval: 0.08)
+            guard pollOnce() else { continue }
+            if discoveredProperties[propId]?.value == target { return true }
+        }
+        return false
     }
 }

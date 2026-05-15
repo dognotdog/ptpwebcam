@@ -406,6 +406,12 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			if let rmin = prop.rangeMin, let rmax = prop.rangeMax, let rstep = prop.rangeStep {
 				entry["r"] = ["min": rmin, "max": rmax, "step": rstep]
 			}
+			// Sony step-flags: `inc` = property is set via SetPropStep (the
+			// agent shows +/- steppers instead of an enum picker), `btn` =
+			// momentary button property. Only emitted when set, to keep the
+			// JSON small for the vast majority of non-Sony properties.
+			if prop.incremental { entry["inc"] = 1 }
+			if prop.isButton    { entry["btn"] = 1 }
 			propsList.append(entry)
 		}
 		let cameraName = deviceSources[cameraId]?.device.localizedName ?? cameraId

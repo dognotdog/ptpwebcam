@@ -5,7 +5,15 @@ import CoreGraphics
 import ImageIO
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSMenuDelegate {
+
+    // While the status-bar menu is open we must NOT call `statusItem.menu = …`
+    // (which is what rebuildMenu does) — reassigning the menu collapses it,
+    // killing the Sony +/- stepper interaction mid-click. So when a property-
+    // state update arrives during this window we just refresh the model and
+    // set `rebuildPending`; `menuDidClose` flushes it.
+    private var isStatusMenuOpen = false
+    private var rebuildPending   = false
 
     private let logger = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "Agent")
     private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "AgentLog")
@@ -372,10 +380,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
             if let r = entry["r"] as? [String: NSNumber] {
                 rangeMin = r["min"]; rangeMax = r["max"]; rangeStep = r["step"]
             }
+            let incremental = (entry["inc"] as? Int) == 1
+            let isButton    = (entry["btn"] as? Int) == 1
             let prop = ExtCameraProperty(
                 propertyId: propId, dataType: dataType, writable: writable,
                 value: value, enumValues: enumValues,
-                rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep)
+                rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
+                incremental: incremental, isButton: isButton)
             properties[propId] = prop
             orderedIds.append(propId)
         }
@@ -534,8 +545,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
     // MARK: - Status Bar Menu
 
     func rebuildMenu() {
+        // Defer if the menu is currently open — see `isStatusMenuOpen`.
+        if isStatusMenuOpen {
+            rebuildPending = true
+            return
+        }
         menuActionHolders = []
         let menu = NSMenu()
+        menu.delegate = self
 
         let allCameras = Array(cameras.values)
         let hasExtCameras = !extCameras.isEmpty
@@ -565,6 +582,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         menu.addItem(aboutItem)
 
         statusItem.menu = menu
+    }
+
+    // MARK: - NSMenuDelegate (status-bar menu open/close tracking)
+
+    func menuWillOpen(_ menu: NSMenu) {
+        // Only the top-level status menu has us as delegate; submenus don't.
+        isStatusMenuOpen = true
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isStatusMenuOpen = false
+        // Flush any property-state update that arrived while the menu was
+        // open (and therefore couldn't safely trigger a rebuild).
+        if rebuildPending {
+            rebuildPending = false
+            rebuildMenu()
+        }
     }
 
     /// Opens the App's main window. Posted as a `ptpwebcam://about` URL so
@@ -864,6 +898,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
                                          rangeMin: rMin.intValue, rangeMax: rMax.intValue)
         }
 
+        // Sony incremental properties (ISO / aperture / shutter on A7-series
+        // and newer): the camera only accepts SetPropStep, moving one enum
+        // position at a time. Show a +/- stepper the user can click
+        // repeatedly without the menu collapsing, rather than a long enum
+        // list. Needs at least 2 values to step between.
+        if prop.incremental, !prop.isButton,
+           let enumValues = prop.enumValues, enumValues.count >= 2 {
+            return buildSonyStepperSubmenu(prop, propId: propId, enumValues: enumValues,
+                                           cameraId: camera.cameraId, vendor: vendor,
+                                           parentItem: parentItem)
+        }
+
         // Enum list (discrete values).
         if let enumValues = prop.enumValues, !enumValues.isEmpty {
             let submenu = NSMenu()
@@ -928,6 +974,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate {
         gridItem.view = grid
         let submenu = NSMenu()
         submenu.addItem(gridItem)
+        return submenu
+    }
+
+    // NSMenuItem containing a SonyStepperView (− value +). The buttons can be
+    // clicked repeatedly without dismissing the menu.
+    private func buildSonyStepperSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                         enumValues: [NSNumber], cameraId: String,
+                                         vendor: CameraVendor,
+                                         parentItem: NSMenuItem?) -> NSMenu {
+        let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
+        let stepper = SonyStepperView(
+            propId: propId, enumValues: enumValues, currentValue: prop.value, vendor: vendor
+        ) { [weak self] target in
+            self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: target)
+        }
+        if let parentItem {
+            stepper.onDisplay = { [weak parentItem] formatted in
+                parentItem?.title = "  \(displayName): \(formatted)"
+            }
+        }
+        // Keep the view alive for the menu's lifetime. NSMenuItem.view retains
+        // it, but stash a reference too so it survives even if the item is
+        // mutated; mirrors how SliderActionHolder instances are retained.
+        menuActionHolders.append(stepper)
+
+        let item = NSMenuItem()
+        item.view = stepper
+        let submenu = NSMenu()
+        submenu.addItem(item)
         return submenu
     }
 
@@ -1288,6 +1363,11 @@ struct ExtCameraProperty {
     let rangeMin: NSNumber?
     let rangeMax: NSNumber?
     let rangeStep: NSNumber?
+    // Sony step-flags (default false for other vendors). `incremental` means
+    // the camera is driven by SetPropStep — the menu shows +/- steppers
+    // rather than a value picker. `isButton` is a momentary control.
+    var incremental: Bool = false
+    var isButton: Bool = false
 }
 
 struct ExtCamera {
@@ -1336,10 +1416,128 @@ class SliderActionHolder: NSObject {
         onDisplay?(snapped)
         pendingValue = snapped
         debounceTimer?.invalidate()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+        // Schedule on `.common` rather than the default mode. The status-bar
+        // menu runs its run loop in `.eventTracking` while it's open; a
+        // default-mode timer doesn't fire until the menu closes, which made
+        // slider commits visibly LAG until the user dismissed the menu.
+        // `.common` covers default + tracking + modal so the debounce fires
+        // 150 ms after the last drag event regardless of menu state.
+        let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             self.onCommand(self.pendingValue)
         }
+        RunLoop.main.add(timer, forMode: .common)
+        debounceTimer = timer
+    }
+}
+
+/// Custom menu-item view: a dial-style stepper for Sony incremental
+/// properties (ISO / aperture / shutter on A7-series and newer bodies, which
+/// the camera drives via SetPropStep one enum position at a time).
+///
+/// Layout is `‹ prevValue ›   currentValue   ‹ nextValue ›` — the side
+/// buttons show the ACTUAL neighbouring values rather than bare +/- glyphs,
+/// so it reads like a dial: you see what you're about to step toward. The
+/// centre shows the current value in bold.
+///
+/// Why a custom view instead of menu items: clicking an NSButton embedded in
+/// a menu-item view does NOT dismiss the menu, so the user can keep tapping.
+/// A normal `<value>` menu item would collapse the whole menu on first click.
+///
+/// Each click advances a LOCAL index and refreshes immediately (optimistic),
+/// then posts the new target enum value through `onStep`. The extension's
+/// Sony set path clamps to a ±1 SetPropStep and keeps its own cache synced
+/// via a post-set GetAllPropData refresh, so sending absolute targets
+/// computed from this local index converges correctly under rapid clicking.
+final class SonyStepperView: NSView {
+    private let enumValues: [NSNumber]
+    private var index: Int
+    private let propId: UInt32
+    private let vendor: CameraVendor
+    private let onStep: (NSNumber) -> Void
+    /// Called with the formatted current-value string on every step, so the
+    /// caller can mirror it into the parent menu item's title.
+    var onDisplay: ((String) -> Void)?
+
+    private let prevButton  = NSButton()
+    private let valueLabel  = NSTextField(labelWithString: "")
+    private let nextButton  = NSButton()
+
+    init(propId: UInt32, enumValues: [NSNumber], currentValue: NSNumber,
+         vendor: CameraVendor, onStep: @escaping (NSNumber) -> Void) {
+        self.propId      = propId
+        self.enumValues  = enumValues
+        self.vendor      = vendor
+        self.onStep      = onStep
+        self.index       = enumValues.firstIndex(of: currentValue) ?? 0
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 30))
+
+        // "Lower" value sits on the left, "higher" on the right. Sony enum
+        // tables are ordered low→high for these properties, so prev = index-1.
+        prevButton.frame = NSRect(x: 6, y: 3, width: 78, height: 24)
+        prevButton.bezelStyle = .rounded
+        prevButton.target = self
+        prevButton.action = #selector(stepDown)
+        addSubview(prevButton)
+
+        valueLabel.frame = NSRect(x: 88, y: 4, width: 84, height: 22)
+        valueLabel.alignment = .center
+        valueLabel.font = .boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)
+        addSubview(valueLabel)
+
+        nextButton.frame = NSRect(x: 176, y: 3, width: 78, height: 24)
+        nextButton.bezelStyle = .rounded
+        nextButton.target = self
+        nextButton.action = #selector(stepUp)
+        addSubview(nextButton)
+
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func formatted(_ idx: Int) -> String {
+        guard enumValues.indices.contains(idx) else { return "" }
+        return formatExtPropRaw(enumValues[idx], propId: propId, vendor: vendor)
+    }
+
+    private func refresh() {
+        guard enumValues.indices.contains(index) else { return }
+        let current = formatted(index)
+        valueLabel.stringValue = current
+
+        // Side buttons show the neighbouring value. At a boundary the button
+        // is blanked and disabled so the dial visibly "bottoms out".
+        if index > 0 {
+            prevButton.title = "‹ \(formatted(index - 1))"
+            prevButton.isEnabled = true
+        } else {
+            prevButton.title = ""
+            prevButton.isEnabled = false
+        }
+        if index < enumValues.count - 1 {
+            nextButton.title = "\(formatted(index + 1)) ›"
+            nextButton.isEnabled = true
+        } else {
+            nextButton.title = ""
+            nextButton.isEnabled = false
+        }
+
+        onDisplay?(current)
+    }
+
+    @objc private func stepDown() {
+        guard index > 0 else { return }
+        index -= 1
+        refresh()
+        onStep(enumValues[index])
+    }
+
+    @objc private func stepUp() {
+        guard index < enumValues.count - 1 else { return }
+        index += 1
+        refresh()
+        onStep(enumValues[index])
     }
 }
 
