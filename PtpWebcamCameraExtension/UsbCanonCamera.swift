@@ -66,6 +66,67 @@ private let PTP_PROP_CANON_EOS_SERIALNUMBER:  UInt32 = 0xD1AF
 
 private enum CanonLvState { case off, waitingEvfMode, waitingOutputDevice, on }
 
+// MARK: - Per-body live-view profile
+//
+// Canon EOS bodies fall into three live-view profiles per libgphoto2's
+// `camera_prepare_canon_eos_capture`. The mainline DSLRs we used to hardcode
+// for (SetRemoteMode=1, EVFOutputDevice=2) work for everything from the 40D
+// through the 5D Mark IV and 90D. But for EOS-M mirrorless and EOS-R the
+// magic numbers differ:
+//
+//   .dslr        SetRemoteMode(1)    + EVFOutputDevice = 2 (PC)
+//   .eosMOlder   SetRemoteMode(0x15) + EVFOutputDevice = 0x08 (M, M2, M3, M5,
+//                                                              M6, M10, M100, M50)
+//   .eosMNewer   SetRemoteMode(0x01) + EVFOutputDevice unset (M6-II, M50-II,
+//                                                             R, RP, R2, R5,
+//                                                             R6, …)
+//
+// We classify by USB PID. Anything we don't recognise as M-series / R-series
+// falls through to `.dslr` — the historical default that's known to work for
+// the bulk of the supported list.
+private enum CanonLvProfile { case dslr, eosMOlder, eosMNewer }
+
+private func canonLvProfile(forPid pid: UInt16) -> CanonLvProfile {
+    switch pid {
+    // Older EOS-M (mode 0x15 + EVF 0x08). M200 follows the same family.
+    case 0x323D,  // M
+         0x3273,  // M2
+         0x3299,  // M3
+         0x32A0,  // M10
+         0x32BB,  // M5
+         0x32C5,  // M6
+         0x32D1,  // M100
+         0x32D2,  // M50
+         0x32EF:  // M200
+        return .eosMOlder
+    // Newer EOS-M / R (mode 0x01, skip EVF output device write).
+    // 1DX-III is intentionally NOT here — libgphoto2 treats it as a
+    // standard DSLR. If reports come in that it needs the new path,
+    // move 0x32E8 in here.
+    case 0x32DA,  // R
+         0x32E2,  // RP
+         0x32E7,  // M6 Mark II
+         0x32F4,  // R5
+         0x32F5,  // R6
+         0x32F7,  // R7
+         0x32F8,  // R10
+         0x32F9,  // M50 Mark II
+         0x32FC,  // R3
+         0x3303,  // R5 C
+         0x330B,  // R6 Mark II
+         0x330C,  // R8
+         0x330D,  // R50
+         0x3312,  // R100
+         0x3313,  // R1
+         0x3314,  // R5 Mark II
+         0x3320,  // R50 V
+         0x3323:  // R6 Mark III
+        return .eosMNewer
+    default:
+        return .dslr
+    }
+}
+
 // MARK: - UsbCanonCamera
 
 final class UsbCanonCamera: UsbPtpCameraBase {
@@ -79,13 +140,31 @@ final class UsbCanonCamera: UsbPtpCameraBase {
 
     // MARK: - Vendor connect
 
+    /// Cached per-body live-view profile. Set once in performVendorConnect()
+    /// so startLiveViewSession() doesn't have to re-classify on every cycle.
+    private var lvProfile: CanonLvProfile = .dslr
+
     override func performVendorConnect() {
         parseDeviceInfo()  // populates supportedOps
 
+        // Classify the body and select the SetRemoteMode value. EOS-M and
+        // newer mirrorless bodies reject SetRemoteMode(1) — they need 0x15
+        // (older M) or 0x01 (newer M / R). Sending the wrong value puts the
+        // camera in a half-initialised state where SetEventMode hangs and
+        // live view never starts. See `canonLvProfile(forPid:)` for the
+        // body-by-body classification (sourced from libgphoto2).
+        lvProfile = canonLvProfile(forPid: transport.productId)
+        let remoteMode: UInt32 = {
+            switch lvProfile {
+            case .dslr:      return 0x01
+            case .eosMOlder: return 0x15
+            case .eosMNewer: return 0x01
+            }
+        }()
         if supportedOps.contains(PTP_CMD_CANON_SETREMOTEMODE) {
             _ = try? transport.sendPtpCommand(
-                transport.buildCommand(code: PTP_CMD_CANON_SETREMOTEMODE, parameters: [1]))
-            cameraLog.fault("SetRemoteMode(1)")
+                transport.buildCommand(code: PTP_CMD_CANON_SETREMOTEMODE, parameters: [remoteMode]))
+            cameraLog.fault("SetRemoteMode(0x\(String(remoteMode, radix:16), privacy: .public)) profile=\(String(describing: self.lvProfile), privacy: .public)")
         }
         if supportedOps.contains(PTP_CMD_CANON_SETEVENTMODE) {
             _ = try? transport.sendPtpCommand(
@@ -243,6 +322,18 @@ final class UsbCanonCamera: UsbPtpCameraBase {
             return false
         }
 
+        // EVF output device value differs per body profile (see CanonLvProfile):
+        //   .dslr        → 2 (PC display)
+        //   .eosMOlder   → 0x08 (EOS-M specific)
+        //   .eosMNewer   → skip the write entirely; the body brings up its
+        //                  own output path during SetRemoteMode(0x01).
+        let evfOutputValue: UInt32?
+        switch lvProfile {
+        case .dslr:      evfOutputValue = 2
+        case .eosMOlder: evfOutputValue = 0x08
+        case .eosMNewer: evfOutputValue = nil
+        }
+
         var lvState = CanonLvState.waitingEvfMode
         for _ in 0..<100 {
             if stopLv || closing { return false }
@@ -250,10 +341,20 @@ final class UsbCanonCamera: UsbPtpCameraBase {
             pollGetEvent { [self] propId, value in
                 switch (propId, lvState) {
                 case (PTP_PROP_CANON_EVF_MODE, .waitingEvfMode) where value == 1:
-                    lvState = .waitingOutputDevice
-                    setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 2)
-                case (PTP_PROP_CANON_EVF_OUTPUTDEVICE, .waitingOutputDevice) where (value & 0x02) != 0:
-                    lvState = .on
+                    if let v = evfOutputValue {
+                        lvState = .waitingOutputDevice
+                        setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: v)
+                    } else {
+                        // Newer M / R bodies: nothing more to do — declare ready.
+                        lvState = .on
+                    }
+                case (PTP_PROP_CANON_EVF_OUTPUTDEVICE, .waitingOutputDevice):
+                    // Older DSLRs report `value & 0x02 != 0` (PC bit) when ready;
+                    // EOS-M bodies report `value & 0x08 != 0` for their own bit.
+                    // Either way the value should reflect the bit we just set.
+                    if let v = evfOutputValue, (value & v) != 0 {
+                        lvState = .on
+                    }
                 default:
                     break
                 }
@@ -269,6 +370,9 @@ final class UsbCanonCamera: UsbPtpCameraBase {
     }
 
     override func stopLiveViewSession() {
+        // Reset the output device to 0 to tell the camera we're done. Newer
+        // M/R bodies didn't have it written in the first place, but writing 0
+        // is harmless (camera silently accepts it).
         _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
     }
 

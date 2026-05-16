@@ -21,8 +21,15 @@ final class PtpDumper {
     private let transport: UsbPtpTransport
     private var out = ""
 
+    /// Vendor identity derived from the USB VID. Gates the per-vendor opcode
+    /// and property name tables so a Nikon dump can't accidentally label
+    /// 0x9202 as `Sony.GetSDIOExtDeviceInfo` (it's a completely different
+    /// command on Nikon) or 0xD20D as `Sony.ShutterSpeed`.
+    private let ptpVendor: CameraVendor
+
     init(transport: UsbPtpTransport) {
         self.transport = transport
+        self.ptpVendor = PtpKnownCameras.vendor(forVid: transport.vendorId)
     }
 
     /// Perform the dump. Always returns a non-empty string (success or error
@@ -56,7 +63,24 @@ final class PtpDumper {
             return out
         }
 
-        dumpPropertyDescriptors()
+        // Vendor-specific descriptor harvest. Standard PTP GetDevicePropDesc
+        // only returns a useful response on Nikon and a handful of generic
+        // MTP devices. Sony returns zeros for current values until the SDIO
+        // Connect 3-step handshake has been performed; Canon EOS bodies
+        // never expose their vendor properties via GetDevicePropDesc at all
+        // — they require SetRemoteMode + SetEventMode + RequestPropertyValue
+        // and then harvest from GetEvent. We instantiate the existing vendor
+        // camera class to reuse all that logic, then dump from its cached
+        // `discoveredProperties` so the output is full-fidelity for
+        // currently-unsupported bodies too.
+        switch PtpKnownCameras.vendor(forVid: transport.vendorId) {
+        case .sony:
+            dumpViaSonyHandshake()
+        case .canon:
+            dumpViaCanonHandshake()
+        case .nikon, .unknown:
+            dumpPropertyDescriptors()
+        }
 
         line("")
         line("--- End of Dump ---")
@@ -133,19 +157,19 @@ final class PtpDumper {
 
         line("=== Supported Operations (\(ops.count)) ===")
         for op in ops {
-            line(String(format: "  0x%04X  %@", op, PtpKnownCameras.operationName(op) as NSString))
+            line(String(format: "  0x%04X  %@", op, PtpKnownCameras.operationName(op, vendor: ptpVendor) as NSString))
         }
         line("")
 
         line("=== Supported Events (\(events.count)) ===")
         for ev in events {
-            line(String(format: "  0x%04X  %@", ev, PtpKnownCameras.eventName(ev) as NSString))
+            line(String(format: "  0x%04X  %@", ev, PtpKnownCameras.eventName(ev, vendor: ptpVendor) as NSString))
         }
         line("")
 
         line("=== Supported Properties (\(propIds.count)) ===")
         for pid in propIds {
-            line(String(format: "  0x%04X  %@", pid, PtpKnownCameras.propertyName(pid) as NSString))
+            line(String(format: "  0x%04X  %@", pid, PtpKnownCameras.propertyName(pid, vendor: ptpVendor) as NSString))
         }
         line("")
 
@@ -176,7 +200,7 @@ final class PtpDumper {
     }
 
     private func dumpOneProperty(_ pid: UInt16) {
-        line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(pid) as NSString))
+        line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(pid, vendor: ptpVendor) as NSString))
 
         guard let (inData, rsp) = try? transport.sendPtpCommand(
                 transport.buildCommand(code: PTP_CMD_GETPROPDESC, parameters: [UInt32(pid)])) else {
@@ -244,6 +268,80 @@ final class PtpDumper {
             for v in values { line("    " + v) }
         default:
             line(String(format: "  Form:      unknown (0x%02X)", formFlag))
+        }
+    }
+
+    // MARK: - Vendor-handshake dumps
+    //
+    // For Sony and Canon we instantiate the existing UsbCamera subclass and
+    // call its synchronous discovery entrypoints directly. Both classes
+    // expect the PTP session to already be open (we did that above) and do
+    // not start their own queue work — `performVendorConnect` and
+    // `discoverAllProperties` run inline. We never call `close()` on the
+    // vendor instance: PtpDumper owns the transport, and the outer
+    // `performDump` already closes the session in a defer block.
+
+    private func dumpViaSonyHandshake() {
+        line("--- Sony SDIO Connect handshake (Connect 1 → GetSDIOExtDeviceInfo → Connect 2/3 → GetAllPropData) ---")
+        line("")
+        let sony = UsbSonyCamera(transport: transport)
+        sony.performVendorConnect()
+        let props = sony.discoverAllProperties()
+        if let s = sony.deviceSerial, !s.isEmpty {
+            line("PTP Serial (post-handshake): \(s)")
+            line("")
+        }
+        dumpPropertiesFromCache(props)
+    }
+
+    private func dumpViaCanonHandshake() {
+        line("--- Canon EOS handshake (SetRemoteMode + SetEventMode + RequestOLCInfoGroup + RequestPropertyValue) ---")
+        line("")
+        let canon = UsbCanonCamera(transport: transport)
+        canon.performVendorConnect()
+        let props = canon.discoverAllProperties()
+        if let s = canon.deviceSerial, !s.isEmpty {
+            line("EOS Body Serial: \(s)")
+            line("")
+        }
+        dumpPropertiesFromCache(props)
+    }
+
+    /// Format the descriptor block from a pre-populated `UsbCameraProperty`
+    /// dictionary (vendor handshake output). Mirrors `dumpOneProperty` but
+    /// reads values from the struct rather than issuing a fresh PTP query.
+    private func dumpPropertiesFromCache(_ props: [UInt32: UsbCameraProperty]) {
+        line("=== Property Descriptors (\(props.count)) ===")
+        line("")
+        if props.isEmpty {
+            line("(none — vendor handshake returned no properties; the camera")
+            line(" may need a stronger init sequence than the one we send,")
+            line(" or it may have refused our SDIO/SetRemoteMode invocation.)")
+            return
+        }
+        for pid in props.keys.sorted() {
+            guard let prop = props[pid] else { continue }
+            line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(UInt16(pid & 0xFFFF), vendor: ptpVendor) as NSString))
+            line(String(format: "  DataType:  0x%04X (%@)", prop.dataType, PtpKnownCameras.dataTypeName(prop.dataType) as NSString))
+            line("  Writable:  \(prop.writable)")
+            if prop.incremental { line("  Incremental: true (Sony SetPropStep)") }
+            if prop.isButton    { line("  Button:    true") }
+            if let d = prop.defaultValue {
+                line("  Default:   \(formatValue(d, dataType: prop.dataType, propId: pid))")
+            }
+            line("  Current:   \(formatValue(prop.value, dataType: prop.dataType, propId: pid))")
+            if let enums = prop.enumValues {
+                line("  Form:      Enum (\(enums.count) values)")
+                for v in enums { line("    " + formatValue(v, dataType: prop.dataType, propId: pid)) }
+            } else if let mn = prop.rangeMin, let mx = prop.rangeMax {
+                line("  Form:      Range")
+                line("    Min:     \(formatValue(mn, dataType: prop.dataType, propId: pid))")
+                line("    Max:     \(formatValue(mx, dataType: prop.dataType, propId: pid))")
+                if let st = prop.rangeStep { line("    Step:    \(formatValue(st, dataType: prop.dataType, propId: pid))") }
+            } else {
+                line("  Form:      none")
+            }
+            line("")
         }
     }
 

@@ -482,7 +482,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         line("USB Product Name: \(transport.deviceName)")
         if let s = deviceSerial { line("Serial Number (PTP): \(s)") }
         line("")
-        line("Note: this dump was synthesised from in-memory state because the")
+        line("Note: this dump was synthesized from in-memory state because the")
         line("camera was already claimed by PTP Webcam. Values reflect the most")
         line("recent property poll, not a fresh GetDevicePropDesc round-trip.")
         line("")
@@ -510,13 +510,13 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         let sortedOps = supportedOps.sorted()
         line("=== Supported Operations (\(sortedOps.count)) ===")
         for op in sortedOps {
-            line(String(format: "  0x%04X  %@", op, PtpKnownCameras.operationName(op) as NSString))
+            line(String(format: "  0x%04X  %@", op, PtpKnownCameras.operationName(op, vendor: vendor) as NSString))
         }
         line("")
 
         line("=== Supported Standard Properties (\(standardPropertyIds.count)) ===")
         for pid in standardPropertyIds {
-            line(String(format: "  0x%04X  %@", pid, PtpKnownCameras.propertyName(pid) as NSString))
+            line(String(format: "  0x%04X  %@", pid, PtpKnownCameras.propertyName(pid, vendor: vendor) as NSString))
         }
         line("")
 
@@ -525,7 +525,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         line("")
         for pid in sortedProps {
             guard let prop = discoveredProperties[pid] else { continue }
-            line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(UInt16(pid & 0xFFFF)) as NSString))
+            line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(UInt16(pid & 0xFFFF), vendor: vendor) as NSString))
             line(String(format: "  DataType:  0x%04X (%@)", prop.dataType, PtpKnownCameras.dataTypeName(prop.dataType) as NSString))
             line("  Writable:  \(prop.writable)")
             if prop.incremental { line("  Incremental: true (Sony SetPropStep)") }

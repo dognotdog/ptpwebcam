@@ -127,15 +127,69 @@ sudo codesign -f -s - /Applications/Discord.app/Contents/Frameworks/Discord\ Hel
 
 ### Debug / Crash Logs
 
-The PTP Webcam agent, which handles the low level camera interaction and user interface, logs debug messages to
+PTP Webcam moved from a DAL plugin to a CoreMediaIO **system extension**
+(`org.ptpwebcam.CameraExtension`) plus a user-space agent
+(`org.ptpwebcam.PtpCameraAgent`). All diagnostic output goes through the
+unified `os_log` system. There is no longer a `/tmp/*.stderr.log` file.
+
+#### Reporting a bug — quickest path
+
+If "List PTP Properties" sees your camera, generate a dump there first:
+
+1. Launch **PTP Webcam.app**.
+2. Menu bar → **File → List PTP Properties → \<your camera\>**.
+3. Click **Copy to Clipboard** or **Save to File…** and paste the result
+   into your GitHub issue.
+
+For black-screen / live-view-not-starting bugs, the dump on its own isn't
+enough — please also include a log of the extension while you reproduce
+the problem.
+
+#### Capturing live extension logs
+
+In Terminal, before plugging in the camera:
+
 ```
-/tmp/org.ptpwebcam.PtpWebcamAgent.stderr.log
+log stream --predicate 'subsystem == "org.ptpwebcam.CameraExtension" OR \
+                        subsystem == "org.ptpwebcam.PtpCameraAgent" OR \
+                        subsystem == "org.ptpwebcam.PtpWebcamApp"' \
+           --style compact > ~/Desktop/ptpwebcam.log
 ```
-and crash logs can be found at 
+
+Now plug in the camera, open QuickTime Player → New Movie Recording →
+select **PTP Webcam**, wait ~10 seconds, then stop the recording. Stop
+the `log stream` command (Ctrl-C) and attach `~/Desktop/ptpwebcam.log`
+to the GitHub issue.
+
+#### After-the-fact log dump
+
+If the problem already happened, the in-memory log buffer (`log show`)
+still has the last few minutes:
+
 ```
-~/Library/Logs/DiagnosticReports/
+log show --last 5m \
+         --predicate 'subsystem == "org.ptpwebcam.CameraExtension" OR \
+                      subsystem == "org.ptpwebcam.PtpCameraAgent" OR \
+                      subsystem == "org.ptpwebcam.PtpWebcamApp"' \
+         --style compact > ~/Desktop/ptpwebcam.log
 ```
-starting with `PtpWebcamLaunchAgent`
+
+#### Crash logs
+
+System-extension crash reports land in
+`~/Library/Logs/DiagnosticReports/` with filenames starting with
+`org.ptpwebcam.CameraExtension-…`. Older legacy crash files starting
+with `PtpWebcamLaunchAgent-…` are from the previous DAL-plugin
+architecture and can be ignored.
+
+#### Useful one-liners
+
+| What | Command |
+|---|---|
+| Confirm extension is activated | `systemextensionsctl list \| grep ptpwebcam` |
+| See current extension version | `defaults read /Applications/PTP\ Webcam.app/Contents/Library/SystemExtensions/org.ptpwebcam.CameraExtension.systemextension/Contents/Info.plist CFBundleVersion` |
+| List camera devices visible to CMIO | `ffmpeg -hide_banner -f avfoundation -list_devices true -i ""` |
+| Force-relaunch the agent | `launchctl kickstart -k gui/$(id -u)/org.ptpwebcam.PtpCameraAgent` |
 
 ### Canon EOS Webcam Utility Incompatibility
 
