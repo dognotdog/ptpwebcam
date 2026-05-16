@@ -5,8 +5,8 @@ import Foundation
 import os.log
 
 // MARK: - Sony PTP Constants
-
-private let PTP_CMD_GETOBJECT:             UInt16 = 0x1009
+//
+// Standard PTP opcodes (GetObject = 0x1009) live in UsbPtpCameraBase.swift.
 
 private let PTP_CMD_SONY_CONNECT:          UInt16 = 0x9201
 private let PTP_CMD_SONY_GETPROPERTIES:    UInt16 = 0x9202
@@ -93,7 +93,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
     //   5. GetAllDevicePropData  ← descriptors + initial values (in discoverAllProperties)
     //
     // The three-parameter form (1,0,0) / (2,0xC8,0xC8) / (3,0xC8,0xC8) is what
-    // libgphoto2 uses for newer Sony bodies but causes the A7's first
+    // is used for newer Sony bodies but causes the A7's first
     // GetAllPropData to time out, which corrupts the bulk-IN pipe and the
     // camera ends up USB-resetting.
 
@@ -187,6 +187,21 @@ final class UsbSonyCamera: UsbPtpCameraBase {
 
     // MARK: - Property discovery
 
+    /// Properties that should NEVER be zero on a live camera. If GetAllPropData
+    /// still reports them as 0 after the bulk pass, we fall back to a direct
+    /// per-property GetPropDesc (0x9203) to coax real values out. List matches
+    /// the user-facing exposure / WB controls; anything not in this set we
+    /// trust the camera's report of (some props are legitimately 0).
+    private static let sonyKeyPropertyIds: [UInt32] = [
+        0x5005,  // WhiteBalance
+        0x5007,  // FNumber (aperture)
+        0x500A,  // FocusMode
+        0x500E,  // ExposureProgramMode
+        0x5010,  // ExposureBiasCompensation
+        0xD20D,  // Sony.ShutterSpeed
+        0xD21E,  // Sony.ISO
+    ]
+
     override func discoverAllProperties() -> [UInt32: UsbCameraProperty] {
         guard supportedOps.contains(PTP_CMD_SONY_GETALLPROPDATA) else {
             cameraLog.fault("GetAllPropData (0x9209) not in supportedOps — no discovery")
@@ -198,30 +213,42 @@ final class UsbSonyCamera: UsbPtpCameraBase {
         //   2. Once the full table arrives it carries the descriptor STRUCTURE
         //      but many CurrentValue fields (ISO/aperture/shutter/WB/…) are
         //      still placeholder zeros — the camera fills in real values over
-        //      the next few hundred ms.
-        // So we can't stop at the first non-empty response (that was the
-        // regression — we captured the all-zeros snapshot). Instead keep
-        // polling, letting `mergePreserveZeros` accumulate real values as they
-        // land, and stop once a few consecutive polls report no further value
-        // changes (`fetchAndParseAllPropData` returns the count of genuinely
-        // changed properties).
+        //      the next several hundred ms.
+        //
+        // We can't stop at the first non-empty response (that's the all-zeros
+        // snapshot). Polling continues until BOTH conditions are met:
+        //   - we've seen the table arrive at least once, AND
+        //   - at least `minPollsAfterDescriptors` polls have happened since,
+        //     AND
+        //   - the last `quietPollsThreshold` consecutive polls reported no
+        //     value changes.
+        //
+        // Tuning history: previously `quietPolls >= 3` (150 ms) and no
+        // minimum count — fast but Sony A7S would sometimes commit the
+        // placeholder zeros before real values arrived. Bumped to 10 quiet
+        // (500 ms) + 20 min polls after descriptors (1 s baseline) which is
+        // empirically reliable on A7S and A1.
+        let quietPollsThreshold = 10
+        let minPollsAfterDescriptors = 20
         var gotDescriptors = false
         var quietPolls = 0
-        for attempt in 1...60 {           // hard cap ≈ 3 s (60 × 50 ms)
+        var pollsAfterDescriptors = 0
+        for attempt in 1...100 {          // hard cap ≈ 5 s (100 × 50 ms)
             if closing { break }
             let changedCount = fetchAndParseAllPropData(label: "poll #\(attempt)")
+            if gotDescriptors { pollsAfterDescriptors += 1 }
             if changedCount > 0 {
                 gotDescriptors = true
                 quietPolls = 0
             } else if gotDescriptors {
                 quietPolls += 1
             }
-            // Three quiet polls in a row after the table arrived → the camera
-            // has settled. 3 × 50 ms = 150 ms of stability.
-            if gotDescriptors && quietPolls >= 3 { break }
+            if gotDescriptors
+                && pollsAfterDescriptors >= minPollsAfterDescriptors
+                && quietPolls >= quietPollsThreshold { break }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        cameraLog.fault("Sony bulk descriptor pass: \(self.discoveredProperties.count, privacy: .public) properties")
+        cameraLog.fault("Sony bulk descriptor pass: \(self.discoveredProperties.count, privacy: .public) properties (pollsAfterDescriptors=\(pollsAfterDescriptors, privacy: .public))")
 
         // Drain initial PROPVALCHANGED events. The Sony A7 emits its real
         // property values via these events shortly after SDIOConnect(3) — the
@@ -229,8 +256,47 @@ final class UsbSonyCamera: UsbPtpCameraBase {
         // Without draining now, these initial events are lost (pollEvents only
         // runs during live view).
         drainPropertyChangeEvents(durationSeconds: 2.0)
+
+        // Last-ditch recovery for any key property still reading zero. The
+        // camera responds to direct GetPropDesc (0x9203) queries even when
+        // GetAllPropData is lagging or when its placeholder didn't get
+        // overwritten by a PROPVALCHANGED event during the drain.
+        refetchStuckZeroProperties()
         logKeyPropertyValues()
         return discoveredProperties
+    }
+
+    /// For each entry in `sonyKeyPropertyIds` whose cached value is still 0,
+    /// issue a Sony GetPropDesc (0x9203) and re-parse. Updates
+    /// `discoveredProperties` in place. Logs each rescue attempt.
+    private func refetchStuckZeroProperties() {
+        guard supportedOps.contains(PTP_CMD_SONY_GETPROPDESC) else { return }
+        var rescued = 0
+        for propId in Self.sonyKeyPropertyIds {
+            if closing { break }
+            guard let cached = discoveredProperties[propId],
+                  cached.value.intValue == 0 else { continue }
+            let cmd = transport.buildCommand(code: PTP_CMD_SONY_GETPROPDESC,
+                                              parameters: [propId])
+            guard let (inData, rsp) = try? transport.sendPtpCommand(cmd),
+                  transport.responseCode(from: rsp) == PTP_RSP_OK,
+                  let data = inData else {
+                cameraLog.fault("refetchStuckZero 0x\(String(propId, radix: 16), privacy: .public) — transport error")
+                continue
+            }
+            // parseSonyPropDescResponse writes into discoveredProperties and
+            // fires onPropertiesDiscovered if `publish: true`; we pass false
+            // here because the bulk publish happens after this entire pass
+            // completes (via the openSessionAndDiscover return path).
+            parseSonyPropDescResponse(data, publish: false)
+            if let updated = discoveredProperties[propId], updated.value.intValue != 0 {
+                rescued += 1
+                cameraLog.fault("refetchStuckZero 0x\(String(propId, radix: 16), privacy: .public) → \(updated.value, privacy: .public)")
+            }
+        }
+        if rescued > 0 {
+            cameraLog.fault("Sony refetch rescued \(rescued, privacy: .public) of \(Self.sonyKeyPropertyIds.count, privacy: .public) key properties from zero")
+        }
     }
 
     /// Poll the interrupt-IN endpoint for PROPVALCHANGED events for up to
@@ -383,7 +449,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             let isButton    = (flags & 0x80) != 0
             // Sony's `IsEnabled` byte (offset 5 in their extended GetAllPropData
             // format — NOT standard PTP, which only has the single GetSet byte
-            // at offset 4). Per libgphoto2's Sony driver:
+            // at offset 4):
             //   0 = disabled / grayed out (read-only)
             //   1 = enabled (read/write)
             //   2 = display-only — currently locked by a physical control
@@ -674,7 +740,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 return
             }
             // Sony SetPropStep / SDIO_ControlDevice payload is a SINGLE BYTE
-            // Int8: 0x01 / 0xFF. libgphoto2 packs it as PTP_DTC_UINT8.
+            // Int8: 0x01 / 0xFF.
             //
             // CRITICAL: the byte's direction is interpreted by VALUE, not by
             // reported-enum-position. 0x01 means "next-greater value",
@@ -690,7 +756,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             // position 41 (LOWER index) so position math picks 0xFF, and the
             // camera no-ops (already at the value minimum).
             //
-            // Value-based direction (libgphoto2's `else` fallback branch)
+            // Value-based direction
             // works at the boundaries and inside the main range. Count is
             // still position-based — it gives the right magnitude as long as
             // we don't cross the 0/1/2 head of the enum, which we generally

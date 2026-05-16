@@ -28,6 +28,10 @@ struct UsbCameraProperty {
 protocol UsbCameraProtocol: AnyObject {
     var onJpegFrame: ((Data) -> Void)? { get set }
     var onPropertiesDiscovered: (([UInt32: UsbCameraProperty]) -> Void)? { get set }
+    /// Fired when `startLiveViewSession()` returns false, so the agent can
+    /// surface a user-facing NSAlert instead of a silent black preview.
+    /// Argument is a short, end-user-readable explanation.
+    var onLiveViewStartFailed: ((String) -> Void)? { get set }
     func openSessionAndDiscover()
     func startLiveView()
     func stopLiveView()

@@ -220,7 +220,7 @@ class UsbPtpTransport {
         case kPtpContainerData:
             // The data container's declared length covers the 12-byte header
             // plus payload. Canon EOS bodies often send data + response in
-            // a SINGLE bulk transfer — libgphoto2's `ptp_usb_getdata` handles
+            // a SINGLE bulk transfer — we handle
             // that "surplus" case by stashing the response from the tail of
             // the same read. Without this, a second bulk read for the
             // response blocks waiting for bytes that already arrived,

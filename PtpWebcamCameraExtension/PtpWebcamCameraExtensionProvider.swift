@@ -331,6 +331,8 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	private var dumpDevicesSlotTokens: [Int32] = []
 	// Darwin notify tokens for PTP-dump text slots (extension → app).
 	private var dumpTextSlotTokens: [Int32] = []
+	// Darwin notify tokens for live-view-failure text slots (extension → agent).
+	private var lvFailSlotTokens: [Int32] = []
 	// Serialized dump queue so we never run two dumps (potentially fighting
 	// over the same USB endpoints) at once.
 	private let dumpQueue = DispatchQueue(label: "org.ptpwebcam.dump", qos: .userInitiated)
@@ -375,6 +377,10 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		dumpTextSlotTokens = (0..<kDarwinPtpDumpTextSlotCount).map { i in
 			Self.registerCheckToken(kDarwinPtpDumpTextSlotPrefix + "\(i)",
 			                        label: "dumpTextSlot[\(i)]")
+		}
+		lvFailSlotTokens = (0..<kDarwinLiveViewFailedSlotCount).map { i in
+			Self.registerCheckToken(kDarwinLiveViewFailedSlotPrefix + "\(i)",
+			                        label: "lvFailSlot[\(i)]")
 		}
 
 		// Per-camera claim and property-command channels are registered in cameraConnected.
@@ -769,6 +775,15 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 				}
 			}
 		}
+		// Surface live-view-start failures (Nikon LiveViewProhibitCondition,
+		// Canon EVF stuck, etc.) to the agent so the user gets an NSAlert
+		// explaining why their QuickTime preview is black, instead of just
+		// staring at a blank window.
+		camera.onLiveViewStartFailed = { [weak self] reason in
+			guard let self else { return }
+			let cameraName = self.deviceSources[cameraId]?.device.localizedName ?? cameraId
+			self.publishLiveViewFailure(cameraName: cameraName, reason: reason)
+		}
 		camera.onPropertiesDiscovered = { [weak self, weak camera] discovered in
 			guard let self = self else { return }
 			DispatchQueue.main.async {
@@ -924,6 +939,22 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			                              notificationName: kDarwinPtpDumpDevicesState)
 		}
 		Self.log("publishDumpDevicesList: \(devices.count) device(s), \(json.count)B")
+	}
+
+	/// Publish a live-view start failure to the agent over the dedicated
+	/// slot chain. Format: "<Camera Name>\n<reason>". The agent reads it,
+	/// shows an NSAlert, and the user gets a clear explanation instead of
+	/// a silent black QuickTime preview.
+	fileprivate func publishLiveViewFailure(cameraName: String, reason: String) {
+		let combined = "\(cameraName)\n\(reason)"
+		guard let data = combined.data(using: .utf8) else { return }
+		publishQueue.async { [weak self] in
+			guard let self else { return }
+			self.publishBytesViaSlotChain(data,
+			                              tokens: self.lvFailSlotTokens,
+			                              notificationName: kDarwinLiveViewFailed)
+		}
+		Self.log("publishLiveViewFailure: \(cameraName) — \(reason)")
 	}
 
 	fileprivate func handleDumpCommand(locationID: UInt32) {

@@ -1,11 +1,16 @@
 import Cocoa
-import ImageCaptureCore
 import os.log
 import CoreGraphics
 import ImageIO
 
+// ICDeviceBrowser and the `PtpCamera` class hierarchy used to live here from
+// the DAL-plugin era when the agent drove cameras directly via ImageCapture.
+// With the CMIO-system-extension migration, USB/PTP work moved entirely
+// into the extension; the agent only renders the menu off Darwin-notify
+// state. The legacy `PtpCamera*.swift` files were removed and every
+// reference to ICDeviceBrowser / PtpCamera in this file deleted.
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSMenuDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // While the status-bar menu is open we must NOT call `statusItem.menu = …`
     // (which is what rebuildMenu does) — reassigning the menu collapses it,
@@ -17,7 +22,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
 
     private let logger = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "Agent")
     private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "AgentLog")
-    private var deviceBrowser: ICDeviceBrowser!
     private var xpcListener: NSXPCListener!
     private var surfaceXpcListener: NSXPCListener!
 
@@ -25,7 +29,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         agentLog.fault("\(msg, privacy: .public)")
     }
 
-    private var cameras: [String: PtpCamera] = [:]
     private var extensionConnections: [NSXPCConnection] = []
     private var darwinSlotTokens: [Int32] = []
     private var lvFrameSlotTokens: [Int32] = []
@@ -39,6 +42,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
 
     // Extension-published camera property state (via Darwin notify slots, multi-page).
     private var propSlotTokens: [Int32] = []
+    /// Read tokens + reassembly state for live-view-failure messages from the
+    /// extension. Same multi-page slot-chain protocol as property state, just
+    /// a much smaller chain since the payload is a short error string.
+    private var lvFailSlotTokens: [Int32] = []
+    private var lvFailPageBuffer: Data?
+    private var lvFailPageTotal: Int = 0
+    private var lvFailPageCount: Int = 0
+    private var lvFailNextPage: Int = 0
+    /// De-duplicate identical failure alerts that arrive within a short
+    /// window — Canon's EVF state machine and Nikon's prohibit-condition
+    /// flow can both fire onLiveViewStartFailed multiple times during a
+    /// single user-initiated streaming attempt.
+    private var lastLvFailAlertAt: Date = .distantPast
+    private var lastLvFailAlertText: String = ""
 
     private var extCameras: [String: ExtCamera] = [:]
 
@@ -72,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     /// to its default (often 640×480) on every fresh PTP session, so without
     /// this the user has to repick their preferred resolution every plug.
     /// Extend the set as we identify more "remember-the-last-pick" properties.
-    private static let stickyPropIds: [CameraVendor: Set<UInt32>] = [
+    private static let stickyPropIds: [ProtocolFamily: Set<UInt32>] = [
         .nikon: [0xD1AC],   // LV Image Size
     ]
 
@@ -81,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     }
 
     /// True if `propId` is in the sticky list for this vendor.
-    private static func isStickyProperty(propId: UInt32, vendor: CameraVendor) -> Bool {
+    private static func isStickyProperty(propId: UInt32, vendor: ProtocolFamily) -> Bool {
         stickyPropIds[vendor]?.contains(propId) ?? false
     }
 
@@ -158,12 +175,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         surfaceXpcListener.resume()
         AppDelegate.log("PtpCameraAgent: surface XPC listener started on \(kPtpSurfaceSharingMachServiceName)")
 
-        // ICDeviceBrowser is intentionally NOT started.
-        // Starting it causes icdd to claim exclusive USB ownership of PTP cameras,
-        // preventing the CMIO extension (user/262) from opening them via IOUSBLib.
-        // Camera detection is now done in the extension via IOKit notifications.
-        AppDelegate.log("PtpCameraAgent: ICDeviceBrowser disabled (extension owns USB)")
-
         // USB access coordination: the extension can't kill ptpcamerad (different UID).
         // We do it here (same UID 501) when the extension requests it (at stream start only).
         var needUsbToken: Int32 = 0
@@ -183,6 +194,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         var propStateToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
             self?.handlePropertyStateChange()
+        }
+
+        // Live-view-start failure channel from extension. When the per-vendor
+        // `startLiveViewSession` returns false (Nikon prohibit-condition bits,
+        // Canon EVF stuck, etc.) the extension publishes a UTF-8 message via
+        // a small slot chain. Display it as an NSAlert so the user gets a
+        // clear explanation rather than a silent black QuickTime preview.
+        lvFailSlotTokens = (0..<kDarwinLiveViewFailedSlotCount).map { i in
+            var t: Int32 = 0
+            darwin_notify_register_check(kDarwinLiveViewFailedSlotPrefix + "\(i)", &t)
+            return t
+        }
+        var lvFailToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinLiveViewFailed, &lvFailToken, .main) { [weak self] _ in
+            self?.handleLiveViewFailure()
         }
 
         // Darwin notify posts are NOT replayed for subscribers that weren't
@@ -247,12 +273,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     }
 
     // MARK: - Darwin Notify State Publishing
+    //
+    // `publishCameraState` published the legacy ImageCapture-driven camera
+    // list. With the extension owning USB this is now the extension's job —
+    // see `publishCameraConnected` in PtpWebcamCameraExtensionProvider. The
+    // agent only republishes empty state on legacy kDarwinCameraStateRequest
+    // requests for backwards compatibility with any external listeners.
 
     private func publishCameraState() {
-        var cameraList: [[String: String]] = []
-        for (cameraId, camera) in cameras {
-            cameraList.append(["cameraId": cameraId, "name": camera.name])
-        }
+        let cameraList: [[String: String]] = []  // always empty now
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: cameraList) else { return }
         let maxPayload = (kDarwinStateSlotCount - 1) * 8
@@ -278,6 +307,91 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     }
 
     // MARK: - Property State (extension → agent)
+
+    // MARK: - Live view failure (extension → agent)
+
+    private func handleLiveViewFailure() {
+        var slot0: UInt64 = 0
+        darwin_notify_get_state(lvFailSlotTokens[0], &slot0)
+        let totalLength = Int(slot0 >> 32)
+        let pageIndex   = Int((slot0 >> 16) & 0xFFFF)
+        let pageCount   = Int(slot0 & 0xFFFF)
+        guard totalLength > 0, pageCount > 0, pageIndex < pageCount else { return }
+
+        let pageDataSlots = kDarwinLiveViewFailedSlotCount - 2
+        let pageSize = pageDataSlots * 8
+        let pageOffset = pageIndex * pageSize
+        let pageLength = min(pageSize, totalLength - pageOffset)
+        guard pageLength > 0 else { return }
+
+        if pageIndex == 0 || lvFailPageBuffer == nil || lvFailPageTotal != totalLength {
+            lvFailPageBuffer = Data(count: totalLength)
+            lvFailPageTotal = totalLength
+            lvFailPageCount = pageCount
+            lvFailNextPage = 0
+        }
+        guard var buffer = lvFailPageBuffer, pageIndex == lvFailNextPage else {
+            lvFailPageBuffer = nil
+            return
+        }
+        buffer.withUnsafeMutableBytes { ptr in
+            for i in 0..<((pageLength + 7) / 8) {
+                var v: UInt64 = 0
+                darwin_notify_get_state(lvFailSlotTokens[i + 1], &v)
+                let chunkOffset = pageOffset + i * 8
+                let chunkSize = min(8, totalLength - chunkOffset)
+                if chunkSize > 0 { memcpy(ptr.baseAddress! + chunkOffset, &v, chunkSize) }
+            }
+        }
+        lvFailPageBuffer = buffer
+        var csValue: UInt64 = 0
+        darwin_notify_get_state(lvFailSlotTokens[kDarwinLiveViewFailedSlotCount - 1], &csValue)
+        let expected = UInt32(csValue & 0xFFFFFFFF)
+        var computed: UInt32 = 0
+        for byte in buffer[pageOffset..<(pageOffset + pageLength)] { computed = computed &+ UInt32(byte) }
+        guard computed == expected else { lvFailPageBuffer = nil; return }
+
+        lvFailNextPage += 1
+        if lvFailNextPage < lvFailPageCount { return }
+
+        let payload = buffer
+        lvFailPageBuffer = nil
+        lvFailPageTotal = 0; lvFailPageCount = 0; lvFailNextPage = 0
+        guard let text = String(data: payload, encoding: .utf8) else { return }
+        presentLiveViewFailureAlert(payload: text)
+    }
+
+    /// Payload format is "<Camera Name>\n<reason>". Splitting on the first
+    /// newline keeps the camera name in the dialog title and the long
+    /// explanation in the informative text.
+    private func presentLiveViewFailureAlert(payload: String) {
+        let parts = payload.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        let cameraName = parts.count >= 1 ? String(parts[0]) : "Camera"
+        let reason     = parts.count >= 2 ? String(parts[1]) : payload
+        // Suppress repeat alerts of the same text within 3 seconds — vendor
+        // state machines can fire the failure more than once per attempt.
+        let now = Date()
+        if payload == lastLvFailAlertText, now.timeIntervalSince(lastLvFailAlertAt) < 3.0 {
+            return
+        }
+        lastLvFailAlertText = payload
+        lastLvFailAlertAt = now
+
+        AppDelegate.log("PtpCameraAgent: live view failed (\(cameraName)) — \(reason)")
+        // NSAlert from a status-bar process needs the app to be active or it
+        // can appear behind the foreground app (QuickTime). activate() + the
+        // standard NSAlert.runModal flow puts it on top regardless.
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = String(
+            format: NSLocalizedString("%@ could not start live view",
+                                       comment: "LV failure alert title, %@ = camera name"),
+            cameraName)
+        alert.informativeText = reason
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: NSLocalizedString("OK", comment: "OK"))
+        alert.runModal()
+    }
 
     private func handlePropertyStateChange() {
         var slot0: UInt64 = 0
@@ -397,7 +511,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         // the VID/PID isn't in our table.
         let usbName = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
         let name = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: usbName)
-        let vendor = PtpKnownCameras.vendor(forVid: vid)
+        let vendor = PtpKnownCameras.protocolFamily(forVid: vid, pid: pid)
         extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
                                          vid: vid, pid: pid, serial: serial,
                                          properties: properties, orderedPropertyIds: orderedIds,
@@ -513,27 +627,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     }
 
     private func handleLiveViewStartCommand() {
-        guard let cameraId = readLiveViewCmdCameraId(),
-              let camera = cameras[cameraId] else { return }
-        AppDelegate.log("PtpCameraAgent: Darwin live view start for \(cameraId)")
-        // Surface arrives via XPC (SurfaceSharingProtocol.receiveSurface).
-        // Frames are dropped in publishLiveViewFrame until the surface is registered.
-        camera.startLiveView()
+        guard let cameraId = readLiveViewCmdCameraId() else { return }
+        AppDelegate.log("PtpCameraAgent: Darwin live view start for \(cameraId) (no-op — extension owns LV)")
     }
 
     private func handleLiveViewStopCommand() {
-        guard let cameraId = readLiveViewCmdCameraId(),
-              let camera = cameras[cameraId] else { return }
+        guard let cameraId = readLiveViewCmdCameraId() else { return }
         AppDelegate.log("PtpCameraAgent: Darwin live view stop for \(cameraId)")
-        camera.stopLiveView()
         ownedSurfaces.removeValue(forKey: cameraId)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
-        deviceBrowser?.stop()
-        for camera in cameras.values {
-            camera.closeSession()
-        }
         try? FileManager.default.removeItem(atPath: kPtpCameraStatePath)
     }
 
@@ -553,16 +657,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         let menu = NSMenu()
         menu.delegate = self
 
-        let allCameras = Array(cameras.values)
-        let hasExtCameras = !extCameras.isEmpty
-        if allCameras.isEmpty && !hasExtCameras {
+        if extCameras.isEmpty {
             let item = NSMenuItem(title: "No Cameras Connected", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
-        }
-
-        for camera in allCameras {
-            addCameraMenu(camera, to: menu)
         }
 
         for camera in extCameras.values {
@@ -607,109 +705,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     @objc private func openAboutAction(_ sender: NSMenuItem) {
         guard let url = URL(string: "ptpwebcam://about") else { return }
         NSWorkspace.shared.open(url)
-    }
-
-    private func addCameraMenu(_ camera: PtpCamera, to menu: NSMenu) {
-        menu.addItem(NSMenuItem.separator())
-
-        let displayName = camera.model ?? camera.name
-        let header = NSMenuItem(title: displayName, action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-
-        if !camera.isSessionOpen {
-            let item = NSMenuItem(title: "  Connecting…", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-            return
-        }
-
-        if camera.properties.isEmpty {
-            let item = NSMenuItem(title: "  Loading properties…", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-            return
-        }
-
-        // Show UI properties in defined order, then remaining known properties
-        var shown = Set<UInt32>()
-        for propId in camera.currentUiProperties {
-            if let info = camera.properties[propId] {
-                addPropertyMenuItem(info, camera: camera, to: menu)
-                shown.insert(propId)
-            }
-        }
-
-        let remaining = camera.properties.keys
-            .filter { !shown.contains($0) && camera.displayName(forProperty: $0) != nil }
-            .sorted()
-        if !remaining.isEmpty {
-            menu.addItem(NSMenuItem.separator())
-            for propId in remaining {
-                if let info = camera.properties[propId] {
-                    addPropertyMenuItem(info, camera: camera, to: menu)
-                }
-            }
-        }
-
-        if camera.canAutofocus {
-            menu.addItem(NSMenuItem.separator())
-            let afItem = NSMenuItem(title: "  Autofocus", action: #selector(autofocusAction(_:)), keyEquivalent: "")
-            afItem.target = self
-            afItem.representedObject = camera
-            menu.addItem(afItem)
-        }
-    }
-
-    private func addPropertyMenuItem(_ info: PtpPropertyInfo, camera: PtpCamera, to menu: NSMenu) {
-        let valueStr = camera.formatValue(info.value, forProperty: info.propertyId)
-        let displayName = camera.displayName(forProperty: info.propertyId) ?? String(format: "0x%04X", info.propertyId)
-        let title = "  \(displayName): \(valueStr)"
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-
-        if info.writable, let enumValues = info.range as? [NSNumber], !enumValues.isEmpty {
-            let submenu = NSMenu()
-            for enumVal in enumValues {
-                let valStr = camera.formatValue(enumVal, forProperty: info.propertyId)
-                let subItem = NSMenuItem(title: valStr, action: #selector(changePropertyAction(_:)), keyEquivalent: "")
-                subItem.target = self
-                subItem.representedObject = PropertyChangeInfo(
-                    camera: camera, propertyId: info.propertyId, value: enumVal)
-                if let currentNum = info.value as? NSNumber, currentNum.isEqual(to: enumVal) {
-                    subItem.state = .on
-                }
-                submenu.addItem(subItem)
-            }
-            item.submenu = submenu
-        } else if info.writable, let rangeDict = info.range as? [String: Any],
-                  let rmin = rangeDict["min"] as? NSNumber,
-                  let rmax = rangeDict["max"] as? NSNumber,
-                  let rstep = rangeDict["step"] as? NSNumber {
-            let submenu = NSMenu()
-            let stepVal = rstep.doubleValue
-            if stepVal > 0 {
-                let count = Int((rmax.doubleValue - rmin.doubleValue) / stepVal) + 1
-                if count <= 50 {
-                    var v = rmin.doubleValue
-                    while v <= rmax.doubleValue {
-                        let numVal = NSNumber(value: Int32(v))
-                        let valStr = camera.formatValue(numVal, forProperty: info.propertyId)
-                        let subItem = NSMenuItem(title: valStr, action: #selector(changePropertyAction(_:)), keyEquivalent: "")
-                        subItem.target = self
-                        subItem.representedObject = PropertyChangeInfo(
-                            camera: camera, propertyId: info.propertyId, value: numVal)
-                        if let currentNum = info.value as? NSNumber, currentNum.int32Value == numVal.int32Value {
-                            subItem.state = .on
-                        }
-                        submenu.addItem(subItem)
-                        v += stepVal
-                    }
-                    item.submenu = submenu
-                }
-            }
-        }
-
-        menu.addItem(item)
     }
 
     private func addExtCameraMenu(_ camera: ExtCamera, to menu: NSMenu) {
@@ -881,7 +876,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     // Build the appropriate submenu for a writable ext-camera property.
     // Priority: grid (WB tune) → enum (with optional WB sub-props) → slider (range, no enum).
     private func buildExtPropSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
-                                     camera: ExtCamera, vendor: CameraVendor = .unknown,
+                                     camera: ExtCamera, vendor: ProtocolFamily = .unknown,
                                      parentItem: NSMenuItem? = nil) -> NSMenu? {
         guard prop.writable else { return nil }
         // Some cameras (notably Sony A7) report intrinsically read-only sensor
@@ -980,7 +975,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     // clicked repeatedly without dismissing the menu.
     private func buildSonyStepperSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
                                          enumValues: [NSNumber], cameraId: String,
-                                         vendor: CameraVendor,
+                                         vendor: ProtocolFamily,
                                          parentItem: NSMenuItem?) -> NSMenu {
         let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
         let stepper = SonyStepperView(
@@ -1009,7 +1004,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     private func buildSliderSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
                                     cameraId: String,
                                     rMin: Double, rMax: Double, rStep: Double,
-                                    vendor: CameraVendor = .unknown,
+                                    vendor: ProtocolFamily = .unknown,
                                     parentItem: NSMenuItem? = nil) -> NSMenu {
         let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
         let holder = SliderActionHolder(propId: propId, rangeMin: rMin, rangeStep: rStep) {
@@ -1045,7 +1040,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     /// menu shows the human-readable form printed on the camera body
     /// ("5004922"). Other vendors typically use alphanumeric serials where
     /// leading zeros are significant — leave them untouched.
-    private func formatSerialForDisplay(_ serial: String, vendor: CameraVendor) -> String {
+    private func formatSerialForDisplay(_ serial: String, vendor: ProtocolFamily) -> String {
         guard vendor == .nikon, !serial.isEmpty else { return serial }
         let trimmed = String(serial.drop(while: { $0 == "0" }))
         // Don't return "" if the camera literally reported all zeros — show
@@ -1053,16 +1048,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         return trimmed.isEmpty ? serial : trimmed
     }
 
-    private func formatExtPropValue(_ prop: ExtCameraProperty, vendor: CameraVendor = .unknown) -> String {
+    private func formatExtPropValue(_ prop: ExtCameraProperty, vendor: ProtocolFamily = .unknown) -> String {
         formatExtPropRaw(prop.value, propId: prop.propertyId, vendor: vendor)
     }
 
     // MARK: - Menu Actions
-
-    @objc private func autofocusAction(_ sender: NSMenuItem) {
-        guard let camera = sender.representedObject as? PtpCamera else { return }
-        camera.performAutofocus()
-    }
 
     @objc private func extAutofocusAction(_ sender: NSMenuItem) {
         guard let cameraId = sender.representedObject as? String else { return }
@@ -1070,9 +1060,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
     }
 
     @objc private func changePropertyAction(_ sender: NSMenuItem) {
-        if let change = sender.representedObject as? PropertyChangeInfo {
-            change.camera.setProperty(change.propertyId, value: change.value)
-        } else if let change = sender.representedObject as? ExtPropertyChangeInfo {
+        if let change = sender.representedObject as? ExtPropertyChangeInfo {
             postPropertyCommand(cameraId: change.cameraId, propId: change.propertyId, value: change.value)
 
             // Remember the user's pick for properties in the sticky list so
@@ -1109,66 +1097,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
         AppDelegate.log("PtpCameraAgent: \(claiming ? "claiming" : "releasing") \(camera.claimKey)")
         sendClaimCommand(vid: vid, pid: pid, serial: serial, claim: claiming)
         rebuildMenu()
-    }
-
-    // MARK: - ICDeviceBrowserDelegate
-
-    func deviceBrowserDidEnumerateLocalDevices(_ browser: ICDeviceBrowser) {
-        AppDelegate.log("PtpCameraAgent: deviceBrowserDidEnumerateLocalDevices, devices: \(browser.devices?.count ?? 0)")
-    }
-
-    func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {
-        AppDelegate.log("PtpCameraAgent: didAdd device: \(device.name ?? "unnamed") type=\(device.type.rawValue)")
-        guard let icCamera = device as? ICCameraDevice else { return }
-
-        let cameraId = device.uuidString ?? device.name ?? "unknown"
-        AppDelegate.log("PtpCameraAgent: Camera added: \(cameraId) (\(device.name ?? "unnamed"))")
-
-        guard let camera = PtpCamera.cameraForDevice(icCamera, cameraId: cameraId, delegate: self) else {
-            AppDelegate.log("PtpCameraAgent: Unsupported camera: \(cameraId)")
-            return
-        }
-        cameras[cameraId] = camera
-        // Do NOT open a PTP session here. The CMIO extension opens the USB interface directly
-        // via IOUSBHost (user/262 bootstrap). If we also called openSession(), icdd would hold
-        // the USB interface exclusively and the extension's IOUSBHostInterface init would fail.
-        // The agent's role is detection + state publication only; live view is extension-owned.
-
-        publishCameraState()
-        rebuildMenu()
-    }
-
-    func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
-        let cameraId = device.uuidString ?? device.name ?? "unknown"
-        AppDelegate.log("PtpCameraAgent: Camera removed: \(cameraId)")
-        cameras.removeValue(forKey: cameraId)
-        publishCameraState()
-        rebuildMenu()
-    }
-}
-
-// MARK: - PtpCameraDelegate
-
-extension AppDelegate: PtpCameraDelegate {
-    func cameraPropertiesChanged(_ camera: PtpCamera) {
-        rebuildMenu()
-    }
-
-    func cameraReady(_ camera: PtpCamera) {
-        AppDelegate.log("PtpCameraAgent: Camera ready: \(camera.manufacturer ?? "?") \(camera.model ?? "?")")
-        rebuildMenu()
-    }
-
-    func cameraRemoved(_ camera: PtpCamera) {
-        let cameraId = camera.cameraId
-        cameras.removeValue(forKey: cameraId)
-        ownedSurfaces.removeValue(forKey: cameraId)
-        publishCameraState()
-        rebuildMenu()
-    }
-
-    func cameraReceivedLiveViewJpeg(_ data: Data, camera: PtpCamera) {
-        publishLiveViewFrame(data, cameraId: camera.cameraId)
     }
 
     // MARK: - Live View via IOSurface
@@ -1273,16 +1201,11 @@ extension AppDelegate: NSXPCListenerDelegate {
         newConnection.resume()
         AppDelegate.log("PtpCameraAgent: XPC connection accepted")
 
-        DispatchQueue.main.async {
-            guard let proxy = newConnection.remoteObjectProxy as? PtpCameraAgentDelegateProtocol else { return }
-            for (cameraId, camera) in self.cameras {
-                let info: NSDictionary = [
-                    "name": camera.name,
-                    "cameraId": cameraId,
-                ]
-                proxy.cameraConnected(cameraId, info: info)
-            }
-        }
+        // We used to replay the legacy `cameras` dict to the new XPC peer here
+        // (so reconnecting clients got current state without waiting for the
+        // next attach). That dict is gone — the extension publishes camera
+        // state directly via Darwin notify slots now, which any XPC client
+        // would already be listening on.
 
         return true
     }
@@ -1306,47 +1229,31 @@ extension AppDelegate: SurfaceSharingProtocol {
 
 // MARK: - PtpCameraAgentProtocol
 
+// The PtpCameraAgentProtocol's `startLiveView` / `stopLiveView` /
+// `setPropertyValue` methods are XPC entry points from the legacy
+// ImageCapture path. With the CMIO-extension architecture the extension
+// owns USB and the agent is no longer in the loop for these — we keep
+// the conformance so existing XPC clients don't get a connection error,
+// but the implementations just log and return.
 extension AppDelegate: PtpCameraAgentProtocol {
     func startLiveView(forCamera cameraId: String) {
-        DispatchQueue.main.async {
-            AppDelegate.log("PtpCameraAgent: XPC startLiveView for \(cameraId)")
-            self.cameras[cameraId]?.startLiveView()
-        }
+        AppDelegate.log("PtpCameraAgent: legacy XPC startLiveView(\(cameraId)) — no-op")
     }
 
     func stopLiveView(forCamera cameraId: String) {
-        DispatchQueue.main.async {
-            AppDelegate.log("PtpCameraAgent: XPC stopLiveView for \(cameraId)")
-            self.cameras[cameraId]?.stopLiveView()
-            self.ownedSurfaces.removeValue(forKey: cameraId)
-        }
+        AppDelegate.log("PtpCameraAgent: legacy XPC stopLiveView(\(cameraId)) — no-op")
+        DispatchQueue.main.async { self.ownedSurfaces.removeValue(forKey: cameraId) }
     }
 
     func setPropertyValue(_ value: Any, forProperty propertyId: NSNumber, onCamera cameraId: String) {
-        logger.info("setProperty \(propertyId, privacy: .public) requested for \(cameraId, privacy: .public)")
-        guard let camera = cameras[cameraId], let numValue = value as? NSNumber else { return }
-        camera.setProperty(propertyId.uint32Value, value: numValue)
+        logger.info("legacy XPC setProperty \(propertyId, privacy: .public) for \(cameraId, privacy: .public) — ignored, extension owns properties")
     }
 
-}
-
-// MARK: - Helper
-
-private class PropertyChangeInfo {
-    let camera: PtpCamera
-    let propertyId: UInt32
-    let value: NSNumber
-
-    init(camera: PtpCamera, propertyId: UInt32, value: NSNumber) {
-        self.camera = camera
-        self.propertyId = propertyId
-        self.value = value
-    }
 }
 
 // MARK: - Extension-published camera types
 //
-// `CameraVendor` is declared in SupportedCameras.swift (shared across the
+// `ProtocolFamily` is declared in SupportedCameras.swift (shared across the
 // extension, agent, and app) so PropertyFormatter and PtpDumper can take it
 // as a parameter without circular dependencies.
 
@@ -1375,7 +1282,7 @@ struct ExtCamera {
     let serial: String
     var properties: [UInt32: ExtCameraProperty]
     let orderedPropertyIds: [UInt32]
-    let vendor: CameraVendor
+    let vendor: ProtocolFamily
 }
 
 private class ExtPropertyChangeInfo {
@@ -1449,7 +1356,7 @@ final class SonyStepperView: NSView {
     private let enumValues: [NSNumber]
     private var index: Int
     private let propId: UInt32
-    private let vendor: CameraVendor
+    private let vendor: ProtocolFamily
     private let onStep: (NSNumber) -> Void
     /// Called with the formatted current-value string on every step, so the
     /// caller can mirror it into the parent menu item's title.
@@ -1460,7 +1367,7 @@ final class SonyStepperView: NSView {
     private let nextButton  = NSButton()
 
     init(propId: UInt32, enumValues: [NSNumber], currentValue: NSNumber,
-         vendor: CameraVendor, onStep: @escaping (NSNumber) -> Void) {
+         vendor: ProtocolFamily, onStep: @escaping (NSNumber) -> Void) {
         self.propId      = propId
         self.enumValues  = enumValues
         self.vendor      = vendor
@@ -1738,7 +1645,7 @@ private let canonExtPropDisplayNames: [UInt32: String] = [
 /// Vendor-aware lookup into the display-name tables. Falls back to the
 /// generic (Nikon/standard-PTP) table when the camera-specific table doesn't
 /// know the code.
-func displayName(for propId: UInt32, vendor: CameraVendor) -> String? {
+func displayName(for propId: UInt32, vendor: ProtocolFamily) -> String? {
     if vendor == .canon, let n = canonExtPropDisplayNames[propId] { return n }
     return extPropDisplayNames[propId]
 }

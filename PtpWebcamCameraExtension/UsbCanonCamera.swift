@@ -24,7 +24,7 @@ private let PTP_PROP_CANON_EVF_MODE:          UInt32 = 0xD1B1
 // least one Canon EOS body (Rebel T6i, pid=0x3272) USB-resets when sent
 // GetEvent (0x9116) before any property is registered for change tracking.
 /// Canon EOS UI properties, paired with the PTP DataType used to decode their
-/// values. Mirrors libgphoto2's per-property switch in `ptp-pack.c` — Canon
+/// values. Canon
 /// never advertises these properties via `GetDevicePropDesc(0x1014)`, so we
 /// need to know each property's data type up front to parse the value bytes
 /// out of `PropValueChanged` and the per-value slots out of `AvailListChanged`.
@@ -56,8 +56,7 @@ private let canonUiPropertyDataTypes: [UInt32: UInt16] =
 private let PTP_EVENT_CANON_PROPVALCHANGED:   UInt32 = 0xC189
 private let PTP_EVENT_CANON_AVAILLISTCHANGED: UInt32 = 0xC18A
 
-/// Canon EOS body serial (printed-on-the-camera number). Per libgphoto2's
-/// `ptp.h` this is `PTP_DPC_CANON_EOS_SerialNumber`. Unlike the PTP-standard
+/// Canon EOS body serial (printed-on-the-camera number). Unlike the PTP-standard
 /// `DeviceInfo.SerialNumber` field (which Canon EOS bodies populate with an
 /// internal 32-char device UUID), this property holds the actual body
 /// serial. The camera does NOT push it via the OLC info group dump — we
@@ -68,8 +67,7 @@ private enum CanonLvState { case off, waitingEvfMode, waitingOutputDevice, on }
 
 // MARK: - Per-body live-view profile
 //
-// Canon EOS bodies fall into three live-view profiles per libgphoto2's
-// `camera_prepare_canon_eos_capture`. The mainline DSLRs we used to hardcode
+// Canon EOS bodies fall into three live-view profiles. The mainline DSLRs we used to hardcode
 // for (SetRemoteMode=1, EVFOutputDevice=2) work for everything from the 40D
 // through the 5D Mark IV and 90D. But for EOS-M mirrorless and EOS-R the
 // magic numbers differ:
@@ -100,9 +98,6 @@ private func canonLvProfile(forPid pid: UInt16) -> CanonLvProfile {
          0x32EF:  // M200
         return .eosMOlder
     // Newer EOS-M / R (mode 0x01, skip EVF output device write).
-    // 1DX-III is intentionally NOT here — libgphoto2 treats it as a
-    // standard DSLR. If reports come in that it needs the new path,
-    // move 0x32E8 in here.
     case 0x32DA,  // R
          0x32E2,  // RP
          0x32E7,  // M6 Mark II
@@ -152,7 +147,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         // (older M) or 0x01 (newer M / R). Sending the wrong value puts the
         // camera in a half-initialised state where SetEventMode hangs and
         // live view never starts. See `canonLvProfile(forPid:)` for the
-        // body-by-body classification (sourced from libgphoto2).
+        // body-by-body classification.
         lvProfile = canonLvProfile(forPid: transport.productId)
         let remoteMode: UInt32 = {
             switch lvProfile {
@@ -171,7 +166,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
                 transport.buildCommand(code: PTP_CMD_CANON_SETEVENTMODE, parameters: [1]))
             cameraLog.fault("SetEventMode(1)")
         }
-        // Canon EOS quirk (per libgphoto2's `camera_prepare_canon_eos_capture`):
+        // Canon EOS quirk:
         // before any GetEvent call, tell the camera which categories of state
         // ("OLC = On-screen / Live Camera info") to push into the event queue.
         // Without this, the EOS firmware's event queue is in an undefined
@@ -233,8 +228,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         // performVendorConnect tells the firmware to include some state in
         // the queue, but older EOS bodies (Rebel T5i / 700D) don't emit the
         // photographic UI properties (ISO/shutter/aperture/WB) without an
-        // explicit `RequestPropertyValue` per property — mirroring what
-        // libgphoto2's config.c does for serial/owner/artist strings.
+        // explicit `RequestPropertyValue` per property.
         if supportedOps.contains(PTP_CMD_CANON_REQUESTPROPVAL) {
             for propId in canonUiPropertyIds where propId >= 0x9000 || propId >= 0xD000 {
                 _ = sendCanonCommand(PTP_CMD_CANON_REQUESTPROPVAL, params: [propId])
@@ -266,9 +260,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         // the photographic UI props (ISO/Shutter/Aperture/WB) — only for
         // internal config items. Without enum lists the agent menu can't
         // offer selectable values, so fall back to hardcoded ranges for the
-        // props we know need them. The list comes from libgphoto2's
-        // canon_isospeed / canon_aperture / canon_shutterspeed tables, kept
-        // here as supported-value enumerations only (decoding to friendly
+        // props we know need them (decoding to friendly
         // labels happens in the agent's PropertyFormatter).
         // Synthesize enum lists ONLY for properties the camera didn't
         // already provide. The T5i emits AVAILLISTCHANGED with the real
@@ -319,6 +311,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         let modeRsp = setPropertyEos(propId: PTP_PROP_CANON_EVF_MODE, value: 1)
         guard modeRsp == PTP_RSP_OK else {
             cameraLog.fault("EVF_MODE=1 failed code=0x\(String(modeRsp, radix:16), privacy: .public) — aborting live view")
+            liveViewStartError = "Canon refused EVF_MODE=1 (response code 0x\(String(modeRsp, radix: 16))). The camera may be in playback mode, recording video, or have a stuck shutter button."
             return false
         }
 
@@ -363,6 +356,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         }
         if lvState != .on {
             cameraLog.fault("EVF did not become ready — aborting live view")
+            liveViewStartError = "Canon EVF didn't become ready within 5 seconds. Check that the camera is on, not in playback mode, and that the lens cap / mirror aren't blocking the sensor."
             return false
         }
         cameraLog.fault("EVF on")
@@ -467,16 +461,15 @@ final class UsbCanonCamera: UsbPtpCameraBase {
             onPropertyChanged?(propId, value.uint32Value)
 
         case PTP_EVENT_CANON_AVAILLISTCHANGED:
-            // EOS AvailListChanged block layout (per libgphoto2 ptp-pack.c
+            // EOS AvailListChanged block layout
             // PTP_EC_CANON_EOS_AvailListChanged):
             //   [0..3]  propId  (uint32)
-            //   [4..7]  dpd_type (uint32)  — should be 3 for enum form
+            //   [4..7]  dpdType (uint32)  — should be 3 for enum form
             //   [8..11] count   (uint32)
             //   [12..]  values, each occupying 4 bytes regardless of the
             //           property's actual data type (UInt8/UInt16/UInt32).
             // The value's true data type comes from our hardcoded
-            // canonUiPropertyDataTypes table (libgphoto2 hardcodes the same
-            // info in a per-propId switch); the EOS firmware does NOT
+            // canonUiPropertyDataTypes table; the EOS firmware does NOT
             // advertise it via this event.
             guard blockData.count >= 8 else { return }
             let propId    = blockData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
@@ -555,7 +548,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         // This is the missing step that makes a 0x2001 ACK actually visible
         // as a value change in the menu after the user clicks.
         if pending.propId >= 0x9000 {
-            // libgphoto2 explicitly re-requests the property to force the
+            // re-request the property to force the
             // camera to emit a fresh PROPVALCHANGED with the new value.
             if supportedOps.contains(PTP_CMD_CANON_REQUESTPROPVAL) {
                 _ = sendCanonCommand(PTP_CMD_CANON_REQUESTPROPVAL, params: [pending.propId])
@@ -598,9 +591,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
 // MARK: - Hardcoded Canon EOS enum lists
 //
 // Older EOS bodies (700D/T5i etc.) don't emit AVAILLISTCHANGED for the
-// photographic UI properties. libgphoto2 works around this by storing the
-// canonical Canon code tables in `config.c` (`canon_isospeed`, `canon_aperture`,
-// `canon_shutterspeed`). We mirror the value sets here; the agent's
+// photographic UI properties. The agent's
 // PropertyFormatter handles the code→label mapping for display.
 private let canonIsoCodes: [UInt32] = [
     0x0048, 0x004b, 0x004d, 0x0050, 0x0053, 0x0055, 0x0058, 0x005b, 0x005d,

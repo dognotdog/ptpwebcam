@@ -76,6 +76,11 @@ let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 let kDarwinCameraPropertyCmd   = "org.ptpwebcam.darwin.PropertyCmd"
 let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 
+// Extension → Agent: live view start failure. Mirrors agent-side protocol.
+let kDarwinLiveViewFailed         = "org.ptpwebcam.darwin.LiveViewFailed"
+let kDarwinLiveViewFailedSlotPrefix = "org.ptpwebcam.darwin.lvfail."
+let kDarwinLiveViewFailedSlotCount  = 64
+
 // MARK: PTP property-dump channels (mirrored from PtpCameraAgent copy).
 let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"
 let kDarwinPtpDumpDevicesState   = "org.ptpwebcam.darwin.PtpDumpDevicesState"

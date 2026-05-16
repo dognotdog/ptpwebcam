@@ -25,11 +25,11 @@ final class PtpDumper {
     /// and property name tables so a Nikon dump can't accidentally label
     /// 0x9202 as `Sony.GetSDIOExtDeviceInfo` (it's a completely different
     /// command on Nikon) or 0xD20D as `Sony.ShutterSpeed`.
-    private let ptpVendor: CameraVendor
+    private let ptpVendor: ProtocolFamily
 
     init(transport: UsbPtpTransport) {
         self.transport = transport
-        self.ptpVendor = PtpKnownCameras.vendor(forVid: transport.vendorId)
+        self.ptpVendor = PtpKnownCameras.protocolFamily(forVid: transport.vendorId, pid: transport.productId)
     }
 
     /// Perform the dump. Always returns a non-empty string (success or error
@@ -73,12 +73,20 @@ final class PtpDumper {
         // camera class to reuse all that logic, then dump from its cached
         // `discoveredProperties` so the output is full-fidelity for
         // currently-unsupported bodies too.
-        switch PtpKnownCameras.vendor(forVid: transport.vendorId) {
+        switch PtpKnownCameras.protocolFamily(forVid: transport.vendorId, pid: transport.productId) {
         case .sony:
             dumpViaSonyHandshake()
         case .canon:
             dumpViaCanonHandshake()
-        case .nikon, .unknown:
+        case .panasonic:
+            dumpViaPanasonicHandshake()
+        case .fuji, .olympus, .pentax, .leica, .sigma, .nikon, .unknown:
+            // Standard PTP GetDevicePropDesc works for all of these —
+            // Fuji / Olympus modern / Pentax / Ricoh / Leica modern / Sigma
+            // honour the spec, Nikon was always the reference
+            // implementation, and for unknown bodies it's the best we
+            // can do. Sigma has vendor opcodes too but we don't probe
+            // them until we have hardware to test against.
             dumpPropertyDescriptors()
         }
 
@@ -307,6 +315,47 @@ final class PtpDumper {
         dumpPropertiesFromCache(props)
     }
 
+    private func dumpViaPanasonicHandshake() {
+        line("--- Panasonic handshake (Panasonic.OpenSession 0x9102 + ListProperty 0x9108) ---")
+        line("")
+        line("Note: Panasonic uses 32-bit property codes (e.g. 0x02000010 PhotoStyle)")
+        line("rather than the 16-bit codes the rest of PTP uses. Standard")
+        line("GetDevicePropDesc returns nothing on these bodies; what follows comes")
+        line("from a hand-curated probe of the well-known property groups.")
+        line("")
+        let panasonic = UsbPanasonicCamera(transport: transport)
+        panasonic.performVendorConnect()
+        let props = panasonic.discoverAllProperties()
+        dumpPanasonicPropertiesFromCache(props)
+    }
+
+    /// Panasonic variant of the cache dumper. Property IDs are 32-bit so
+    /// we have to skip the standard 16-bit `propertyName` lookup and use
+    /// `panasonicPropertyName32` instead.
+    private func dumpPanasonicPropertiesFromCache(_ props: [UInt32: UsbCameraProperty]) {
+        line("=== Property Descriptors (\(props.count)) ===")
+        line("")
+        if props.isEmpty {
+            line("(none — ListProperty returned no usable data. Either the camera")
+            line(" doesn't accept Panasonic.OpenSession, or the property group")
+            line(" probe list needs to be extended for this body.)")
+            return
+        }
+        for pid in props.keys.sorted() {
+            guard let prop = props[pid] else { continue }
+            line(String(format: "[0x%08X] %@", pid, PtpKnownCameras.panasonicPropertyName32(pid) as NSString))
+            line(String(format: "  DataType:  0x%04X (%@) [inferred]", prop.dataType, PtpKnownCameras.dataTypeName(prop.dataType) as NSString))
+            line("  Current:   \(formatValue(prop.value, dataType: prop.dataType, propId: pid))")
+            if let enums = prop.enumValues {
+                line("  Form:      Enum (\(enums.count) values)")
+                for v in enums { line("    " + formatValue(v, dataType: prop.dataType, propId: pid)) }
+            } else {
+                line("  Form:      none")
+            }
+            line("")
+        }
+    }
+
     /// Format the descriptor block from a pre-populated `UsbCameraProperty`
     /// dictionary (vendor handshake output). Mirrors `dumpOneProperty` but
     /// reads values from the struct rather than issuing a fresh PTP query.
@@ -365,7 +414,7 @@ final class PtpDumper {
         case 6: raw = String(format: "%u (0x%08X)", n.uint32Value, n.uint32Value)
         default: raw = n.description
         }
-        let vendor = PtpKnownCameras.vendor(forVid: transport.vendorId)
+        let vendor = PtpKnownCameras.protocolFamily(forVid: transport.vendorId, pid: transport.productId)
         let pretty = formatExtPropRaw(n, propId: propId, vendor: vendor)
         // Drop the interpretation when it's identical to the bare decimal
         // (the default fallback path in formatExtPropRaw).

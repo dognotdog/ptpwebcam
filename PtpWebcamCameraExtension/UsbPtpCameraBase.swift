@@ -12,16 +12,85 @@ import Foundation
 import os.log
 
 // MARK: - Standard PTP constants shared by all vendors
+//
+// Every code defined by the PTP 1.1 spec lives here — vendor extensions
+// (0x90xx, 0x91xx, 0xD1xx etc.) stay in their per-vendor files. The intent
+// is that when a vendor handshake reaches for a standard opcode like
+// SendObjectInfo (0x100C) or GetObject (0x1009), it picks it up from this
+// block rather than redeclaring it as a `private let`.
 
-let PTP_CMD_GETDEVICEINFO:  UInt16 = 0x1001
-let PTP_CMD_OPENSESSION:    UInt16 = 0x1002
-let PTP_CMD_CLOSESESSION:   UInt16 = 0x1003
-let PTP_CMD_GETPROPDESC:    UInt16 = 0x1014
-let PTP_CMD_SETPROPVAL:     UInt16 = 0x1016
-let PTP_RSP_OK:             UInt16 = 0x2001
-let PTP_RSP_DEVICEBUSY:     UInt16 = 0x2019
-let PTP_RSP_SESSIONALREADY: UInt16 = 0x201E
-let PTP_EVENT_DEVICEPROPCHANGED: UInt16 = 0x4006
+// Operations (PTP_OC_*)
+let PTP_CMD_GETDEVICEINFO:    UInt16 = 0x1001
+let PTP_CMD_OPENSESSION:      UInt16 = 0x1002
+let PTP_CMD_CLOSESESSION:     UInt16 = 0x1003
+let PTP_CMD_GETSTORAGEIDS:    UInt16 = 0x1004
+let PTP_CMD_GETSTORAGEINFO:   UInt16 = 0x1005
+let PTP_CMD_GETNUMOBJECTS:    UInt16 = 0x1006
+let PTP_CMD_GETOBJECTHANDLES: UInt16 = 0x1007
+let PTP_CMD_GETOBJECTINFO:    UInt16 = 0x1008
+let PTP_CMD_GETOBJECT:        UInt16 = 0x1009
+let PTP_CMD_GETTHUMB:         UInt16 = 0x100A
+let PTP_CMD_DELETEOBJECT:     UInt16 = 0x100B
+let PTP_CMD_SENDOBJECTINFO:   UInt16 = 0x100C
+let PTP_CMD_SENDOBJECT:       UInt16 = 0x100D
+let PTP_CMD_INITIATECAPTURE:  UInt16 = 0x100E
+let PTP_CMD_RESETDEVICE:      UInt16 = 0x1010
+let PTP_CMD_GETPROPDESC:      UInt16 = 0x1014
+let PTP_CMD_GETPROPVAL:       UInt16 = 0x1015
+let PTP_CMD_SETPROPVAL:       UInt16 = 0x1016
+
+// Response codes (PTP_RC_*)
+let PTP_RSP_OK:               UInt16 = 0x2001
+let PTP_RSP_DEVICEBUSY:       UInt16 = 0x2019
+let PTP_RSP_SESSIONALREADY:   UInt16 = 0x201E
+
+// Events (PTP_EC_*)
+let PTP_EVENT_CANCELTRANSACTION:     UInt16 = 0x4001
+let PTP_EVENT_OBJECTADDED:           UInt16 = 0x4002
+let PTP_EVENT_OBJECTREMOVED:         UInt16 = 0x4003
+let PTP_EVENT_STOREADDED:            UInt16 = 0x4004
+let PTP_EVENT_STOREREMOVED:          UInt16 = 0x4005
+let PTP_EVENT_DEVICEPROPCHANGED:     UInt16 = 0x4006
+let PTP_EVENT_OBJECTINFOCHANGED:     UInt16 = 0x4007
+let PTP_EVENT_DEVICEINFOCHANGED:     UInt16 = 0x4008
+let PTP_EVENT_REQUESTOBJECTTRANSFER: UInt16 = 0x4009
+
+// Object format codes (PTP_OFC_*) — only the ones we currently produce.
+let PTP_OFC_SCRIPT:           UInt16 = 0x3002
+
+// Standard PTP device properties (PTP_DPC_*). 0x5xxx range. Vendor
+// extension properties (0xD0xx, 0xD1xx, …) stay in their vendor files.
+let PTP_PROP_BATTERYLEVEL:        UInt16 = 0x5001
+let PTP_PROP_FUNCTIONALMODE:      UInt16 = 0x5002
+let PTP_PROP_IMAGESIZE:           UInt16 = 0x5003
+let PTP_PROP_COMPRESSIONSETTING:  UInt16 = 0x5004
+let PTP_PROP_WHITEBALANCE:        UInt16 = 0x5005
+let PTP_PROP_RGBGAIN:             UInt16 = 0x5006
+let PTP_PROP_FNUMBER:             UInt16 = 0x5007
+let PTP_PROP_FOCALLENGTH:         UInt16 = 0x5008
+let PTP_PROP_FOCUSDISTANCE:       UInt16 = 0x5009
+let PTP_PROP_FOCUSMODE:           UInt16 = 0x500A
+let PTP_PROP_EXPOSUREMETERINGMODE: UInt16 = 0x500B
+let PTP_PROP_FLASHMODE:           UInt16 = 0x500C
+let PTP_PROP_EXPOSURETIME:        UInt16 = 0x500D
+let PTP_PROP_EXPOSUREPROGRAMMODE: UInt16 = 0x500E
+let PTP_PROP_EXPOSUREINDEX:       UInt16 = 0x500F  // ISO
+let PTP_PROP_EXPOSUREBIAS:        UInt16 = 0x5010
+let PTP_PROP_DATETIME:            UInt16 = 0x5011
+let PTP_PROP_CAPTUREDELAY:        UInt16 = 0x5012
+let PTP_PROP_STILLCAPTUREMODE:    UInt16 = 0x5013
+let PTP_PROP_CONTRAST:            UInt16 = 0x5014
+let PTP_PROP_SHARPNESS:           UInt16 = 0x5015
+let PTP_PROP_DIGITALZOOM:         UInt16 = 0x5016
+let PTP_PROP_EFFECTMODE:          UInt16 = 0x5017
+let PTP_PROP_BURSTNUMBER:         UInt16 = 0x5018
+let PTP_PROP_BURSTINTERVAL:       UInt16 = 0x5019
+let PTP_PROP_TIMELAPSENUMBER:     UInt16 = 0x501A
+let PTP_PROP_TIMELAPSEINTERVAL:   UInt16 = 0x501B
+let PTP_PROP_FOCUSMETERINGMODE:   UInt16 = 0x501C
+let PTP_PROP_UPLOADURL:           UInt16 = 0x501D
+let PTP_PROP_ARTIST:              UInt16 = 0x501E
+let PTP_PROP_COPYRIGHTINFO:       UInt16 = 0x501F
 
 // MARK: - UsbPtpCameraBase
 
@@ -65,6 +134,17 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
     var onJpegFrame: ((Data) -> Void)?
     var onPropertiesDiscovered: (([UInt32: UsbCameraProperty]) -> Void)?
+    /// Fired when `startLiveViewSession()` returns false. The string is a
+    /// short, user-facing explanation that the extension forwards to the
+    /// agent so it can put up an NSAlert. Vendor subclasses set
+    /// `liveViewStartError` before returning false; the base reads it here
+    /// and falls back to a generic message if nothing was set.
+    var onLiveViewStartFailed: ((String) -> Void)?
+
+    /// Set by a vendor's `startLiveViewSession` immediately before it
+    /// returns false. The base class drains and clears this in
+    /// `runLiveViewPhase` to fire `onLiveViewStartFailed`.
+    var liveViewStartError: String?
 
     // MARK: - Tunables (override in subclass init)
 
@@ -166,9 +246,37 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         parseDeviceInfo()
     }
 
-    /// Run the full property discovery pass. Default: empty.
-    /// Override to populate `discoveredProperties` and return the dict to publish.
-    func discoverAllProperties() -> [UInt32: UsbCameraProperty] { [:] }
+    /// Run the full property discovery pass.
+    ///
+    /// Default: standard PTP — walk `standardPropertyIds` (populated from the
+    /// GetDeviceInfo response by `parseDeviceInfo`) and call standard
+    /// `GetDevicePropDesc` (0x1014) on each. This works as-is for Nikon,
+    /// Fujifilm X/GFX, Olympus modern bodies, and Pentax/Ricoh — every
+    /// vendor that honours the spec.
+    ///
+    /// Vendors with non-spec property models override this:
+    ///   - `UsbNikonCamera`: probes a hand-curated property list (Nikon's
+    ///     `standardPropertyIds` understates what the body actually
+    ///     supports — many properties are queryable without ever appearing
+    ///     in DeviceInfo).
+    ///   - `UsbCanonCamera`: Canon doesn't expose vendor properties via
+    ///     GetDevicePropDesc at all — runs the RequestPropertyValue /
+    ///     GetEvent harvest path instead.
+    ///   - `UsbSonyCamera`: uses Sony's extended GetAllDevicePropData
+    ///     (0x9209) which returns every property in one transaction.
+    ///   - `UsbPanasonicCamera`: 32-bit property codes via ListProperty
+    ///     (0x9108).
+    func discoverAllProperties() -> [UInt32: UsbCameraProperty] {
+        var out: [UInt32: UsbCameraProperty] = [:]
+        for pid16 in standardPropertyIds {
+            if closing { break }
+            if let prop = getDevicePropDesc(UInt32(pid16)) {
+                out[UInt32(pid16)] = prop
+            }
+        }
+        discoveredProperties = out
+        return out
+    }
 
     /// Pre-flight before entering the frame loop. Return false to abort live view.
     /// Default: no-op, returns true.
@@ -318,7 +426,10 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         }
 
         guard startLiveViewSession() else {
-            cameraLog.fault("live view session start failed")
+            let reason = liveViewStartError ?? "Live view could not be started. The camera may be in playback mode, asleep, missing a lens, or otherwise refusing the request."
+            liveViewStartError = nil
+            cameraLog.fault("live view session start failed: \(reason, privacy: .public)")
+            onLiveViewStartFailed?(reason)
             return
         }
         if stopLv || closing { return }
@@ -487,7 +598,8 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         line("recent property poll, not a fresh GetDevicePropDesc round-trip.")
         line("")
 
-        let vendor = PtpKnownCameras.vendor(forVid: transport.vendorId)
+        let vendor = PtpKnownCameras.protocolFamily(forVid: transport.vendorId,
+                                                    pid: transport.productId)
         // Render `<dec> (0xHEX) [interp]`. Interp comes from formatExtPropRaw
         // (Sony WB names, Nikon shutter denominator table, EV-bias × 0.001,
         // ISO-Auto sentinel, etc.). Dropped when identical to the bare decimal.

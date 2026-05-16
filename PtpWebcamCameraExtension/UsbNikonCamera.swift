@@ -22,6 +22,43 @@ private let PTP_CMD_NIKON_GETLIVEVIEWIMGEX:  UInt16 = 0x9428  // Z-series
 
 private let PTP_RSP_NIKON_NOTLIVEVIEW:       UInt16 = 0xA00B
 
+// MARK: - Nikon vendor property codes (PTP_DPC_NIKON_*)
+//
+// Where Nikon overloaded a single property ID across body generations, the
+// constant name carries both meanings joined by `_OR_`. The second name is
+// prefixed `Z_` when the divergence is DSLR-vs-Z body.
+
+private let PTP_PROP_NIKON_WB_AUTO_BIAS:         UInt16 = 0xD017
+private let PTP_PROP_NIKON_WB_TUNGSTEN_BIAS:     UInt16 = 0xD018
+private let PTP_PROP_NIKON_WB_FLUORESCENT_BIAS:  UInt16 = 0xD019
+private let PTP_PROP_NIKON_WB_DAYLIGHT_BIAS:     UInt16 = 0xD01A
+private let PTP_PROP_NIKON_WB_FLASH_BIAS:        UInt16 = 0xD01B
+private let PTP_PROP_NIKON_WB_CLOUDY_BIAS:       UInt16 = 0xD01C
+private let PTP_PROP_NIKON_WB_SHADE_BIAS:        UInt16 = 0xD01D
+private let PTP_PROP_NIKON_WB_COLOR_TEMP:        UInt16 = 0xD01E
+private let PTP_PROP_NIKON_ISO_AUTO:             UInt16 = 0xD054
+/// DSLR: LiveViewAFArea. Z bodies: StillFocusMeteringMode.
+private let PTP_PROP_NIKON_LV_AF_AREA_OR_Z_STILL_FOCUS_METERING_MODE: UInt16 = 0xD05D
+/// DSLR: LiveViewAFFocus (AfModeAtLiveView). Z bodies: StillFocusMode.
+private let PTP_PROP_NIKON_LV_AF_FOCUS_OR_Z_STILL_FOCUS_MODE:        UInt16 = 0xD061
+private let PTP_PROP_NIKON_SHUTTER_SPEED:        UInt16 = 0xD100
+private let PTP_PROP_NIKON_WB_AUTO_TYPE:         UInt16 = 0xD141
+private let PTP_PROP_NIKON_FLUORESCENT_TYPE:     UInt16 = 0xD14F
+private let PTP_PROP_NIKON_TUNE_COLOR_TEMP:      UInt16 = 0xD150
+private let PTP_PROP_NIKON_APPLY_LV_SETTING:     UInt16 = 0xD17B
+private let PTP_PROP_NIKON_LV_MODE:              UInt16 = 0xD1A0
+private let PTP_PROP_NIKON_LV_STATUS:            UInt16 = 0xD1A2
+private let PTP_PROP_NIKON_LV_ZOOM_RATIO:        UInt16 = 0xD1A3
+private let PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW:  UInt16 = 0xD1A5
+private let PTP_PROP_NIKON_LV_SELECTOR:          UInt16 = 0xD1A6
+private let PTP_PROP_NIKON_MOVIE_SHUTTER_SPEED:  UInt16 = 0xD1A8
+private let PTP_PROP_NIKON_MOVIE_FNUMBER:        UInt16 = 0xD1A9
+private let PTP_PROP_NIKON_MOVIE_EXPOSURE_BIAS:  UInt16 = 0xD1AB
+/// Older DSLR: LiveViewMovieMode. D850 and later: LiveViewImageSize.
+/// Not a DSLR-vs-Z split — both meanings are DSLR-era, just different
+/// generations — so no `_Z_` prefix.
+private let PTP_PROP_NIKON_LV_MOVIE_MODE_OR_LV_IMAGE_SIZE: UInt16 = 0xD1AC
+
 // Header bytes to skip before the JPEG payload, keyed on USB product ID.
 // All D800-era and later Nikon bodies use 384 bytes; older bodies use 64 or 128.
 private let nikonLvHeaderLen: [UInt16: Int] = [
@@ -38,13 +75,49 @@ private let nikonLvHeaderLen: [UInt16: Int] = [
     0x044B: 384, 0x044C: 384, 0x044F: 384, 0x0450: 384, 0x0451: 384,
 ]
 
-// Fallback property list if GetDeviceInfo / GetVendorProps fail.
+// Fallback property list if GetDeviceInfo / GetVendorProps fail. Grouped by
+// theme rather than by code so the reader can see what each line covers.
 private let nikonUiPropertyIds: [UInt16] = [
-    0x5001, 0x5008, 0xD1A6, 0xD1A2, 0x500E, 0x5007, 0xD1A9, 0x500F, 0xD054,
-    0xD100, 0xD1A8, 0x5005, 0x5010, 0xD1AB, 0xD061, 0xD05D, 0xD1A3, 0xD1A0,
-    0xD1A5, 0xD17B, 0xD1AC,
-    0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D, 0xD01E, 0xD141,
-    0xD14F, 0xD150,
+    // Battery + lens info (standard PTP)
+    PTP_PROP_BATTERYLEVEL,
+    PTP_PROP_FOCALLENGTH,
+    // Live-view state
+    PTP_PROP_NIKON_LV_SELECTOR,
+    PTP_PROP_NIKON_LV_STATUS,
+    // Exposure: program / aperture / ISO / shutter speed
+    PTP_PROP_EXPOSUREPROGRAMMODE,
+    PTP_PROP_FNUMBER,
+    PTP_PROP_NIKON_MOVIE_FNUMBER,
+    PTP_PROP_EXPOSUREINDEX,
+    PTP_PROP_NIKON_ISO_AUTO,
+    PTP_PROP_NIKON_SHUTTER_SPEED,
+    PTP_PROP_NIKON_MOVIE_SHUTTER_SPEED,
+    // White balance + exposure bias
+    PTP_PROP_WHITEBALANCE,
+    PTP_PROP_EXPOSUREBIAS,
+    PTP_PROP_NIKON_MOVIE_EXPOSURE_BIAS,
+    // Focus
+    PTP_PROP_NIKON_LV_AF_FOCUS_OR_Z_STILL_FOCUS_MODE,
+    PTP_PROP_NIKON_LV_AF_AREA_OR_Z_STILL_FOCUS_METERING_MODE,
+    // LV display / zoom / exposure preview / mode
+    PTP_PROP_NIKON_LV_ZOOM_RATIO,
+    PTP_PROP_NIKON_LV_MODE,
+    PTP_PROP_NIKON_LV_EXPOSURE_PREVIEW,
+    PTP_PROP_NIKON_APPLY_LV_SETTING,
+    PTP_PROP_NIKON_LV_MOVIE_MODE_OR_LV_IMAGE_SIZE,
+    // White-balance fine-tune per preset
+    PTP_PROP_NIKON_WB_AUTO_BIAS,
+    PTP_PROP_NIKON_WB_TUNGSTEN_BIAS,
+    PTP_PROP_NIKON_WB_FLUORESCENT_BIAS,
+    PTP_PROP_NIKON_WB_DAYLIGHT_BIAS,
+    PTP_PROP_NIKON_WB_FLASH_BIAS,
+    PTP_PROP_NIKON_WB_CLOUDY_BIAS,
+    PTP_PROP_NIKON_WB_SHADE_BIAS,
+    PTP_PROP_NIKON_WB_COLOR_TEMP,
+    // WB-related typing / fluorescent subtype / colour-temp tune
+    PTP_PROP_NIKON_WB_AUTO_TYPE,
+    PTP_PROP_NIKON_FLUORESCENT_TYPE,
+    PTP_PROP_NIKON_TUNE_COLOR_TEMP,
 ]
 
 // MARK: - UsbNikonCamera
@@ -208,6 +281,7 @@ final class UsbNikonCamera: UsbPtpCameraBase {
             }
         } catch {
             cameraLog.fault("STARTLIVEVIEW error: \(String(describing: error), privacy: .public)")
+            liveViewStartError = "Nikon: STARTLIVEVIEW failed at the USB transport level. The camera may be powered off or its USB connection is unstable."
             return false
         }
 
@@ -217,6 +291,7 @@ final class UsbNikonCamera: UsbPtpCameraBase {
         // and leave the CMIO client with a black preview.
         if startCode != PTP_RSP_OK && prohibitBits != 0 {
             cameraLog.fault("aborting live view: prohibit=0x\(String(prohibitBits, radix:16), privacy: .public) and STARTLIVEVIEW=0x\(String(startCode, radix:16), privacy: .public). Check SD card / mode dial / battery / playback state.")
+            liveViewStartError = "Nikon refused live view: \(describeProhibitBits(prohibitBits)). Check the SD card, mode dial, battery, and that the camera isn't in playback mode."
             return false
         }
 

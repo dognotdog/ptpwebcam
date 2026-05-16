@@ -127,7 +127,7 @@ let sonyExtPropValueNames: [UInt32: [UInt32: String]] = [
     ],
 ]
 
-func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: CameraVendor = .unknown) -> String {
+func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: ProtocolFamily = .unknown) -> String {
     if vendor == .sony, let name = sonyExtPropValueNames[propId]?[value.uint32Value] { return name }
     if vendor == .canon, let canon = formatCanonExtProp(value, propId: propId) { return canon }
     if let name = nikonExtPropValueNames[propId]?[value.uint32Value] { return name }
@@ -173,12 +173,11 @@ func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: CameraVendor = 
 // MARK: - Canon EOS formatters
 //
 // Canon EOS encodes ISO/aperture/shutter as proprietary 8-bit / 16-bit codes
-// (not the value itself). The decoding formulas come from libgphoto2's
-// `_get_Canon_ISO`, `_get_Canon_Aperture`, `_get_Canon_Shutterspeed` and from
+// (not the value itself). The decoding formulas come from
 // the legacy PtpCameraCanon agent class. We mirror them here so the ext
 // camera menu can show "ISO 100" instead of the raw code 0x48.
 
-// Canon ISO speed table — copied from libgphoto2 `canon_isospeed` in config.c.
+// Canon ISO speed table.
 private let canonIsoTable: [UInt32: String] = [
     0x0000: "Auto",  0x0001: "Auto ISO",
     0x0028: "6",  0x0030: "12",  0x0038: "25", 0x0040: "50",
@@ -194,7 +193,7 @@ private let canonIsoTable: [UInt32: String] = [
     0xffff: "Factory Default",
 ]
 
-// Canon aperture table — copied from libgphoto2 `canon_aperture` in config.c.
+// Canon aperture table.
 // The codes are 16-bit but only the low byte differs on EOS bodies.
 private let canonApertureTable: [UInt32: String] = [
     0x08: "f/1.0",  0x0b: "f/1.1",  0x0c: "f/1.2",  0x0d: "f/1.2",
@@ -213,7 +212,7 @@ private let canonApertureTable: [UInt32: String] = [
     0x70: "f/91",
 ]
 
-// Canon shutter-speed table — codes from libgphoto2 `canon_shutterspeed`.
+// Canon shutter-speed table — codes from.
 private let canonShutterTable: [UInt32: String] = [
     0x0c: "Bulb", 0x10: "30\"", 0x13: "25\"", 0x14: "20\"", 0x15: "20\" (1/3)",
     0x18: "15\"", 0x1b: "13\"", 0x1c: "10\"", 0x1d: "10\" (1/3)",

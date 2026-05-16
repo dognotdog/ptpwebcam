@@ -75,6 +75,18 @@ let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 let kDarwinCameraPropertyCmd   = "org.ptpwebcam.darwin.PropertyCmd"
 let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 
+// MARK: - Extension → Agent: live view start failure
+//
+// Posted when the per-vendor `startLiveViewSession` returns false (Nikon
+// reports `LiveViewProhibitCondition`, Canon's EVF state-machine doesn't
+// transition to ready, Sony refuses STARTLIVEVIEW, etc.). Without this
+// the user sees a black QuickTime/Zoom preview window with no idea why.
+// Payload is a UTF-8 string ("Camera Name: reason") delivered via the
+// same multi-page slot chain protocol we use for property state.
+let kDarwinLiveViewFailed         = "org.ptpwebcam.darwin.LiveViewFailed"
+let kDarwinLiveViewFailedSlotPrefix = "org.ptpwebcam.darwin.lvfail."
+let kDarwinLiveViewFailedSlotCount  = 64  // 64 × 8 = 512 bytes, plenty for an error
+
 // MARK: PTP property-dump channels (debugging unsupported cameras)
 //
 // Used by the app's "List PTP Properties" submenu. Lets the user generate a
