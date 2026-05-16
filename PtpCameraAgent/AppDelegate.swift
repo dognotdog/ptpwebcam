@@ -391,14 +391,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ICDeviceBrowserDelegate, NSM
             orderedIds.append(propId)
         }
 
-        let name = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
-        let vendor: CameraVendor
-        switch vid {
-        case 0x04B0: vendor = .nikon
-        case 0x054C: vendor = .sony
-        case 0x04A9: vendor = .canon
-        default:     vendor = .unknown
-        }
+        // Prefer the shared known-cameras lookup over whatever the extension
+        // published — USB descriptor names are inconsistent ("ILCE-1" vs the
+        // user-recognisable "A1"). Falls back to the published USB name if
+        // the VID/PID isn't in our table.
+        let usbName = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
+        let name = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: usbName)
+        let vendor = PtpKnownCameras.vendor(forVid: vid)
         extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
                                          vid: vid, pid: pid, serial: serial,
                                          properties: properties, orderedPropertyIds: orderedIds,
@@ -1346,13 +1345,10 @@ private class PropertyChangeInfo {
 }
 
 // MARK: - Extension-published camera types
-
-enum CameraVendor {
-    case nikon
-    case sony
-    case canon
-    case unknown
-}
+//
+// `CameraVendor` is declared in SupportedCameras.swift (shared across the
+// extension, agent, and app) so PropertyFormatter and PtpDumper can take it
+// as a parameter without circular dependencies.
 
 struct ExtCameraProperty {
     let propertyId: UInt32

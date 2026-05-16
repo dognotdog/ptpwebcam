@@ -16,6 +16,11 @@ struct UsbCameraProperty {
     let rangeStep: NSNumber?
     var incremental: Bool = false  // Sony: use SetPropStep instead of SetPropAbs
     var isButton: Bool = false     // Sony: button property, step by value directly
+    /// Factory default reported by GetDevicePropDesc. Preserved so the PTP
+    /// dump UI can show "Default: N / Current: M" alongside enum/range info
+    /// — useful when adding support for new cameras (defaults reveal which
+    /// codes the camera considers neutral / out-of-the-box).
+    var defaultValue: NSNumber?
 }
 
 // MARK: - UsbCameraProtocol
@@ -127,7 +132,7 @@ class PtpPropParser {
         guard let propId   = readU16(),
               let dataType = readU16(),
               let rwFlag   = readU8() else { return nil }
-        skip(type: dataType)
+        let defaultValue = readNum(ofType: dataType)
         guard let currentValue = readNum(ofType: dataType) else { return nil }
         guard let formFlag = readU8() else { return nil }
 
@@ -163,7 +168,8 @@ class PtpPropParser {
         return UsbCameraProperty(
             propertyId: UInt32(propId), dataType: dataType, writable: rwFlag != 0,
             value: currentValue, enumValues: enumValues,
-            rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep)
+            rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
+            defaultValue: defaultValue)
     }
 }
 

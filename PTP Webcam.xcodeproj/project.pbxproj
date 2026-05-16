@@ -18,6 +18,12 @@
 		A1B2C3D4E5F60012A1B2C3D4 /* UsbSonyCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */; };
 		A1B2C3D4E5F60013A1B2C3D4 /* UsbCameraRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */; };
 		A1B2C3D4E5F60020A1B2C3D4 /* UsbPtpCameraBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */; };
+		A1B2C3D4E5F60030A1B2C3D4 /* PtpDumper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60031A1B2C3D4 /* PtpDumper.swift */; };
+		A1B2C3D4E5F60040A1B2C3D4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
+		A1B2C3D4E5F60041A1B2C3D4 /* PtpCameraAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */; };
+		A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
+		A1B2C3D4E5F60051A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
+		A1B2C3D4E5F60052A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
 		AA001111000000000000AA01 /* WbTuneGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA001111000000000000AA00 /* WbTuneGridView.swift */; };
 		B3483D2132D7405DB80EFB72 /* PtpCameraSony.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969BC79923E9471CBE4D0E3A /* PtpCameraSony.swift */; };
 		B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */; };
@@ -121,6 +127,10 @@
 		DAAE16C624D1325600DE2B9F /* PtpCameraCanon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */; };
 		DAAE16C724D1325600DE2B9F /* PtpCameraCanon.m in Sources */ = {isa = PBXBuildFile; fileRef = DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */; };
 		DAC52C852FB548880026922E /* PtpWebcamApp.storekit in Resources */ = {isa = PBXBuildFile; fileRef = DAC52C842FB548880026922E /* PtpWebcamApp.storekit */; };
+		DAC52C8B2FB7F05A0026922E /* PtpCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C882FB7F05A0026922E /* PtpCamera.swift */; };
+		DAC52C8C2FB7F05A0026922E /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C8A2FB7F05A0026922E /* SupportedCameras.swift */; };
+		DAC52C8D2FB7F05A0026922E /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C872FB7F05A0026922E /* DarwinNotify.swift */; };
+		DAC52C8E2FB7F05A0026922E /* AgentXPCService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C862FB7F05A0026922E /* AgentXPCService.swift */; };
 		DACAB6C425BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */; };
 		DACDC5632B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACDC5622B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift */; };
 		DACDC5652B1B877F001F9DFC /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACDC5642B1B877F001F9DFC /* main.swift */; };
@@ -134,6 +144,7 @@
 		DD006666000000000000DD0B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DD006666000000000000DD0A /* Localizable.xcstrings */; };
 		E9E54BE2BF3F31F6EC68A67C /* PtpCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0F4F0DBF7C2E04CC9FB5A6 /* PtpCamera.swift */; };
 		FF001111000000000000FF01 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
+		FF001111000000000000FF02 /* PropertyFormatter.swift in Sources (Extension) */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -344,6 +355,8 @@
 		A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbSonyCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbCameraRegistry.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPtpCameraBase.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60031A1B2C3D4 /* PtpDumper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpDumper.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SupportedCameras.swift; path = PtpCameraAgent/SupportedCameras.swift; sourceTree = SOURCE_ROOT; };
 		AA001111000000000000AA00 /* WbTuneGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WbTuneGridView.swift; sourceTree = "<group>"; };
 		BB001111000000000000BB02 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		CC001111000000000000CC00 /* CameraPreviewWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraPreviewWindowController.swift; path = PtpWebcamApp/CameraPreviewWindowController.swift; sourceTree = SOURCE_ROOT; };
@@ -478,6 +491,11 @@
 		DAAE16C324D1325600DE2B9F /* PtpCameraCanon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PtpCameraCanon.h; sourceTree = "<group>"; };
 		DAAE16C424D1325600DE2B9F /* PtpCameraCanon.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PtpCameraCanon.m; sourceTree = "<group>"; };
 		DAC52C842FB548880026922E /* PtpWebcamApp.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = PtpWebcamApp.storekit; sourceTree = "<group>"; };
+		DAC52C862FB7F05A0026922E /* AgentXPCService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentXPCService.swift; sourceTree = "<group>"; };
+		DAC52C872FB7F05A0026922E /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarwinNotify.swift; sourceTree = "<group>"; };
+		DAC52C882FB7F05A0026922E /* PtpCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpCamera.swift; sourceTree = "<group>"; };
+		DAC52C892FB7F05A0026922E /* PtpCameraAgent-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PtpCameraAgent-Bridging-Header.h"; sourceTree = "<group>"; };
+		DAC52C8A2FB7F05A0026922E /* SupportedCameras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportedCameras.swift; sourceTree = "<group>"; };
 		DACAB6C225BF634D00D2B12E /* PtpWebcamPreviewAppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PtpWebcamPreviewAppDelegate.h; sourceTree = "<group>"; };
 		DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PtpWebcamPreviewAppDelegate.m; sourceTree = "<group>"; };
 		DACDC5602B1B877D001F9DFC /* org.ptpwebcam.CameraExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = org.ptpwebcam.CameraExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -677,6 +695,11 @@
 		DA1B269F2B1BC1A20075AAAB /* PtpCameraAgent */ = {
 			isa = PBXGroup;
 			children = (
+				DAC52C862FB7F05A0026922E /* AgentXPCService.swift */,
+				DAC52C872FB7F05A0026922E /* DarwinNotify.swift */,
+				DAC52C882FB7F05A0026922E /* PtpCamera.swift */,
+				DAC52C892FB7F05A0026922E /* PtpCameraAgent-Bridging-Header.h */,
+				DAC52C8A2FB7F05A0026922E /* SupportedCameras.swift */,
 				DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */,
 				AA001111000000000000AA00 /* WbTuneGridView.swift */,
 				FF001111000000000000FF00 /* PropertyFormatter.swift */,
@@ -928,6 +951,7 @@
 			isa = PBXGroup;
 			children = (
 				BB001111000000000000BB02 /* AVFoundation.framework */,
+				A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -944,6 +968,7 @@
 				A1B2C3D4E5F60009A1B2C3D4 /* UsbCanonCamera.swift */,
 				A1B2C3D4E5F6000AA1B2C3D4 /* UsbSonyCamera.swift */,
 				A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */,
+				A1B2C3D4E5F60031A1B2C3D4 /* PtpDumper.swift */,
 				DACDC5622B1B877F001F9DFC /* PtpWebcamCameraExtensionProvider.swift */,
 				DACDC5642B1B877F001F9DFC /* main.swift */,
 				DACDC5662B1B877F001F9DFC /* Info.plist */,
@@ -1492,6 +1517,9 @@
 				DD001111000000000000DD01 /* SubscriptionStore.swift in Sources */,
 				DD002222000000000000DD03 /* MainWindowView.swift in Sources */,
 				DD003333000000000000DD05 /* MainWindowController.swift in Sources */,
+				A1B2C3D4E5F60040A1B2C3D4 /* DarwinNotify.swift in Sources */,
+				A1B2C3D4E5F60041A1B2C3D4 /* PtpCameraAgentProtocol.swift in Sources */,
+				A1B2C3D4E5F60052A1B2C3D4 /* SupportedCameras.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1523,8 +1551,13 @@
 				0E134214A065F1E747E1FEA3 /* DarwinNotify.swift in Sources */,
 				E9E54BE2BF3F31F6EC68A67C /* PtpCamera.swift in Sources */,
 				9DF63120DAD141C8A8939FD3 /* PtpCameraNikon.swift in Sources */,
+				DAC52C8B2FB7F05A0026922E /* PtpCamera.swift in Sources */,
+				DAC52C8C2FB7F05A0026922E /* SupportedCameras.swift in Sources */,
+				DAC52C8D2FB7F05A0026922E /* DarwinNotify.swift in Sources */,
+				DAC52C8E2FB7F05A0026922E /* AgentXPCService.swift in Sources */,
 				8D2F472D61884C419850DAF6 /* PtpCameraCanon.swift in Sources */,
 				B3483D2132D7405DB80EFB72 /* PtpCameraSony.swift in Sources */,
+				A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1677,6 +1710,9 @@
 				A1B2C3D4E5F60011A1B2C3D4 /* UsbCanonCamera.swift in Sources */,
 				A1B2C3D4E5F60012A1B2C3D4 /* UsbSonyCamera.swift in Sources */,
 				A1B2C3D4E5F60013A1B2C3D4 /* UsbCameraRegistry.swift in Sources */,
+				A1B2C3D4E5F60030A1B2C3D4 /* PtpDumper.swift in Sources */,
+				A1B2C3D4E5F60051A1B2C3D4 /* SupportedCameras.swift in Sources */,
+				FF001111000000000000FF02 /* PropertyFormatter.swift in Sources (Extension) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -374,7 +374,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                   let dataType  = p.readU16(),
                   let flags     = p.readU8(),
                   let readwrite = p.readU8(),
-                  let _         = p.readNum(ofType: dataType),  // default value (skip)
+                  let defaultV  = p.readNum(ofType: dataType),
                   let current   = p.readNum(ofType: dataType),
                   let formFlag  = p.readU8() else { break }
 
@@ -473,7 +473,8 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                 propertyId: propId, dataType: dataType, writable: writable,
                 value: current, enumValues: enumValues,
                 rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
-                incremental: incremental, isButton: isButton)
+                incremental: incremental, isButton: isButton,
+                defaultValue: defaultV)
             let existing = discoveredProperties[propId]
             // Decide whether to keep the existing cached value instead of the
             // one in this response. Two independent reasons to keep it:
@@ -499,7 +500,8 @@ final class UsbSonyCamera: UsbPtpCameraBase {
                     rangeMin: rangeMin ?? existing.rangeMin,
                     rangeMax: rangeMax ?? existing.rangeMax,
                     rangeStep: rangeStep ?? existing.rangeStep,
-                    incremental: incremental, isButton: isButton)
+                    incremental: incremental, isButton: isButton,
+                    defaultValue: defaultV)
             } else {
                 resolved = prop
             }
@@ -527,7 +529,7 @@ final class UsbSonyCamera: UsbPtpCameraBase {
               let dataType  = p.readU16(),
               let flags     = p.readU8(),
               let readwrite = p.readU8(),
-              let _         = p.readNum(ofType: dataType),
+              let defaultV  = p.readNum(ofType: dataType),
               let current   = p.readNum(ofType: dataType),
               let formFlag  = p.readU8() else {
             cameraLog.fault("parseSonyPropDescResponse — failed to parse header (dataLen=\(data.count, privacy: .public))")
@@ -562,7 +564,8 @@ final class UsbSonyCamera: UsbPtpCameraBase {
             propertyId: propId, dataType: dataType, writable: writable,
             value: current, enumValues: enumValues,
             rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
-            incremental: incremental, isButton: isButton)
+            incremental: incremental, isButton: isButton,
+            defaultValue: defaultV)
         discoveredProperties[propId] = updated
         if publish {
             cameraLog.fault("parseSonyPropDescResponse 0x\(String(propId, radix:16), privacy: .public) value=\(current, privacy: .public)")

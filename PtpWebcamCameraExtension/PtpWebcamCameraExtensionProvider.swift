@@ -327,6 +327,13 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	// Darwin notify tokens for property state slots (extension → agent).
 	private var propSlotTokens: [Int32] = []
+	// Darwin notify tokens for PTP-dump device-list slots (extension → app).
+	private var dumpDevicesSlotTokens: [Int32] = []
+	// Darwin notify tokens for PTP-dump text slots (extension → app).
+	private var dumpTextSlotTokens: [Int32] = []
+	// Serialized dump queue so we never run two dumps (potentially fighting
+	// over the same USB endpoints) at once.
+	private let dumpQueue = DispatchQueue(label: "org.ptpwebcam.dump", qos: .userInitiated)
 	// Serializes writes to the shared property-state slots. Multiple back-to-back
 	// publishes (e.g. both cameras announcing themselves at extension startup)
 	// would otherwise overwrite each other in the slots — the kernel coalesces
@@ -360,6 +367,16 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			return Self.registerCheckToken(name, label: "propSlot[\(i)]")
 		}
 
+		// Register dump-related slots (extension → app).
+		dumpDevicesSlotTokens = (0..<kDarwinPtpDumpDevicesSlotCount).map { i in
+			Self.registerCheckToken(kDarwinPtpDumpDevicesSlotPrefix + "\(i)",
+			                        label: "dumpDevSlot[\(i)]")
+		}
+		dumpTextSlotTokens = (0..<kDarwinPtpDumpTextSlotCount).map { i in
+			Self.registerCheckToken(kDarwinPtpDumpTextSlotPrefix + "\(i)",
+			                        label: "dumpTextSlot[\(i)]")
+		}
+
 		// Per-camera claim and property-command channels are registered in cameraConnected.
 
 		// Republish handler: when the agent restarts (launchd respawn, app
@@ -370,6 +387,22 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		_ = Self.registerDispatchToken(kDarwinCameraStateRepublish, queue: .main,
 		                               label: "republish") { [weak self] _ in
 			self?.republishAllCameraState()
+		}
+
+		// App requests current PTP-class USB device list.
+		_ = Self.registerDispatchToken(kDarwinPtpDumpDevicesRequest, queue: .main,
+		                               label: "dumpDevicesRequest") { [weak self] _ in
+			self?.publishDumpDevicesList()
+		}
+		// App requests a property dump for a specific device.
+		let dumpCmdSlotToken = Self.registerCheckToken(kDarwinPtpDumpCmdSlot,
+		                                               label: "dumpCmdSlot")
+		_ = Self.registerDispatchToken(kDarwinPtpDumpCmd, queue: .main,
+		                               label: "dumpCmd") { [weak self] _ in
+			var value: UInt64 = 0
+			darwin_notify_get_state(dumpCmdSlotToken, &value)
+			let locationID = UInt32(value & 0xFFFFFFFF)
+			self?.handleDumpCommand(locationID: locationID)
 		}
 
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
@@ -493,7 +526,10 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		// Hand off to the publish queue so consecutive publishes don't overwrite
 		// each other's slots before the agent's notification handler can read.
 		publishQueue.async { [weak self] in
-			self?.doWriteJsonToPropertySlots(jsonData)
+			guard let self else { return }
+			self.publishBytesViaSlotChain(jsonData,
+			                              tokens: self.propSlotTokens,
+			                              notificationName: kDarwinCameraPropertyState)
 		}
 	}
 
@@ -504,13 +540,23 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// for cold-start contention (two cameras announcing simultaneously).
 	private static let publishPostDelay: TimeInterval = 0.06
 
-	private func doWriteJsonToPropertySlots(_ jsonData: Data) {
-		// Multi-page protocol: slot 0 = header, slots 1..(N-2) = data, slot N-1 = checksum.
-		let pageDataSlots = kDarwinPropertySlotCount - 2
+	/// Generic slot-chain publisher used by property-state, dump-devices-list,
+	/// and dump-text channels. Same multi-page protocol everywhere:
+	///   slot 0       : header = (totalLength << 32) | (pageIndex << 16) | pageCount
+	///   slots 1..N-2 : payload, 8 bytes per slot, little-endian byte packing
+	///   slot N-1     : additive byte-sum checksum for this page's payload
+	/// Posts `notificationName` once per page; receiver reassembles pages by
+	/// stitching by `pageIndex` until it has `totalLength` bytes.
+	fileprivate func publishBytesViaSlotChain(_ data: Data,
+	                                          tokens: [Int32],
+	                                          notificationName: String) {
+		let slotCount = tokens.count
+		guard slotCount >= 3 else { return }
+		let pageDataSlots = slotCount - 2
 		let pageSize = pageDataSlots * 8
-		let totalLength = jsonData.count
+		let totalLength = data.count
 		let pageCount = max(1, (totalLength + pageSize - 1) / pageSize)
-		let checksumSlot = kDarwinPropertySlotCount - 1
+		let checksumSlot = slotCount - 1
 
 		for pageIndex in 0..<pageCount {
 			let pageOffset = pageIndex * pageSize
@@ -518,23 +564,23 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			let pageLength = pageEnd - pageOffset
 
 			let header = (UInt64(totalLength) << 32) | (UInt64(pageIndex) << 16) | UInt64(pageCount)
-			darwin_notify_set_state(propSlotTokens[0], header)
+			darwin_notify_set_state(tokens[0], header)
 
 			for i in 0..<((pageLength + 7) / 8) {
 				let chunkOffset = pageOffset + i * 8
 				let chunkSize = min(8, totalLength - chunkOffset)
 				var value: UInt64 = 0
-				_ = jsonData.withUnsafeBytes { ptr in
+				_ = data.withUnsafeBytes { ptr in
 					memcpy(&value, ptr.baseAddress! + chunkOffset, chunkSize)
 				}
-				darwin_notify_set_state(propSlotTokens[i + 1], value)
+				darwin_notify_set_state(tokens[i + 1], value)
 			}
 
 			var checksum: UInt32 = 0
-			for byte in jsonData[pageOffset..<pageEnd] { checksum = checksum &+ UInt32(byte) }
-			darwin_notify_set_state(propSlotTokens[checksumSlot], UInt64(checksum))
+			for byte in data[pageOffset..<pageEnd] { checksum = checksum &+ UInt32(byte) }
+			darwin_notify_set_state(tokens[checksumSlot], UInt64(checksum))
 
-			darwin_notify_post(kDarwinCameraPropertyState)
+			darwin_notify_post(notificationName)
 			Thread.sleep(forTimeInterval: Self.publishPostDelay)
 		}
 	}
@@ -796,6 +842,165 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	func setProviderProperties(_ providerProperties: CMIOExtensionProviderProperties) throws {
 	}
+
+	// MARK: - PTP dump (extension → app)
+	//
+	// Lists every attached PTP/MTP Still Imaging USB interface and lets the app
+	// request a full GetDeviceInfo + GetDevicePropDesc dump for any one of them.
+	// Works for unsupported cameras too — the dump only relies on standard PTP
+	// opcodes (0x1002 OpenSession, 0x1001 GetDeviceInfo, 0x1014 GetDevicePropDesc,
+	// 0x1003 CloseSession), so it produces useful output for adding new vendors.
+
+	private struct PtpDumpDevice {
+		let locationID: UInt32
+		let vid: UInt16
+		let pid: UInt16
+		let productName: String
+		let serial: String
+	}
+
+	private func enumeratePtpDumpDevices() -> [PtpDumpDevice] {
+		var out: [PtpDumpDevice] = []
+		for svc in UsbPtpTransport.findPtpServices() {
+			defer { IOObjectRelease(svc) }
+			var vid: UInt16 = 0
+			var pid: UInt16 = 0
+			var name: NSString?
+			var serial: NSString?
+			UsbPtpBridge.readVendorID(&vid, productID: &pid,
+			                          productName: &name, serialNumber: &serial,
+			                          fromService: svc)
+			let loc = Self.readLocationID(svc) ?? 0
+			out.append(.init(locationID: loc, vid: vid, pid: pid,
+			                 productName: (name as String?) ?? "USB Device",
+			                 serial: (serial as String?) ?? ""))
+		}
+		return out
+	}
+
+	/// Reads the kUSBDevicePropertyLocationID from an interface service or one
+	/// of its USB device ancestors. Each USB device has a unique location ID
+	/// derived from the physical port chain, so it's stable across replug.
+	private static func readLocationID(_ service: io_service_t) -> UInt32? {
+		// Walk up the IORegistry until we find an entry with "locationID".
+		var current = service
+		IOObjectRetain(current)
+		for _ in 0..<8 {
+			var props: Unmanaged<CFMutableDictionary>?
+			if IORegistryEntryCreateCFProperties(current, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+			   let dict = props?.takeRetainedValue() as? [String: Any],
+			   let loc = dict["locationID"] as? UInt32 {
+				IOObjectRelease(current)
+				return loc
+			}
+			var parent: io_registry_entry_t = 0
+			if IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent) != KERN_SUCCESS {
+				IOObjectRelease(current)
+				return nil
+			}
+			IOObjectRelease(current)
+			current = parent
+		}
+		IOObjectRelease(current)
+		return nil
+	}
+
+	fileprivate func publishDumpDevicesList() {
+		let devices = enumeratePtpDumpDevices()
+		let payload: [[String: Any]] = devices.map { d in
+			[
+				"loc":    d.locationID,
+				"vid":    d.vid,
+				"pid":    d.pid,
+				"name":   d.productName,
+				"serial": d.serial,
+			]
+		}
+		guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return }
+		publishQueue.async { [weak self] in
+			guard let self else { return }
+			self.publishBytesViaSlotChain(json,
+			                              tokens: self.dumpDevicesSlotTokens,
+			                              notificationName: kDarwinPtpDumpDevicesState)
+		}
+		Self.log("publishDumpDevicesList: \(devices.count) device(s), \(json.count)B")
+	}
+
+	fileprivate func handleDumpCommand(locationID: UInt32) {
+		// Run on the dump queue — performing PTP I/O on .main would block the
+		// IOKit notification handler.
+		dumpQueue.async { [weak self] in
+			guard let self else { return }
+			let text = self.performDump(locationID: locationID)
+			guard let data = text.data(using: .utf8) else { return }
+			self.publishBytesViaSlotChain(data,
+			                              tokens: self.dumpTextSlotTokens,
+			                              notificationName: kDarwinPtpDumpText)
+			Self.log("publishDumpText: \(data.count)B for locationID=0x\(String(locationID, radix: 16))")
+		}
+	}
+
+	/// Sentinel prefix the app watches for. When the camera is claimed AND
+	/// currently streaming live view we can't dump without disrupting the
+	/// stream, so the extension returns just this marker plus a short label.
+	/// The app then presents a "Stop live view and dump?" / "Cancel" dialog.
+	static let kPtpDumpBusyPrefix = "[BUSY]"
+
+	private func performDump(locationID: UInt32) -> String {
+		// Find the matching IOKit service by locationID.
+		var matchedSvc: io_service_t = IO_OBJECT_NULL
+		for svc in UsbPtpTransport.findPtpServices() {
+			if Self.readLocationID(svc) == locationID && matchedSvc == IO_OBJECT_NULL {
+				matchedSvc = svc
+			} else {
+				IOObjectRelease(svc)
+			}
+		}
+		guard matchedSvc != IO_OBJECT_NULL else {
+			return "PTP dump failed: no USB device with locationID 0x\(String(locationID, radix: 16)) currently attached.\n"
+		}
+		defer { IOObjectRelease(matchedSvc) }
+
+		var vid: UInt16 = 0, pid: UInt16 = 0
+		var prodName: NSString?
+		UsbPtpBridge.readVendorID(&vid, productID: &pid,
+		                          productName: &prodName, serialNumber: nil,
+		                          fromService: matchedSvc)
+		let label = String(format: "%04X:%04X %@", vid, pid, (prodName as String?) ?? "")
+		                    .trimmingCharacters(in: .whitespaces)
+
+		// Three-way decision based on whether this physical device is already
+		// owned by one of our UsbCamera instances:
+		//
+		//   - Owned + live view active → BUSY sentinel. Dumping would either
+		//     contend on the USB endpoints (fresh transport) or interleave
+		//     with the camera's poll loop in a way that risks corrupting
+		//     bulk-IN state. Let the app surface a dialog and try again.
+		//   - Owned + idle             → synthesise dump from cached state.
+		//     No I/O at all, completely safe regardless of session state.
+		//   - Not owned                → open a fresh transport and run the
+		//     full live PTP dump. Works for unsupported VID/PIDs too.
+		let claimed = usbCameras.values
+			.compactMap { $0 as? UsbPtpCameraBase }
+			.first { $0.transport.vendorId == vid && $0.transport.productId == pid }
+		if let claimed {
+			if claimed.liveViewRunning {
+				return "\(Self.kPtpDumpBusyPrefix) \(label)\n"
+			}
+			Self.log("PTP dump from cache: \(label)")
+			return claimed.generateInMemoryDump()
+		}
+
+		Self.log("PTP dump (live transport): \(label)")
+		do {
+			let transport = try UsbPtpTransport(service: matchedSvc)
+			defer { transport.close() }
+			let dumper = PtpDumper(transport: transport)
+			return dumper.run()
+		} catch {
+			return "PTP dump failed: \(error)\n"
+		}
+	}
 }
 
 // MARK: - PtpCameraAgentDelegateProtocol
@@ -803,15 +1008,23 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol {
 
 	func cameraConnected(_ cameraId: String, info: NSDictionary) {
-		let name = info["name"] as? String ?? "PTP Camera"
-		PtpWebcamCameraExtensionProviderSource.log("cameraConnected: \(name) (\(cameraId))")
-
-		guard deviceSources[cameraId] == nil else { return }
-
 		let vid    = (info["vid"]    as? NSNumber)?.uint16Value ?? 0
 		let pid    = (info["pid"]    as? NSNumber)?.uint16Value ?? 0
 		let serial = (info["serial"] as? String) ?? ""
 		cameraIdentity[cameraId] = (vid: vid, pid: pid, serial: serial)
+
+		// Use the shared known-cameras lookup for the CMIO device name so
+		// everything (QuickTime's device list, the agent's menu, and the
+		// ptpwebcam://preview URL) agrees. Previously the CMIO device kept
+		// the raw USB descriptor name ("ILCE-1") while the agent rewrote
+		// its menu to "Sony A1" — the preview URL then carried "Sony A1"
+		// but no AVCaptureDevice by that name existed, so the live view
+		// stream never started.
+		let usbName = info["name"] as? String ?? "PTP Camera"
+		let name    = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: usbName)
+		PtpWebcamCameraExtensionProviderSource.log("cameraConnected: \(name) (\(cameraId))")
+
+		guard deviceSources[cameraId] == nil else { return }
 
 		let isDemo = (info["isDemo"] as? String) == "1"
 		let deviceSource = PtpWebcamCameraExtensionDeviceSource(localizedName: name, cameraId: cameraId, isDemo: isDemo)

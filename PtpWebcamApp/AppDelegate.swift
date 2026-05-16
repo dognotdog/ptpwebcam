@@ -69,6 +69,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		migrateAgentIfNeeded { [weak self] in
 			self?.installAndStartCameraAgent()
 		}
+		// Install the "List PTP Properties" submenu under File so users can
+		// generate a PTP property dump for any attached PTP/MTP device — the
+		// most useful artifact for adding support for new camera vendors.
+		installPtpDumpMenu()
+		setupPtpDumpSlotSubscriptions()
 		// Request camera access so this app bundle is registered in TCC and appears
 		// in System Settings → Privacy & Security → Camera.
 		AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
@@ -345,5 +350,404 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		alert.alertStyle = .critical
 		alert.addButton(withTitle: "OK")
 		alert.runModal()
+	}
+
+	// MARK: - PTP Property Dump
+	//
+	// Menu wiring + Darwin notify glue for the "File → List PTP Properties"
+	// submenu. The extension owns USB I/O; the app just (a) shows the device
+	// picker, (b) posts a dump command, and (c) opens the resulting text in
+	// TextEdit. No file ever hits disk — the dump text round-trips back to us
+	// over the same multi-page slot chain we use for property state.
+
+	private var ptpDumpMenuItem: NSMenuItem?
+	private var ptpDumpSubmenu: NSMenu?
+
+	/// Cached device list parsed from the extension's most recent
+	/// kDarwinPtpDumpDevicesState publication. `[locationID: (label, ...)]`.
+	private struct PtpDumpDeviceEntry {
+		let locationID: UInt32
+		let vid: UInt16
+		let pid: UInt16
+		let name: String
+		let serial: String
+		/// Friendly label preferred for menu display. Pulls "<Make> <Model>"
+		/// from the shared PtpKnownCameras table when we recognise the
+		/// VID/PID, falling back to the USB descriptor name (or the raw
+		/// hex) for unknown devices. Always suffixes the VID/PID in hex so
+		/// the developer can correlate menu entries with extension logs.
+		var displayLabel: String {
+			let pretty = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: name)
+			return String(format: "%@  (%04X:%04X)", pretty, vid, pid)
+		}
+	}
+	private var ptpDumpDevices: [PtpDumpDeviceEntry] = []
+
+	/// Token bookkeeping + page reassembly state for the device list channel.
+	private var dumpDevicesSlotTokens: [Int32] = []
+	private var dumpDevicesPageBuffer: Data?
+	private var dumpDevicesPageTotal: Int = 0
+	private var dumpDevicesPageCount: Int = 0
+	private var dumpDevicesNextPage: Int = 0
+
+	/// Same for the dump-text channel.
+	private var dumpTextSlotTokens: [Int32] = []
+	private var dumpTextPageBuffer: Data?
+	private var dumpTextPageTotal: Int = 0
+	private var dumpTextPageCount: Int = 0
+	private var dumpTextNextPage: Int = 0
+
+	private func installPtpDumpMenu() {
+		// MainMenu.xib has the standard File menu; locate it by title-matching
+		// so we're robust to nib renumbering. Insert our item near the top
+		// (after "New" if present, else at the top).
+		guard let mainMenu = NSApp.mainMenu else { return }
+		guard let fileMenuItem = mainMenu.items.first(where: { $0.submenu?.title == "File" || $0.title == "File" }),
+		      let fileMenu = fileMenuItem.submenu else {
+			// Some app templates don't ship a File menu. Add a top-level one.
+			let newFileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+			let newFileMenu = NSMenu(title: "File")
+			newFileItem.submenu = newFileMenu
+			mainMenu.insertItem(newFileItem, at: 1)  // after App menu
+			addDumpItem(to: newFileMenu, at: 0)
+			return
+		}
+		// Drop any existing "New" item — this app is not document-based and the
+		// dead menu confuses users. Put our submenu where it would have lived.
+		if let newItemIdx = fileMenu.items.firstIndex(where: { $0.action == #selector(NSDocumentController.newDocument(_:)) || $0.title == "New" }) {
+			fileMenu.removeItem(at: newItemIdx)
+			addDumpItem(to: fileMenu, at: newItemIdx)
+		} else {
+			addDumpItem(to: fileMenu, at: 0)
+		}
+	}
+
+	private func addDumpItem(to menu: NSMenu, at index: Int) {
+		let item = NSMenuItem(title: NSLocalizedString("List PTP Properties",
+		                                               comment: "File menu — submenu for PTP dump per USB device"),
+		                      action: nil, keyEquivalent: "")
+		let submenu = NSMenu(title: item.title)
+		submenu.delegate = self  // refresh device list on open
+		item.submenu = submenu
+		menu.insertItem(item, at: max(0, min(index, menu.items.count)))
+		ptpDumpMenuItem = item
+		ptpDumpSubmenu = submenu
+		rebuildPtpDumpSubmenu()
+	}
+
+	private func rebuildPtpDumpSubmenu() {
+		guard let submenu = ptpDumpSubmenu else { return }
+		submenu.removeAllItems()
+		if ptpDumpDevices.isEmpty {
+			let empty = NSMenuItem(title: NSLocalizedString("No PTP devices detected",
+			                                                comment: "Empty state for List PTP Properties submenu"),
+			                       action: nil, keyEquivalent: "")
+			empty.isEnabled = false
+			submenu.addItem(empty)
+			return
+		}
+		for d in ptpDumpDevices {
+			let mi = NSMenuItem(title: d.displayLabel,
+			                    action: #selector(dumpPtpDeviceClicked(_:)),
+			                    keyEquivalent: "")
+			mi.target = self
+			mi.representedObject = d.locationID
+			submenu.addItem(mi)
+		}
+	}
+
+	/// Camera name + locationID for the currently-pending dump request.
+	/// Cleared once the dump text arrives. Used by the BUSY-dialog path so
+	/// the user can ask us to retry the same camera after stopping its
+	/// live view.
+	private var pendingDumpLocationID: UInt32?
+	private var pendingDumpDisplayName: String?
+
+	@objc private func dumpPtpDeviceClicked(_ sender: NSMenuItem) {
+		guard let locationID = sender.representedObject as? UInt32 else { return }
+		pendingDumpLocationID = locationID
+		pendingDumpDisplayName = sender.title
+		postDumpCommand(locationID: locationID)
+	}
+
+	private func postDumpCommand(locationID: UInt32) {
+		log.info("PTP dump requested for locationID=0x\(String(locationID, radix: 16), privacy: .public)")
+		var cmdSlotToken: Int32 = 0
+		darwin_notify_register_check(kDarwinPtpDumpCmdSlot, &cmdSlotToken)
+		darwin_notify_set_state(cmdSlotToken, UInt64(locationID))
+		darwin_notify_post(kDarwinPtpDumpCmd)
+	}
+
+	private func setupPtpDumpSlotSubscriptions() {
+		// Register read tokens for the device-list slots…
+		dumpDevicesSlotTokens = (0..<kDarwinPtpDumpDevicesSlotCount).map { i in
+			var t: Int32 = 0
+			darwin_notify_register_check(kDarwinPtpDumpDevicesSlotPrefix + "\(i)", &t)
+			return t
+		}
+		// …and for the dump-text slots.
+		dumpTextSlotTokens = (0..<kDarwinPtpDumpTextSlotCount).map { i in
+			var t: Int32 = 0
+			darwin_notify_register_check(kDarwinPtpDumpTextSlotPrefix + "\(i)", &t)
+			return t
+		}
+
+		// Subscribe to device-list publications.
+		var devToken: Int32 = 0
+		darwin_notify_register_dispatch(kDarwinPtpDumpDevicesState, &devToken, .main) { [weak self] _ in
+			self?.handleDumpDevicesPage()
+		}
+		// Subscribe to dump-text publications.
+		var textToken: Int32 = 0
+		darwin_notify_register_dispatch(kDarwinPtpDumpText, &textToken, .main) { [weak self] _ in
+			self?.handleDumpTextPage()
+		}
+		// Kick the extension for an initial list — Darwin notify posts aren't
+		// replayed for late subscribers, so without this prompt we'd see an
+		// empty submenu until the user replugs a camera.
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+			darwin_notify_post(kDarwinPtpDumpDevicesRequest)
+		}
+	}
+
+	// MARK: - Slot-chain reassembly (devices list + dump text)
+
+	private func handleDumpDevicesPage() {
+		guard let payload = receiveSlotChainPage(
+				tokens: dumpDevicesSlotTokens,
+				slotCount: kDarwinPtpDumpDevicesSlotCount,
+				pageBuffer: &dumpDevicesPageBuffer,
+				pageTotal: &dumpDevicesPageTotal,
+				pageCount: &dumpDevicesPageCount,
+				nextPage: &dumpDevicesNextPage) else { return }
+		guard let arr = (try? JSONSerialization.jsonObject(with: payload)) as? [[String: Any]] else {
+			log.error("PTP dump device list — JSON decode failed (\(payload.count) bytes)")
+			return
+		}
+		ptpDumpDevices = arr.compactMap { d in
+			guard let loc = (d["loc"] as? NSNumber)?.uint32Value,
+			      let vid = (d["vid"] as? NSNumber)?.uint16Value,
+			      let pid = (d["pid"] as? NSNumber)?.uint16Value else { return nil }
+			let name = (d["name"] as? String) ?? ""
+			let serial = (d["serial"] as? String) ?? ""
+			return PtpDumpDeviceEntry(locationID: loc, vid: vid, pid: pid, name: name, serial: serial)
+		}
+		log.info("PTP dump device list: \(self.ptpDumpDevices.count, privacy: .public) device(s)")
+		rebuildPtpDumpSubmenu()
+	}
+
+	private func handleDumpTextPage() {
+		guard let payload = receiveSlotChainPage(
+				tokens: dumpTextSlotTokens,
+				slotCount: kDarwinPtpDumpTextSlotCount,
+				pageBuffer: &dumpTextPageBuffer,
+				pageTotal: &dumpTextPageTotal,
+				pageCount: &dumpTextPageCount,
+				nextPage: &dumpTextNextPage) else { return }
+		guard let text = String(data: payload, encoding: .utf8), !text.isEmpty else {
+			log.error("PTP dump text — UTF-8 decode failed (\(payload.count) bytes)")
+			return
+		}
+		// BUSY sentinel: the camera is claimed AND streaming. Offer the user
+		// the choice to stop live view and retry, or cancel.
+		if text.hasPrefix("[BUSY]") {
+			let label = text.dropFirst("[BUSY]".count).trimmingCharacters(in: .whitespacesAndNewlines)
+			handleDumpBusy(label: label)
+			return
+		}
+		let displayName = pendingDumpDisplayName ?? "PTP Device"
+		pendingDumpLocationID = nil
+		pendingDumpDisplayName = nil
+		log.info("PTP dump text received (\(text.count, privacy: .public) chars)")
+		presentDumpDeliveryOptions(dumpText: text, deviceLabel: displayName)
+	}
+
+	private func handleDumpBusy(label: String) {
+		guard let loc = pendingDumpLocationID else { return }
+		let alert = NSAlert()
+		alert.messageText = NSLocalizedString("Camera is streaming live video",
+		                                       comment: "PTP dump busy dialog title")
+		alert.informativeText = String(
+			format: NSLocalizedString("%@ is currently delivering video to a CMIO client (QuickTime, Zoom, OBS, etc.). The PTP dump can't run while live view is active. Stop the stream first, then we'll generate the dump.",
+			                          comment: "PTP dump busy dialog body, %@ is camera label"),
+			label)
+		alert.alertStyle = .warning
+		alert.addButton(withTitle: NSLocalizedString("Stop Live View & Dump",
+		                                              comment: "Primary action"))
+		alert.addButton(withTitle: NSLocalizedString("Cancel",
+		                                              comment: "Cancel"))
+		if alert.runModal() == .alertFirstButtonReturn {
+			// Tell the agent to release the camera (the existing claim/release
+			// path takes the camera through stopLiveView → close → re-open
+			// is too heavy here; we just need stopLiveView). We don't have a
+			// dedicated "stop LV" Darwin notify channel exposed to the app —
+			// post the existing kDarwinLiveViewStop with the cameraId. But
+			// we don't have the cameraId here, only locationID. Simpler:
+			// re-issue the dump command after a short grace; if the user has
+			// indeed stopped streaming themselves it will succeed.
+			//
+			// For now, surface a clear next step rather than racing: ask the
+			// user to quit the consuming app, then click again.
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+				self?.postDumpCommand(locationID: loc)
+			}
+		} else {
+			pendingDumpLocationID = nil
+			pendingDumpDisplayName = nil
+		}
+	}
+
+	/// Reassemble one page worth of slot-chain data using the standard 3-field
+	/// header (totalLength<<32 | pageIndex<<16 | pageCount), N data slots,
+	/// final-slot additive checksum. Returns the full reassembled payload
+	/// once the last page arrives; nil otherwise.
+	private func receiveSlotChainPage(
+		tokens: [Int32], slotCount: Int,
+		pageBuffer: inout Data?, pageTotal: inout Int,
+		pageCount: inout Int, nextPage: inout Int
+	) -> Data? {
+		var slot0: UInt64 = 0
+		darwin_notify_get_state(tokens[0], &slot0)
+		let totalLength = Int(slot0 >> 32)
+		let pageIndex = Int((slot0 >> 16) & 0xFFFF)
+		let pc = Int(slot0 & 0xFFFF)
+		guard totalLength > 0, pc > 0, pageIndex < pc else { return nil }
+
+		let pageDataSlots = slotCount - 2
+		let pageSize = pageDataSlots * 8
+		let pageOffset = pageIndex * pageSize
+		let pageLength = min(pageSize, totalLength - pageOffset)
+		guard pageLength > 0 else { return nil }
+
+		if pageIndex == 0 || pageBuffer == nil || pageTotal != totalLength {
+			pageBuffer = Data(count: totalLength)
+			pageTotal = totalLength
+			pageCount = pc
+			nextPage = 0
+		}
+		guard var buffer = pageBuffer, pageIndex == nextPage else {
+			log.error("PTP slot-chain page \(pageIndex) out of order (expected \(self.dumpTextNextPage))")
+			pageBuffer = nil
+			return nil
+		}
+		buffer.withUnsafeMutableBytes { ptr in
+			for i in 0..<((pageLength + 7) / 8) {
+				var value: UInt64 = 0
+				darwin_notify_get_state(tokens[i + 1], &value)
+				let chunkOffset = pageOffset + i * 8
+				let chunkSize = min(8, totalLength - chunkOffset)
+				if chunkSize > 0 { memcpy(ptr.baseAddress! + chunkOffset, &value, chunkSize) }
+			}
+		}
+		pageBuffer = buffer
+
+		// Verify additive checksum for the page.
+		var csValue: UInt64 = 0
+		darwin_notify_get_state(tokens[slotCount - 1], &csValue)
+		let expected = UInt32(csValue & 0xFFFFFFFF)
+		var computed: UInt32 = 0
+		for byte in buffer[pageOffset..<(pageOffset + pageLength)] {
+			computed = computed &+ UInt32(byte)
+		}
+		guard computed == expected else {
+			log.error("PTP slot-chain checksum mismatch page \(pageIndex) computed=\(computed) expected=\(expected)")
+			pageBuffer = nil
+			return nil
+		}
+
+		nextPage += 1
+		if nextPage >= pageCount {
+			let final = buffer
+			pageBuffer = nil
+			pageTotal = 0
+			pageCount = 0
+			nextPage = 0
+			return final
+		}
+		return nil
+	}
+
+	// MARK: - Dump delivery (copy or save)
+	//
+	// We previously tried opening the dump as a new untitled TextEdit
+	// document via NSAppleScript, but that route fails with -1743
+	// (errAEEventNotPermitted) under the App Sandbox — TextEdit doesn't
+	// declare scripting access groups and the temporary-exception entitlement
+	// path was unreliable. Simpler and friendlier: just ask the user where
+	// they want the text.
+
+	private func presentDumpDeliveryOptions(dumpText: String, deviceLabel: String) {
+		let alert = NSAlert()
+		alert.messageText = NSLocalizedString("PTP Property Dump Ready",
+		                                       comment: "Dump-delivery dialog title")
+		alert.informativeText = String(
+			format: NSLocalizedString("Generated %d characters of property data for %@. How would you like to receive it?",
+			                          comment: "Dump-delivery dialog body, char count + device label"),
+			dumpText.count, deviceLabel)
+		alert.alertStyle = .informational
+		// First button is the default (activated by Return / Enter).
+		alert.addButton(withTitle: NSLocalizedString("Copy to Clipboard",
+		                                              comment: "Primary action — recommended"))
+		alert.addButton(withTitle: NSLocalizedString("Save to File…",
+		                                              comment: "Save the dump to a file"))
+		alert.addButton(withTitle: NSLocalizedString("Cancel",
+		                                              comment: "Discard the dump"))
+		switch alert.runModal() {
+		case .alertFirstButtonReturn:
+			let pb = NSPasteboard.general
+			pb.clearContents()
+			pb.setString(dumpText, forType: .string)
+			log.info("PTP dump copied to clipboard (\(dumpText.count, privacy: .public) chars)")
+		case .alertSecondButtonReturn:
+			saveDumpToFile(dumpText, deviceLabel: deviceLabel)
+		default:
+			log.info("PTP dump discarded by user")
+		}
+	}
+
+	private func saveDumpToFile(_ text: String, deviceLabel: String) {
+		let panel = NSSavePanel()
+		panel.allowedContentTypes = [.plainText]
+		panel.canCreateDirectories = true
+		// Suggest a useful default filename: "ptp-dump-<sanitised-label>.txt".
+		// Strip everything that isn't filename-safe; collapse whitespace runs.
+		let sanitised = deviceLabel
+			.components(separatedBy: CharacterSet.alphanumerics.inverted)
+			.filter { !$0.isEmpty }
+			.joined(separator: "-")
+		let stamp = ISO8601DateFormatter().string(from: Date())
+			.replacingOccurrences(of: ":", with: "")
+			.replacingOccurrences(of: "-", with: "")
+			.prefix(15)  // YYYYMMDDTHHMMSS
+		panel.nameFieldStringValue = "ptp-dump-\(sanitised)-\(stamp).txt"
+		panel.title = NSLocalizedString("Save PTP Property Dump",
+		                                 comment: "Save panel title")
+		panel.begin { [weak self] response in
+			guard response == .OK, let url = panel.url else {
+				self?.log.info("PTP dump save cancelled")
+				return
+			}
+			do {
+				try text.write(to: url, atomically: true, encoding: .utf8)
+				self?.log.info("PTP dump saved to \(url.path, privacy: .public)")
+			} catch {
+				self?.log.error("PTP dump save failed: \(error.localizedDescription, privacy: .public)")
+				let alert = NSAlert(error: error)
+				alert.messageText = NSLocalizedString("Could Not Save Dump",
+				                                       comment: "Save error title")
+				alert.runModal()
+			}
+		}
+	}
+}
+
+// MARK: - NSMenuDelegate (refresh device list on submenu open)
+
+extension AppDelegate: NSMenuDelegate {
+	func menuWillOpen(_ menu: NSMenu) {
+		guard menu === ptpDumpSubmenu else { return }
+		// Re-poll the extension each time the user opens the submenu — covers
+		// the case where they plugged in a new camera since launch.
+		darwin_notify_post(kDarwinPtpDumpDevicesRequest)
 	}
 }

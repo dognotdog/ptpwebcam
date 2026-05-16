@@ -99,14 +99,28 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         queue.async { [weak self] in self?.runOpenSessionPhase() }
     }
 
+    /// True once `startLiveView()` has spun up the LV phase on the camera
+    /// queue and not yet observed `stopLv`. We need this to distinguish
+    /// "claimed but idle" from "claimed and currently streaming" when the app
+    /// asks for a PTP dump — idle claimed cameras can be dumped from
+    /// in-memory state without touching the USB bus.
+    private(set) var liveViewRunning: Bool = false
+
     final func startLiveView() {
         guard !closing else { return }
         stopLv = false
-        queue.async { [weak self] in self?.runLiveViewPhase() }
+        liveViewRunning = true
+        queue.async { [weak self] in
+            self?.runLiveViewPhase()
+            self?.liveViewRunning = false
+        }
     }
 
     final func stopLiveView() {
         stopLv = true
+        // `liveViewRunning` is cleared by the queue closure above once the
+        // LV loop unwinds. Setting it eagerly here would race with a fast
+        // dump that arrives while the loop is still tearing down.
     }
 
     final func close() {
@@ -447,5 +461,92 @@ class UsbPtpCameraBase: UsbCameraProtocol {
               transport.responseCode(from: rsp) == PTP_RSP_OK,
               let data = inData else { return nil }
         return PtpPropParser(data).parsePropDesc()
+    }
+
+    /// Render a human-readable PTP property dump from in-memory state. Used
+    /// for cameras the extension has already opened — avoids fresh PTP I/O,
+    /// so no risk of conflicting with the camera's own poll loop. Includes
+    /// every fact we have on hand (ops, properties, current values, enums,
+    /// ranges) — the descriptor-level format matches PtpDumper's live output
+    /// as closely as the in-memory model allows.
+    func generateInMemoryDump() -> String {
+        var out = ""
+        func line(_ s: String = "") { out.append(s); out.append("\n") }
+
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime]
+        line("PTP Property Dump (from cached state)")
+        line("=====================================")
+        line("Generated: \(fmt.string(from: Date()))")
+        line("USB VID:PID: \(String(format: "%04X:%04X", transport.vendorId, transport.productId))")
+        line("USB Product Name: \(transport.deviceName)")
+        if let s = deviceSerial { line("Serial Number (PTP): \(s)") }
+        line("")
+        line("Note: this dump was synthesised from in-memory state because the")
+        line("camera was already claimed by PTP Webcam. Values reflect the most")
+        line("recent property poll, not a fresh GetDevicePropDesc round-trip.")
+        line("")
+
+        let vendor = PtpKnownCameras.vendor(forVid: transport.vendorId)
+        // Render `<dec> (0xHEX) [interp]`. Interp comes from formatExtPropRaw
+        // (Sony WB names, Nikon shutter denominator table, EV-bias × 0.001,
+        // ISO-Auto sentinel, etc.). Dropped when identical to the bare decimal.
+        func formatVal(_ n: NSNumber, _ propId: UInt32, _ dataType: UInt16) -> String {
+            let hex: String
+            switch dataType {
+            case 1: hex = String(format: "%d (0x%02X)", n.int8Value, UInt8(bitPattern: n.int8Value))
+            case 2: hex = String(format: "%u (0x%02X)", n.uint8Value, n.uint8Value)
+            case 3: hex = String(format: "%d (0x%04X)", n.int16Value, UInt16(bitPattern: n.int16Value))
+            case 4: hex = String(format: "%u (0x%04X)", n.uint16Value, n.uint16Value)
+            case 5: hex = String(format: "%d (0x%08X)", n.int32Value, UInt32(bitPattern: n.int32Value))
+            case 6: hex = String(format: "%u (0x%08X)", n.uint32Value, n.uint32Value)
+            default: hex = n.description
+            }
+            let pretty = formatExtPropRaw(n, propId: propId, vendor: vendor)
+            if pretty == "\(n)" || pretty == n.stringValue { return hex }
+            return "\(hex)  → \(pretty)"
+        }
+
+        let sortedOps = supportedOps.sorted()
+        line("=== Supported Operations (\(sortedOps.count)) ===")
+        for op in sortedOps {
+            line(String(format: "  0x%04X  %@", op, PtpKnownCameras.operationName(op) as NSString))
+        }
+        line("")
+
+        line("=== Supported Standard Properties (\(standardPropertyIds.count)) ===")
+        for pid in standardPropertyIds {
+            line(String(format: "  0x%04X  %@", pid, PtpKnownCameras.propertyName(pid) as NSString))
+        }
+        line("")
+
+        let sortedProps = discoveredProperties.keys.sorted()
+        line("=== Discovered Property Descriptors (\(sortedProps.count)) ===")
+        line("")
+        for pid in sortedProps {
+            guard let prop = discoveredProperties[pid] else { continue }
+            line(String(format: "[0x%04X] %@", pid, PtpKnownCameras.propertyName(UInt16(pid & 0xFFFF)) as NSString))
+            line(String(format: "  DataType:  0x%04X (%@)", prop.dataType, PtpKnownCameras.dataTypeName(prop.dataType) as NSString))
+            line("  Writable:  \(prop.writable)")
+            if prop.incremental { line("  Incremental: true (Sony SetPropStep)") }
+            if prop.isButton    { line("  Button:    true") }
+            if let d = prop.defaultValue {
+                line("  Default:   \(formatVal(d, pid, prop.dataType))")
+            }
+            line("  Current:   \(formatVal(prop.value, pid, prop.dataType))")
+            if let enums = prop.enumValues {
+                line("  Form:      Enum (\(enums.count) values)")
+                for v in enums { line("    " + formatVal(v, pid, prop.dataType)) }
+            } else if let mn = prop.rangeMin, let mx = prop.rangeMax {
+                line("  Form:      Range")
+                line("    Min:     \(formatVal(mn, pid, prop.dataType))")
+                line("    Max:     \(formatVal(mx, pid, prop.dataType))")
+                if let st = prop.rangeStep { line("    Step:    \(formatVal(st, pid, prop.dataType))") }
+            } else {
+                line("  Form:      none")
+            }
+            line("")
+        }
+        return out
     }
 }

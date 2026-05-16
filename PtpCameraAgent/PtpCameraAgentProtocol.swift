@@ -75,6 +75,36 @@ let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 let kDarwinCameraPropertyCmd   = "org.ptpwebcam.darwin.PropertyCmd"
 let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 
+// MARK: PTP property-dump channels (debugging unsupported cameras)
+//
+// Used by the app's "List PTP Properties" submenu. Lets the user generate a
+// text dump of GetDeviceInfo + every property descriptor for any PTP-class
+// USB device — including ones we don't have a UsbCamera subclass for yet.
+//
+// 1. App posts kDarwinPtpDumpDevicesRequest to ask for current device list.
+// 2. Extension enumerates IOServiceGetMatchingServices(ptpMatchingDictionary)
+//    and publishes a JSON list via kDarwinPtpDumpDevicesState using the same
+//    multi-page slot chain protocol as kDarwinCameraPropertyState.
+// 3. App writes locationID into kDarwinPtpDumpCmdSlot and posts
+//    kDarwinPtpDumpCmd to request a dump for a specific device.
+// 4. Extension performs the dump and publishes the resulting UTF-8 text back
+//    over kDarwinPtpDumpText using the same multi-page slot chain (header
+//    page + N data pages, additive checksum on each page).
+// 5. App reassembles the text and opens it in TextEdit as an untitled
+//    document via AppleScript (`make new document with properties {text:…}`)
+//    — no file ever hits disk.
+let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"
+let kDarwinPtpDumpDevicesState   = "org.ptpwebcam.darwin.PtpDumpDevicesState"
+let kDarwinPtpDumpDevicesSlotPrefix = "org.ptpwebcam.darwin.dumpdev."
+let kDarwinPtpDumpDevicesSlotCount  = 256
+
+let kDarwinPtpDumpCmd     = "org.ptpwebcam.darwin.PtpDumpCmd"
+let kDarwinPtpDumpCmdSlot = "org.ptpwebcam.darwin.dumpcmd"  // payload: UInt64 locationID
+
+let kDarwinPtpDumpText        = "org.ptpwebcam.darwin.PtpDumpText"
+let kDarwinPtpDumpTextSlotPrefix = "org.ptpwebcam.darwin.dumptext."
+let kDarwinPtpDumpTextSlotCount  = 2048  // ~16KB/page × multi-page = plenty for a dump
+
 // Extension -> Agent: commands
 @objc protocol PtpCameraAgentProtocol {
     func startLiveView(forCamera cameraId: String)

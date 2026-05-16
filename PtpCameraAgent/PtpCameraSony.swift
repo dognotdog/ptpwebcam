@@ -48,24 +48,12 @@ class PtpCameraSony: PtpCamera {
     private var connectStatus: SonyConnectStatus = .start
 
     static func registerCameras() {
-        let cameras: [(productId: UInt16, model: String, confirmed: Bool)] = [
-            (0x079B, "A68", false),
-            (0x079C, "A6300", false),
-            (0x079E, "A99-II", false),
-            (0x07A4, "A6500", false),
-            (0x0953, "A77-II", false),
-            (0x0954, "A7S", true),
-            (0x0957, "A5100", false),
-            (0x096F, "A7-III", false),
-            (0x0A6B, "A7R-II", false),
-            (0x0A71, "A7S-II", false),
-            (0x0C2A, "A9", false),
-            (0x0C33, "A7R-III", false),
-            (0x0C34, "A7-III", false),
-            (0x0CAA, "A6400", false),
-            (0x0CCC, "A7R-IV", false),
-        ]
-        register(vendorId: 0x054C, cameras: cameras, make: "Sony", cameraClass: PtpCameraSony.self)
+        // Single source of truth lives in PtpKnownCameras.table — pull every
+        // Sony entry from there rather than maintain a parallel list here.
+        register(vendorId: PtpKnownCameras.vidSony,
+                 cameras: PtpKnownCameras.entries(forVendor: PtpKnownCameras.vidSony),
+                 make: "Sony",
+                 cameraClass: PtpCameraSony.self)
     }
 
     // MARK: - Init

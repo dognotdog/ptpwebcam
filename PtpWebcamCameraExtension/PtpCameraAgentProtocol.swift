@@ -76,6 +76,19 @@ let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 let kDarwinCameraPropertyCmd   = "org.ptpwebcam.darwin.PropertyCmd"
 let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 
+// MARK: PTP property-dump channels (mirrored from PtpCameraAgent copy).
+let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"
+let kDarwinPtpDumpDevicesState   = "org.ptpwebcam.darwin.PtpDumpDevicesState"
+let kDarwinPtpDumpDevicesSlotPrefix = "org.ptpwebcam.darwin.dumpdev."
+let kDarwinPtpDumpDevicesSlotCount  = 256
+
+let kDarwinPtpDumpCmd     = "org.ptpwebcam.darwin.PtpDumpCmd"
+let kDarwinPtpDumpCmdSlot = "org.ptpwebcam.darwin.dumpcmd"
+
+let kDarwinPtpDumpText        = "org.ptpwebcam.darwin.PtpDumpText"
+let kDarwinPtpDumpTextSlotPrefix = "org.ptpwebcam.darwin.dumptext."
+let kDarwinPtpDumpTextSlotCount  = 2048
+
 // Extension -> Agent: commands
 @objc protocol PtpCameraAgentProtocol {
     func startLiveView(forCamera cameraId: String)
