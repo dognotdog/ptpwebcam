@@ -30,24 +30,93 @@ import Foundation
 // likewise — see the "Standard PTP constants" block there.
 private let OLYMPUS_XML_STORAGE_ID: UInt32 = 0x80000001
 
+// MARK: - Olympus modern (OMD) opcodes + property codes
+
+/// `PTP_OC_OLYMPUS_GetLiveViewImage` — single-shot JPEG fetch. Returns
+/// the frame as the bulk-IN data with no vendor header to strip.
+private let PTP_CMD_OLYMPUS_GET_LIVEVIEW_IMG: UInt16 = 0x9484
+
+/// `PTP_DPC_OLYMPUS_PCMode` — general "switch to PC tethered mode" toggle.
+/// Set to 1 once during vendor connect; without it, modern bodies refuse
+/// most other commands with `OperationNotSupported`.
+private let PTP_PROP_OLYMPUS_PC_MODE: UInt32 = 0xD052
+
+/// `PTP_DPC_OLYMPUS_LiveViewModeOM` — the mode the camera switches to in
+/// order to start streaming preview frames. The camera fills the GetLiveViewImage queue once
+/// this is set.
+private let PTP_PROP_OLYMPUS_LV_MODE: UInt32 = 0xD06D
+private let OLYMPUS_LV_MODE_PC_STREAM: UInt32 = 0x04000300
+
 final class UsbOlympusCamera: UsbPtpCameraBase {
 
     /// True for the legacy E-series DSLRs that wrap every vendor command in
-    /// the XML envelope described at the top of this file.
-    private let isXmlWrapped: Bool
+    /// the XML envelope described at the top of this file. Exposed (not
+    /// `private`) so PtpDumper can pick the right handshake banner.
+    let isOlympusXmlWrapped: Bool
 
     init(transport: UsbPtpTransport) {
         // If future bodies are reported we'd extend this set.
-		self.isXmlWrapped = OLYMPUS_XML_PIDS.contains(transport.productId)
+        self.isOlympusXmlWrapped = OLYMPUS_XML_PIDS.contains(transport.productId)
         super.init(transport: transport, logTag: "UsbOlympusCamera")
-        if isXmlWrapped {
+        if isOlympusXmlWrapped {
             cameraLog.fault("E-series body detected — using XML-wrapped PTP path")
         }
     }
 
+    /// True once we've successfully switched the camera into LV-stream
+    /// mode (via writing PTP_DPC_OLYMPUS_LiveViewModeOM = 0x04000300).
+    /// Used to gate the fetch loop and to skip the LV mode write on
+    /// subsequent restart attempts (the camera tolerates the redundant
+    /// write but it's noisy in the logs).
+    private var omdLiveViewActive = false
+
+    override func performVendorConnect() {
+        // Standard PTP first — populates supportedOps + standardPropertyIds.
+        parseDeviceInfo()
+        // Modern Olympus bodies (E-M1 II, OM-1) need a one-shot "switch to
+        // PC mode" write before they accept tethered live view or property
+        // changes. The
+        // XML-wrapped E-series bodies use a completely different protocol
+        // and don't honour 0xD052; we skip this step there.
+        if !isOlympusXmlWrapped {
+            switchToPcMode()
+        }
+    }
+
+    private func switchToPcMode() {
+        // PC-mode write is harmless if 0xD052 isn't actually exposed by
+        // the body — the SetDevicePropValue request just gets a non-OK
+        // response and we move on.
+        let payload = encodeStandardPtpValue(1, dataType: 4 /* UINT16 */)
+        let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL,
+                                          parameters: [PTP_PROP_OLYMPUS_PC_MODE])
+        guard let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: payload) else { return }
+        let code = transport.responseCode(from: rsp)
+        cameraLog.fault("Olympus PC-mode switch (0xD052=1) → 0x\(String(code, radix: 16), privacy: .public)")
+        // wait ~100ms then drains an event before continuing.
+        // The drain is for the camera's "I switched modes" propvalchanged
+        // event — we don't process those, but the sleep gives the camera
+        // time to commit.
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
     override func discoverAllProperties() -> [UInt32: UsbCameraProperty] {
-        guard isXmlWrapped else { return super.discoverAllProperties() }
+        guard isOlympusXmlWrapped else { return super.discoverAllProperties() }
         return discoverViaXmlWrap()
+    }
+
+    /// Modern OM-1 / E-M5 II bodies go through the base class's standard
+    /// PTP `SetDevicePropValue (0x1016)`. E-series bodies on PID 0x0110
+    /// need the XML envelope (we'd send a `c1016` command inside an
+    /// `<input>…</input>` wrap and parse the response). That's not
+    /// implemented yet; log and drop the request rather than silently
+    /// firing a 0x1016 the camera doesn't honour.
+    override func performPropertySet(_ pending: PendingSet) {
+        guard !isOlympusXmlWrapped else {
+            cameraLog.fault("Olympus E-series setProperty 0x\(String(pending.propId, radix: 16), privacy: .public) ignored — XML-wrapped path not implemented")
+            return
+        }
+        super.performPropertySet(pending)
     }
 
     // MARK: - XML-wrapped discovery
@@ -316,5 +385,83 @@ final class UsbOlympusCamera: UsbPtpCameraBase {
         case 8: return NSNumber(value: raw)
         default: return NSNumber(value: raw)
         }
+    }
+
+    // MARK: - Live view (OMD)
+    //
+    //   - Set PTP_DPC_OLYMPUS_LiveViewModeOM (0xD06D) = 0x04000300 once.
+    //   - Loop: 0x9484 PTP_OC_OLYMPUS_GetLiveViewImage → JPEG. Retry on
+    //     DeviceBusy or short payload (< 1024 bytes).
+    //   - No explicit stop opcode; ending the stream means stopping
+    //     polling. We *could* reset the LV mode property back to 0 in
+    //     stopLiveViewSession but it doesn't seem necessary — the
+    //     camera handles a non-polling host gracefully.
+    //
+    // E-series bodies (XML envelope path) don't support 0x9484 — we
+    // refuse LV start so the user gets a meaningful alert.
+
+    override func startLiveViewSession() -> Bool {
+        if isOlympusXmlWrapped {
+            liveViewStartError = "Olympus E-series live view is not supported. These bodies (E-410/420/510/520/3/5/30/620) use an XML-wrapped PTP protocol that doesn't have a USB live-view path."
+            return false
+        }
+        guard supportedOps.contains(PTP_CMD_OLYMPUS_GET_LIVEVIEW_IMG) else {
+            liveViewStartError = "Olympus camera doesn't advertise GetLiveViewImage (0x9484). Live view requires a body in the OM-1 / E-M1 II / E-M5 II family."
+            return false
+        }
+        // Switch the camera into LV-stream mode by writing 0xD06D. Use
+        // standard SetDevicePropValue (0x1016) since modern Olympus
+        // honours that opcode.
+        let payload = encodeStandardPtpValue(OLYMPUS_LV_MODE_PC_STREAM,
+                                              dataType: 6 /* UINT32 */)
+        let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL,
+                                          parameters: [PTP_PROP_OLYMPUS_LV_MODE])
+        guard let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: payload) else {
+            liveViewStartError = "Olympus live-view mode switch (0xD06D) transport error."
+            return false
+        }
+        let code = transport.responseCode(from: rsp)
+        cameraLog.fault("Olympus LV mode set (0xD06D=0x04000300) → 0x\(String(code, radix: 16), privacy: .public)")
+        if code != PTP_RSP_OK {
+            liveViewStartError = "Olympus refused live-view mode switch (0x\(String(code, radix: 16))). The body may need a firmware update, or it doesn't support tethered live view (some older E-Mxxx bodies)."
+            return false
+        }
+        omdLiveViewActive = true
+        // Give the camera a moment to fill the first frame.
+        Thread.sleep(forTimeInterval: 0.1)
+        return true
+    }
+
+    override func stopLiveViewSession() {
+        // Stream ends when polling stops. We don't reset 0xD06D — the
+        // camera tolerates a non-polling host and resetting it can race
+        // with an in-flight GetLiveViewImage transaction.
+        omdLiveViewActive = false
+    }
+
+    override func fetchOneFrame() throws -> Data? {
+        let cmd = transport.buildCommand(code: PTP_CMD_OLYMPUS_GET_LIVEVIEW_IMG)
+        // retry up to 25 times within one frame call with
+        // 40 ms sleep on DeviceBusy / short payload. Our outer LV loop
+        // also retries, so we keep the inner retry small (3 × 40 ms) and
+        // return nil for the outer loop to handle longer waits.
+        for _ in 0..<3 {
+            if stopLv || closing { return nil }
+            let (inData, rsp) = try transport.sendPtpCommand(cmd)
+            let code = transport.responseCode(from: rsp)
+            if code == PTP_RSP_OK, let data = inData, data.count >= 1024 {
+                // Olympus returns raw JPEG (FF D8 … FF D9). Pass through
+                // extractJpegFromLiveViewData for safety in case a body
+                // prepends a header.
+                return extractJpegFromLiveViewData(data) ?? data
+            }
+            if code == PTP_RSP_DEVICEBUSY || (inData?.count ?? 0) < 1024 {
+                Thread.sleep(forTimeInterval: 0.04)
+                continue
+            }
+            cameraLog.fault("Olympus GetLiveViewImage (0x9484) → 0x\(String(code, radix: 16), privacy: .public) size=\(inData?.count ?? -1, privacy: .public)")
+            return nil
+        }
+        return nil
     }
 }

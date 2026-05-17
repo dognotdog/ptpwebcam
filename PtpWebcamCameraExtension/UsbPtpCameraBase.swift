@@ -35,14 +35,17 @@ let PTP_CMD_SENDOBJECTINFO:   UInt16 = 0x100C
 let PTP_CMD_SENDOBJECT:       UInt16 = 0x100D
 let PTP_CMD_INITIATECAPTURE:  UInt16 = 0x100E
 let PTP_CMD_RESETDEVICE:      UInt16 = 0x1010
+let PTP_CMD_INITIATEOPENCAPTURE: UInt16 = 0x101C
 let PTP_CMD_GETPROPDESC:      UInt16 = 0x1014
 let PTP_CMD_GETPROPVAL:       UInt16 = 0x1015
 let PTP_CMD_SETPROPVAL:       UInt16 = 0x1016
 
 // Response codes (PTP_RC_*)
-let PTP_RSP_OK:               UInt16 = 0x2001
-let PTP_RSP_DEVICEBUSY:       UInt16 = 0x2019
-let PTP_RSP_SESSIONALREADY:   UInt16 = 0x201E
+let PTP_RSP_OK:                  UInt16 = 0x2001
+let PTP_RSP_INVALIDOBJECTHANDLE: UInt16 = 0x2009
+let PTP_RSP_DEVICEBUSY:          UInt16 = 0x2019
+let PTP_RSP_SESSIONALREADY:      UInt16 = 0x201E
+let PTP_RSP_ACCESSDENIED:        UInt16 = 0x202A
 
 // Events (PTP_EC_*)
 let PTP_EVENT_CANCELTRANSACTION:     UInt16 = 0x4001
@@ -298,7 +301,72 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
     /// Execute a single queued property-set command. Vendor-specific because
     /// Sony has SetPropStep, Canon has SetPropValEx (0x9110), Nikon uses standard.
-    func performPropertySet(_ pending: PendingSet) {}
+    /// Default property-set implementation: issues standard PTP
+    /// `SetDevicePropValue (0x1016)`. Works for any vendor that honours the
+    /// PTP 1.1 spec — Fuji X / GFX, Olympus modern (OM-1, E-M5/M1 II),
+    /// Pentax K-series, Ricoh GR, modern Leica (0x1A98), and Sigma fp's
+    /// standard properties (Sigma also has vendor opcodes for exposure
+    /// triplet but those aren't wired yet).
+    ///
+    /// Vendors with non-spec property models override this:
+    ///   - `UsbCanonCamera` — uses `SetDevicePropValueEx (0x9110)` with
+    ///     payload-length framing.
+    ///   - `UsbSonyCamera` — uses `SetPropAbs (0x9205)` /
+    ///     `SetPropStep (0x9207)` based on the property's `incremental` flag.
+    ///   - `UsbPanasonicCamera` — uses `SetProperty (0x9403)` with the
+    ///     propcode+valuesize header.
+    ///   - `UsbNikonCamera` — uses standard SetDevicePropValue but post-set
+    ///     refresh + LV-prohibit guards live in its override.
+    ///
+    /// Wire format here is per PTP spec section 10.4.16: command 0x1016
+    /// with Param1=propcode, data phase carrying just the raw value bytes
+    /// in little-endian, width determined by `pending.dataType`.
+    func performPropertySet(_ pending: PendingSet) {
+        guard supportedOps.contains(PTP_CMD_SETPROPVAL) else {
+            cameraLog.fault("performPropertySet: SetDevicePropValue (0x1016) not advertised — dropping set 0x\(String(pending.propId, radix: 16), privacy: .public)")
+            return
+        }
+        let payload = encodeStandardPtpValue(pending.value, dataType: pending.dataType)
+        let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL,
+                                          parameters: [pending.propId])
+        guard let (_, rsp) = try? transport.sendPtpCommand(cmd, outData: payload) else {
+            cameraLog.fault("SetDevicePropValue 0x\(String(pending.propId, radix: 16), privacy: .public) transport error")
+            return
+        }
+        let code = transport.responseCode(from: rsp)
+        cameraLog.fault("SetDevicePropValue 0x\(String(pending.propId, radix: 16), privacy: .public) = \(pending.value, privacy: .public) (dt=\(pending.dataType, privacy: .public)) → 0x\(String(code, radix: 16), privacy: .public)")
+        guard code == PTP_RSP_OK else { return }
+        // Refresh the descriptor so the agent's menu reflects the committed
+        // value — some bodies (notably Pentax) clamp to legal stops and
+        // we'd otherwise leave the menu showing what we asked for rather
+        // than what stuck.
+        if let updated = getDevicePropDesc(pending.propId) {
+            discoveredProperties[pending.propId] = updated
+            onPropertiesDiscovered?([pending.propId: updated])
+        }
+    }
+
+    /// Pack a numeric PTP value into the little-endian byte string the
+    /// standard `SetDevicePropValue` data phase expects. Width is taken
+    /// from the PTP DataType (INT8=1 / UINT8=2 → 1 byte, INT16=3 /
+    /// UINT16=4 → 2 bytes, INT32=5 / UINT32=6 → 4 bytes, INT64=7 /
+    /// UINT64=8 → 8 bytes). Anything else falls back to 4 bytes — the
+    /// safe-ish default since 32-bit is the most common width.
+    func encodeStandardPtpValue(_ value: UInt32, dataType: UInt16) -> Data {
+        switch dataType {
+        case 1, 2:    // INT8 / UINT8
+            return Data([UInt8(value & 0xFF)])
+        case 3, 4:    // INT16 / UINT16
+            let v = UInt16(value & 0xFFFF).littleEndian
+            return withUnsafeBytes(of: v) { Data($0) }
+        case 7, 8:    // INT64 / UINT64
+            let v = UInt64(value).littleEndian
+            return withUnsafeBytes(of: v) { Data($0) }
+        default:      // INT32 / UINT32 and anything unknown
+            let v = value.littleEndian
+            return withUnsafeBytes(of: v) { Data($0) }
+        }
+    }
 
     /// Vendor-specific cleanup before CLOSE_SESSION (e.g. STOPLIVEVIEW for Nikon).
     func performVendorCleanup() {}

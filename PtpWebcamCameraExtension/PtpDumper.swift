@@ -80,7 +80,18 @@ final class PtpDumper {
             dumpViaCanonHandshake()
         case .panasonic:
             dumpViaPanasonicHandshake()
-        case .fuji, .olympus, .pentax, .leica, .sigma, .nikon, .unknown:
+        case .olympus:
+            // E-series DSLR (PID 0x0110) needs XML-wrapped GetDevicePropDesc;
+            // modern OM-1 etc. honour the spec. Both are handled inside
+            // `UsbOlympusCamera.discoverAllProperties` via PID classification,
+            // so we delegate rather than calling our standard-PTP path.
+            dumpViaOlympusHandshake()
+        case .sigma:
+            // Sigma fp uses 0x9012-0x9014 CamDataGroup opcodes instead of
+            // standard GetDevicePropDesc. The standard PTP path would
+            // return nothing useful.
+            dumpViaSigmaHandshake()
+        case .fuji, .pentax, .leica, .nikon, .unknown:
             // Standard PTP GetDevicePropDesc works for all of these —
             // Fuji / Olympus modern / Pentax / Ricoh / Leica modern / Sigma
             // honour the spec, Nikon was always the reference
@@ -312,6 +323,45 @@ final class PtpDumper {
             line("EOS Body Serial: \(s)")
             line("")
         }
+        dumpPropertiesFromCache(props)
+    }
+
+    private func dumpViaOlympusHandshake() {
+        let olympus = UsbOlympusCamera(transport: transport)
+        // The PID-based classification in UsbOlympusCamera.init has already
+        // decided whether this body needs the XML envelope; we just call
+        // discoverAllProperties and let it do the right thing.
+        if olympus.isOlympusXmlWrapped {
+            line("--- Olympus E-series XML envelope handshake ---")
+        } else {
+            line("--- Olympus modern (standard PTP GetDevicePropDesc) ---")
+        }
+        line("")
+        // performVendorConnect() runs parseDeviceInfo() — needed because
+        // discoverAllProperties iterates `standardPropertyIds` which is
+        // populated from the GetDeviceInfo response.
+        olympus.performVendorConnect()
+        let props = olympus.discoverAllProperties()
+        if let s = olympus.deviceSerial, !s.isEmpty {
+            line("PTP Serial: \(s)")
+            line("")
+        }
+        dumpPropertiesFromCache(props)
+    }
+
+    private func dumpViaSigmaHandshake() {
+        line("--- Sigma fp CamDataGroup handshake (0x9012 / 0x9013 / 0x9014) ---")
+        line("")
+        line("Sigma fp uses bitfield-packed DataGroup payloads instead of")
+        line("standard PTP GetDevicePropDesc. Property IDs below are synthetic:")
+        line("  0xF1xxxxxx → DataGroup1 (exposure: shutter/aperture/ISO/EV bias)")
+        line("  0xF2xxxxxx → DataGroup2 (mode/drive/meter/flash/WB/quality)")
+        line("  0xF3xxxxxx → DataGroup3 (colour space/mode + lens focal lengths)")
+        line("Field semantics from https://github.com/makanikai/sigma-ptpy schema.py.")
+        line("")
+        let sigma = UsbSigmaCamera(transport: transport)
+        sigma.performVendorConnect()
+        let props = sigma.discoverAllProperties()
         dumpPropertiesFromCache(props)
     }
 

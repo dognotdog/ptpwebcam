@@ -210,15 +210,37 @@ enum PtpKnownCameras {
             (0x0136, "OM-1", false),
         ])
 
-        // Panasonic Lumix (0x04DA). PIDs are notoriously over-shared across
-        // bodies — 0x2382 covers the entire DC-/S-series
-        // lineup. We list the well-known PTP-tetherable bodies; everything
-        // else falls back to "Lumix <model>" via the USB descriptor name.
+        // Panasonic Lumix (0x04DA). Panasonic uses a single PID per
+        // generational family, so multiple bodies report the same PID. We
+        // pick a generic label that's accurate for the whole bucket — the
+        // USB descriptor name (which displayName(_:fallback:) falls back
+        // to) usually carries the specific model.
+        //
+        // Panasonic's own LUMIX Tether
+        // software supports the same bodies (DC-S1/S1H/S1R/S5/S5 II,
+        // DC-GH5/GH5S/GH5 II/GH6, DC-G9/G9 II, DC-BGH1, DC-BS1H) all
+        // through the single PID 0x2382.
+        //
         // NB: Panasonic doesn't honour standard GetDevicePropDesc — see
         // `dumpViaPanasonicHandshake` in PtpDumper.
         add(0x04DA, "Panasonic", [
-            (0x2374, "DMC-GX8", false),
-            (0x2382, "DC-GH5", false),
+            // 0x2372 — legacy point-and-shoot compacts (DMC-FZ20 alternate,
+            // DMC-LC1, DMC-LZ2, Lumix FZ5). Mass-storage only; no PTP
+            // control / preview. Listed so the menu doesn't say "USB 04DA:2372".
+            (0x2372, "Lumix (legacy compact)", false),
+
+            // 0x2374 — early mirrorless + mid-2010s compacts. Covers
+            // DMC-GX8 and DMC-GF1 on the mirrorless side, plus DMC-FZ20/38/45/50,
+            // DMC-LS2/LS3, DMC-LX7, DMC-TZ8/15/18, DMC-FS62 compacts.
+            // Only GX8 advertises PTP preview/capture;
+            // the rest are mass-storage-only.
+            (0x2374, "Lumix G/GX/DMC-series", false),
+
+            // 0x2382 — the entire modern Panasonic Lumix DC-line. Covers
+            // DC-GH5/5S/5 II/6/7, DC-G9/G9 II, DC-S1/1H/1R/5/5 II/5 IIX/9,
+            // DC-BGH1, DC-BS1H, and likely later bodies. The specific model
+            // is recoverable from GetDeviceInfo if needed.
+            (0x2382, "Lumix DC-series", false),
         ])
 
         // Pentax K-series + Ricoh GR (modern Ricoh OUI 0x25FB).
@@ -262,6 +284,33 @@ enum PtpKnownCameras {
     static func lookup(vid: UInt16, pid: UInt16) -> PtpKnownCamera? {
         return table[(UInt32(vid) << 16) | UInt32(pid)]
     }
+
+    /// VID/PID pairs where the USB descriptor's product name is more
+    /// specific than what `table` carries (because multiple body models
+    /// share the same PID and we registered a generic group label).
+    ///
+    /// For these entries `displayName(vid:pid:fallback:)` flips priority:
+    /// it prefers the USB descriptor name (which Panasonic / Olympus
+    /// populate with the specific body, e.g. "DC-GH5", "E-510") and uses
+    /// `table[…].make` only as a brand prefix when the descriptor name
+    /// doesn't already include it.
+    ///
+    /// Keep this small — adding a PID here ONLY makes sense when the
+    /// table label is intentionally a generic group ("Lumix DC-series")
+    /// rather than a specific model name. For per-body PIDs (most Nikon /
+    /// Canon / Sony) the table is more reliable than what the USB
+    /// descriptor often spells (e.g. Sony's "ILCE-7S" → "A7S").
+    static let sharedPids: Set<UInt32> = [
+        // Panasonic Lumix — three PIDs cover dozens of bodies between them.
+        (UInt32(vidPanasonic) << 16) | 0x2372,
+        (UInt32(vidPanasonic) << 16) | 0x2374,
+        (UInt32(vidPanasonic) << 16) | 0x2382,
+        // Olympus E-series — single PID 0x0110 covers E-410/420/510/520/3/5/30/620.
+        (UInt32(vidOlympus) << 16) | 0x0110,
+        // Olympus E-M family — E-M5 II, E-M1, and
+        // E-M1 II all at 0x0130. Newer OM-1 (0x0136) has its own PID.
+        (UInt32(vidOlympus) << 16) | 0x0130,
+    ]
 
     /// Map a (VID, PID) pair to its wire-protocol family. PID is required
     /// because some VIDs cover multiple protocol families (notably Panasonic
@@ -359,14 +408,50 @@ enum PtpKnownCameras {
     ]
     // Fuji-specific opcodes are sparsely known — most use standard
     // PTP. Worth labelling the FUJIPTPIP variant in case it shows up.
+    // Fuji X / GFX. Live view rides standard PTP InitiateOpenCapture (0x101C
+    // from the standard table above) plus these Fuji-specific opcodes.
     private static let fujiOperationNames: [UInt16: String] = [
-        0x9054: "Fuji.SetDPC",          0x9056: "Fuji.GetDevicePropValueEx",
+        0x9020: "Fuji.InitiateMovieCapture",
+        0x9021: "Fuji.TerminateMovieCapture",
+        0x9022: "Fuji.GetCapturePreview",
+        0x9026: "Fuji.SetFocusPoint",     // a.k.a. LockS1Lock
+        0x9027: "Fuji.ResetFocusPoint",   // a.k.a. UnlockS1Lock
+        0x902B: "Fuji.GetDeviceInfo",
+        0x902C: "Fuji.SetShutterSpeed",   // a.k.a. StepShutterSpeed
+        0x902D: "Fuji.SetAperture",       // a.k.a. StepFNumber
+        0x902E: "Fuji.SetExposureCompensation", // StepExposureBias
+        0x9030: "Fuji.CancelInitiateCapture",    // stops live view
+        0x9040: "Fuji.FmSendObjectInfo",
+        0x9041: "Fuji.FmSendObject",
+        0x9042: "Fuji.FmSendPartialObject",
+        0x9054: "Fuji.SetDPC",
+        0x9056: "Fuji.GetDevicePropValueEx",
         0x9085: "Fuji.GetObjectInfoEx",
     ]
-    // Olympus E-series uses XML-wrapped PTP; the wrappers are 0x9482/0x9483.
-    // Modern OM-1 uses these for SetDateTime / GetTime.
+    // Olympus modern + OMD live-view path. E-series uses XML-wrapped PTP
+    // (PtpKnownCameras.sharedPids 0x07B4:0x0110) which only exposes a
+    // handful of these opcodes through its envelope. Numbers from
     private static let olympusOperationNames: [UInt16: String] = [
-        0x9482: "Olympus.SetDateTime",  0x9483: "Olympus.GetCameraInfo",
+        0x9101: "Olympus.Capture",
+        0x9103: "Olympus.SelfCleaning",
+        0x9106: "Olympus.SetRGBGain",
+        0x9107: "Olympus.SetPresetMode",
+        0x9108: "Olympus.SetWBBiasAll",
+        0x910A: "Olympus.GetCameraControlMode",
+        0x910B: "Olympus.SetCameraControlMode",
+        0x910C: "Olympus.SetWBRGBGain",
+        0x9301: "Olympus.GetDeviceInfo",
+        0x9302: "Olympus.OpenSession",
+        0x9402: "Olympus.SetDateTime",
+        0x9481: "Olympus.OMD.Capture",
+        0x9482: "Olympus.GetDateTime",
+        0x9484: "Olympus.GetLiveViewImage",   // OMD live-view frame fetch
+        0x9485: "Olympus.OMD.GetImage",
+        0x9486: "Olympus.OMD.ChangedProperties",
+        0x9487: "Olympus.OMD.MFDrive",
+        0x9489: "Olympus.OMD.SetProperties",
+        0x9501: "Olympus.SetCameraID",
+        0x9581: "Olympus.GetCameraID",
     ]
     // Panasonic's command family is the big one — they replaced the
     // standard property protocol entirely.
@@ -385,7 +470,12 @@ enum PtpKnownCameras {
 		0x9404: "Panasonic.InitiateCapture",
         0x9405: "Panasonic.RecCtrlAfAe",
 		0x9406: "Panasonic.SetupCtrl",
-        0x9412: "Panasonic.GetLiveViewImage",
+        // 0x9412 is the live-view ON/OFF toggle, NOT the frame fetch
+        // (despite an outdated comment in our earlier code). Frame fetch
+        // is 0x9706 below.
+        0x9412: "Panasonic.LiveviewToggle",
+        0x9415: "Panasonic.SetLiveViewParameters",
+        0x9706: "Panasonic.LiveviewImage",
     ]
     // Pentax/Ricoh: standard PTP for K-series. Empty for now —
     // K1/K3 don't expose vendor-specific opcodes we care about.
@@ -393,22 +483,68 @@ enum PtpKnownCameras {
     // Modern Leica (VID 0x1A98). Mostly standard PTP. Legacy Leica bodies
     // sharing VID 0x04DA are dispatched as `.panasonic` instead so this
     // table doesn't see them.
-    private static let leicaOperationNames: [UInt16: String] = [:]
+    // Modern Leica M / Q / SL family. Standard PTP for discovery + property
+    // setting; vendor opcodes for the live-view stream and a few extras.
+    private static let leicaOperationNames: [UInt16: String] = [
+        0x9001: "Leica.SetCameraSettings",
+        0x9002: "Leica.GetCameraSettings",
+        0x9003: "Leica.GetLensParameter",
+        0x9004: "Leica.LEReleaseStages",       // 1=push AF, 2=release AF, etc.
+        0x9005: "Leica.LEOpenSession",
+        0x9006: "Leica.LECloseSession",
+        0x9007: "Leica.RequestObjectTransferReady",
+        0x9008: "Leica.GetGeoTrackingData",
+        0x900A: "Leica.OpenDebugSession",
+        0x900B: "Leica.CloseDebugSession",
+        0x900C: "Leica.GetDebugBuffer",
+        0x900D: "Leica.DebugCommandString",
+        0x900E: "Leica.GetDebugRoute",
+        0x900F: "Leica.SetIPTCData",
+        0x9010: "Leica.GetIPTCData",
+        0x9016: "Leica.LEControlAutoFocus",
+        0x9019: "Leica.LEControlBulbExposure",
+        0x901A: "Leica.LEControlContinuousExposure",
+        0x901B: "Leica.901b",                  // related to shutter release
+        0x901C: "Leica.LEControlPhotoLiveView",
+        0x901D: "Leica.LEKeepSessionActive",
+        0x901E: "Leica.LEMoveLens",
+        0x9020: "Leica.Get3DAxisData",
+        0x9021: "Leica.LESetZoomMode",
+        0x9022: "Leica.LESetFocusCrossPosition",
+        0x9025: "Leica.LEGetStreamData",       // live-view frame fetch
+    ]
     // Sigma fp / fp L. Vendor opcode family is its own — none of these
     // numbers overlap with the meanings they have on other vendors.
+    // Source: https://github.com/makanikai/sigma-ptpy sigma_ptp.py.
     private static let sigmaOperationNames: [UInt16: String] = [
-        0x9035: "Sigma.GetCamCanSetInfo",
-        0x9038: "Sigma.GetCamCaptStatus",
-        0x9039: "Sigma.GetCamDataGroupFocus",
-        0x9412: "Sigma.GetCamViewFrame",
-        0x9035: "Sigma.GetCamConfig",
-        0x9050: "Sigma.SetCamDataGroup1",
-        0x9051: "Sigma.SetCamDataGroup2",
-        0x9052: "Sigma.SetCamDataGroup3",
-        0x9053: "Sigma.SetCamDataGroup4",
-        0x905E: "Sigma.SnapCommand",
-        0x9070: "Sigma.ClearImageDBSingle",
-        0x9071: "Sigma.ClearImageDBAll",
+        0x9012: "Sigma.GetCamDataGroup1",  // exposure (shutter/aperture/ISO/EVbias)
+        0x9013: "Sigma.GetCamDataGroup2",  // mode (drive/exposure/meter/flash/WB)
+        0x9014: "Sigma.GetCamDataGroup3",  // colour + lens focal lengths
+        0x9015: "Sigma.GetCamCaptStatus",
+        0x9016: "Sigma.SetCamDataGroup1",
+        0x9017: "Sigma.SetCamDataGroup2",
+        0x9018: "Sigma.SetCamDataGroup3",
+        0x9019: "Sigma.SetCamClockAdj",
+        0x901B: "Sigma.SnapCommand",
+        0x901C: "Sigma.ClearImageDBSingle",
+        0x9022: "Sigma.GetBigPartialPictFile",
+        0x9023: "Sigma.GetCamDataGroup4",  // DC crop / LV magnify / HDR
+        0x9024: "Sigma.SetCamDataGroup4",
+        0x9027: "Sigma.GetCamDataGroup5",  // interval timer / Kelvin / aspect
+        0x9028: "Sigma.SetCamDataGroup5",
+        0x9029: "Sigma.GetLastCommandData",
+        0x902A: "Sigma.FreeArrayMemory",
+        0x902B: "Sigma.GetViewFrame",      // live-view JPEG fetch
+        0x902D: "Sigma.GetPictFileInfo2",
+        0x902F: "Sigma.CloseApplication",
+        0x9030: "Sigma.GetCamCanSetInfo5",
+        0x9031: "Sigma.GetCamDataGroupFocus",
+        0x9032: "Sigma.SetCamDataGroupFocus",
+        0x9033: "Sigma.GetCamDataGroupMovie",
+        0x9034: "Sigma.SetCamDataGroupMovie",
+        0x9035: "Sigma.ConfigApi",
+        0x9036: "Sigma.GetMovieFileInfo",
+        0x9037: "Sigma.GetPartialMovieFile",
     ]
 
     static func operationName(_ op: UInt16, vendor: ProtocolFamily = .unknown) -> String {
@@ -599,14 +735,32 @@ enum PtpKnownCameras {
     }
 
     /// Friendly label, in priority order:
-    ///   1. "<Make> <Model>" if VID/PID is in our table.
-    ///   2. Trimmed USB descriptor product name, if non-empty.
-    ///   3. "USB <vid>:<pid>" hex fallback.
+    ///   1. If the VID/PID is in `sharedPids` (multiple bodies on one PID)
+    ///      AND the USB descriptor name is non-empty, return
+    ///      "<Make> <USBName>" — using the camera-reported model so a
+    ///      Panasonic DC-GH5 doesn't end up labelled as "Lumix DC-series"
+    ///      when the descriptor knew the specific body.
+    ///   2. Otherwise "<Make> <Model>" if VID/PID is in our `table`.
+    ///   3. Trimmed USB descriptor product name, if non-empty.
+    ///   4. "USB <vid>:<pid>" hex fallback.
     static func displayName(vid: UInt16, pid: UInt16, fallback: String) -> String {
-        if let known = lookup(vid: vid, pid: pid) {
+        let key = (UInt32(vid) << 16) | UInt32(pid)
+        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let known = table[key] {
+            if sharedPids.contains(key), !trimmed.isEmpty {
+                // The USB descriptor knows the specific body — prefer it.
+                // Avoid duplicating the brand prefix when the descriptor
+                // already starts with it ("Panasonic DC-GH5" vs "DC-GH5").
+                let lcTrimmed = trimmed.lowercased()
+                let lcMake    = known.make.lowercased()
+                if lcTrimmed.hasPrefix(lcMake) {
+                    return trimmed
+                }
+                return "\(known.make) \(trimmed)"
+            }
             return "\(known.make) \(known.model)"
         }
-        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
         return String(format: "USB %04X:%04X", vid, pid)
     }

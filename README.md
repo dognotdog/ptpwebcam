@@ -49,7 +49,9 @@ Delete the following files and reboot to uninstall PTP Webcam:
 
 ## Supported Cameras over USB
 
-The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md). Cameras from Canon, Nikon, and Sony are currently supported.
+The supported cameras and their capabilities are listed in [CAMERAS.md](CAMERAS.md). Canon, Nikon, and Sony bodies are the most thoroughly tested. Experimental support for Fujifilm (X / GFX), Olympus / OM System (modern OMD), Panasonic Lumix, Sigma fp, and modern Leica (M11 / Q3 / SL3 family) is also included via the system camera extension — these vendors are implemented from public reverse-engineering work and may need per-body verification.
+
+Autofocus can be triggered from the menu bar on Nikon, Sony (experimental), Leica, and Fuji. Other vendors fall back to whatever AF mode the camera is in when streaming starts.
 
 Additionally many UVC (USB Video Class) cameras can also be controlled.
  

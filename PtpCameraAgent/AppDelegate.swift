@@ -857,11 +857,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
 
-        // Autofocus trigger. Nikon: AfDrive (0x90C1). Sony: AutofocusButton
-        // toggle (0xD2C1) — known unreliable on A7-series in tethered mode,
-        // so we label it experimental. Canon: not yet implemented at the
-        // extension side.
-        if vendor == .nikon || (vendor == .sony && camera.properties[0xD2C1] != nil) {
+        // Autofocus trigger. Per-vendor support:
+        //   Nikon:  AfDrive (0x90C1) — solid.
+        //   Sony:   AutofocusButton toggle (0xD2C1) — flaky on A7-series in
+        //           tethered mode, so labelled experimental.
+        //   Leica:  LEReleaseStages (0x9004) with push/release stages, the
+        //           same release-ladder Adobe Lightroom's plugin uses.
+        //   Fuji:   Camera Action property write 0xD208 = 0x0200 + standard
+        //           InitiateCapture (0x100E) + poll AFStatus (0xD209). We
+        //           gate on the presence of 0xD208 so older bodies without
+        //           the Camera Action prop don't get a dead menu item.
+        //   Canon / Panasonic / Olympus / Sigma: not wired yet — AF opcodes
+        //           either need on-camera coordinate payloads or haven't
+        //           been verified against hardware.
+        let supportsAf: Bool = {
+            switch vendor {
+            case .nikon, .leica: return true
+            case .sony: return camera.properties[0xD2C1] != nil
+            // Fuji: 0xD208 is sometimes missing from GetDeviceInfo even on
+            // bodies that accept the prop write. Show the
+            // menu item for all Fuji bodies; the extension logs and bails
+            // cleanly if the prop write returns AccessDenied.
+            case .fuji: return true
+            default: return false
+            }
+        }()
+        if supportsAf {
             menu.addItem(NSMenuItem.separator())
             let title = vendor == .sony ? "  Autofocus (experimental)" : "  Autofocus"
             let afItem = NSMenuItem(title: title,

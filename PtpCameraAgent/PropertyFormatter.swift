@@ -130,6 +130,8 @@ let sonyExtPropValueNames: [UInt32: [UInt32: String]] = [
 func formatExtPropRaw(_ value: NSNumber, propId: UInt32, vendor: ProtocolFamily = .unknown) -> String {
     if vendor == .sony, let name = sonyExtPropValueNames[propId]?[value.uint32Value] { return name }
     if vendor == .canon, let canon = formatCanonExtProp(value, propId: propId) { return canon }
+    if vendor == .panasonic, let pana = formatPanasonicExtProp(value, propId: propId) { return pana }
+    if vendor == .sigma, let sigma = formatSigmaExtProp(value, propId: propId) { return sigma }
     if let name = nikonExtPropValueNames[propId]?[value.uint32Value] { return name }
     switch propId {
     case 0x5001: return "\(value.intValue)%"  // Standard PTP Battery Level
@@ -283,3 +285,204 @@ private func formatCanonExtProp(_ value: NSNumber, propId: UInt32) -> String? {
     default: return nil
     }
 }
+
+// MARK: - Panasonic Lumix formatters
+//
+// Panasonic uses 32-bit property codes (PTP_DPC_PANASONIC_* — e.g.
+// 0x02000020 for ISO, 0x02000050 for WhiteBalance). The value encodings
+// are LESS documented than Canon's. That's fine
+// for the UI when the value happens to be human-readable (ISO 800 → "800"),
+// but useless for opaque mode codes.
+//
+// For numeric properties where the encoding is plausibly the same
+// as Sony/Nikon (shutter-speed as `(num<<16)|den`, aperture as f-number
+// ×100, exposure bias signed Int16 × 0.001 EV) we decode them, marked
+// with a `?` suffix on values we couldn't reasonably decode so the user
+// knows it's a best-guess rather than a verified mapping.
+
+/// PTP_DPC_PANASONIC_WhiteBalance enum value names.
+private let panasonicWhiteBalanceTable: [UInt32: String] = [
+    0x0002: "Auto",         0x0004: "Daylight",
+    0x0005: "Fluorescent",  0x0006: "Tungsten",
+    0x0007: "Flash",
+    0x8008: "Cloudy",       0x8009: "White Set",
+    0x800A: "Black & White",
+    0x800B: "Preset 1",     0x800C: "Preset 2",
+    0x800D: "Preset 3",     0x800E: "Preset 4",
+    0x800F: "Shadow",
+    0x8010: "Temperature 1",0x8011: "Temperature 2",
+    0x8012: "Temperature 3",0x8013: "Temperature 4",
+    0x8014: "Auto (Cool)",  0x8015: "Auto (Warm)",
+]
+
+private func formatPanasonicExtProp(_ value: NSNumber, propId: UInt32) -> String? {
+    let v = value.uint32Value
+    switch propId {
+    // 0x02000020 ISO, 0x02000021 ISO_Param — both values are raw ISO
+    // integers.
+    case 0x02000020, 0x02000021:
+        if v == 0xFFFFFFFF || v == 0 { return "Auto" }
+        return "ISO \(v)"
+    // 0x02000022 ISO upper limit — same encoding as ISO itself.
+    case 0x02000022:
+        return v == 0 ? "—" : "ISO \(v)"
+    // 0x02000030 ShutterSpeed, 0x02000031 ShutterSpeed_Param —
+    // encoding inferred to be Sony-style `(num<<16)|den`. NOT VERIFIED on
+    // a real Lumix body; if a dump shows different numbers, remove the
+    // decoder and let it fall through to raw int below.
+    case 0x02000030, 0x02000031:
+        if v == 0 || v == 0xFFFFFFFF { return "—" }
+        return formatNikonShutterSpeed(v) + " ?"
+    // 0x02000040 Aperture, 0x02000041 Aperture_Param — likewise inferred
+    // to be f-number × 100. Untested.
+    case 0x02000040, 0x02000041:
+        if v == 0 || v == 0xFFFE || v == 0xFFFF { return "—" }
+        return String(format: "f/%.1f ?", Double(v) * 0.01)
+    // 0x02000050 WhiteBalance — verified enum table.
+    case 0x02000050:
+        return panasonicWhiteBalanceTable[v]
+            ?? String(format: "WB ?(0x%04x)", v)
+    // 0x02000052 WhiteBalance_KSet — Kelvin temperature (UInt16 typically).
+    case 0x02000052:
+        return v >= 1000 && v <= 12000 ? "\(v) K" : String(format: "K ?(%d)", v)
+    // 0x02000053/54/55 WB fine-tune (Amber/Blue, Green/Magenta)
+    // store the sign in the high bit (val & 0x8000 → negate the lower 15).
+    case 0x02000053, 0x02000054, 0x02000055:
+        let signed = (v & 0x8000) != 0 ? -Int(v & 0x7FFF) : Int(v & 0x7FFF)
+        return signed >= 0 ? "+\(signed)" : "\(signed)"
+    // 0x02000060 Exposure / 0x02000061 Exposure_Param — exposure bias.
+    // Inferred encoding: signed Int16 in 1/3 EV steps (matches Panasonic's
+    // dial granularity). Without test data this is a guess; raw fallback
+    // would just show the integer.
+    case 0x02000060, 0x02000061:
+        let i16 = Int16(bitPattern: UInt16(v & 0xFFFF))
+        return String(format: "%+.1f EV ?", Double(i16) / 3.0)
+    default:
+        return nil
+    }
+}
+
+// MARK: - Sigma fp formatters
+//
+// Sigma fp encodes numeric exposure properties in APEX units packed into
+// a UInt8 with × 8 sub-stop precision (standard photographic convention).
+// Conversion formulas:
+//   Shutter:  seconds = 2^(-apex_byte / 8) — APEX 64 → 1.0 s, 96 → 1/8 s
+//   Aperture: f-number = 2^(apex_byte / 16) — APEX 32 → f/4, 48 → f/8
+//   ISO:      ISO = 100 × 2^((apex_byte - 40) / 8) — APEX 40 → ISO 100
+//   ExpComp:  EV = (signed int8 apex_byte) / 8.0
+//
+// Synthetic property IDs come from `UsbSigmaCamera`:
+//   0xF1xxxxxx → DataGroup1 (exposure)
+//   0xF2xxxxxx → DataGroup2 (mode)
+//   0xF3xxxxxx → DataGroup3 (colour + lens)
+// Low 16 bits hold the FieldPresent bit mask, so 0xF1000100 is ShutterSpeed,
+// 0xF1000200 is Aperture, etc. We dispatch on those.
+
+/// Sigma DataGroup2 WhiteBalance enum value names. Tags from sigma-ptpy
+/// schema.py's `WhiteBalance` IntEnum.
+private let sigmaWhiteBalanceTable: [UInt32: String] = [
+    1: "Auto", 2: "Auto (Ambient Priority)",
+    3: "Sunlight",  4: "Shade",   5: "Overcast",
+    6: "Incandescent", 7: "Fluorescent",
+    8: "Flash",     9: "Custom 1", 10: "Custom 2", 11: "Custom 3",
+    12: "Custom (Capture)", 13: "Color Temperature",
+]
+
+private let sigmaExposureModeTable: [UInt32: String] = [
+    1: "P", 2: "A", 3: "S", 4: "M",
+    // Movie modes share the codes 1-4 with a separate SpecialMode flag.
+]
+
+private let sigmaDriveModeTable: [UInt32: String] = [
+    1: "Single", 2: "Continuous (High)", 3: "Continuous (Med)",
+    4: "Continuous (Low)", 5: "Self-Timer (2s)",
+    6: "Self-Timer (10s)", 7: "Interval",
+]
+
+private let sigmaMeteringTable: [UInt32: String] = [
+    1: "Evaluative", 2: "Centre-weighted Average",
+    3: "Spot",
+]
+
+private let sigmaImageQualityTable: [UInt32: String] = [
+    0x02: "JPEG Fine", 0x04: "JPEG Normal", 0x08: "JPEG Basic",
+    0x10: "DNG",       0x12: "DNG + JPEG Fine",
+    0x14: "DNG + JPEG Normal", 0x18: "DNG + JPEG Basic",
+]
+
+private let sigmaColorModeTable: [UInt32: String] = [
+    0x00: "Normal",   0x01: "Sepia",
+    0x02: "B&W",      0x03: "Standard", 0x04: "Vivid",
+    0x05: "Neutral",  0x06: "Portrait", 0x07: "Landscape",
+    0x08: "Cinema",   0x09: "Sunset Red",
+    0x0A: "Forest Green",
+    0x0B: "FOV Classic Blue", 0x0C: "FOV Classic Yellow",
+    0x0D: "Powder Blue",      0x0E: "Duotone",
+    0x0F: "Off",
+]
+
+private let sigmaColorSpaceTable: [UInt32: String] = [
+    0: "sRGB", 1: "AdobeRGB",
+]
+
+private func formatSigmaExtProp(_ value: NSNumber, propId: UInt32) -> String? {
+    let v = value.uint32Value
+    // Top byte identifies the DataGroup; low 16 bits are the FieldPresent
+    // bit mask. Switch on the lower 24 bits so the synthetic IDs come
+    // through unambiguously.
+    let group = (propId >> 24) & 0xFF
+    let mask  = propId & 0xFFFF
+
+    switch (group, mask) {
+    case (0xF1, 0x0100):    // ShutterSpeed (APEX × 8)
+        if v == 0 { return "—" }
+        let seconds = pow(2.0, -Double(v) / 8.0)
+        if seconds >= 1 {
+            return String(format: "%.1f\"", seconds)
+        } else {
+            return "1/\(Int((1.0 / seconds).rounded()))"
+        }
+    case (0xF1, 0x0200):    // Aperture (APEX × 16 — 2 stops per APEX)
+        if v == 0 { return "—" }
+        let f = pow(2.0, Double(v) / 16.0)
+        return String(format: "f/%.1f", f)
+    case (0xF1, 0x1000):    // ISOSpeed (APEX × 8 from ISO 100=40)
+        if v == 0 { return "Auto" }
+        let iso = 100.0 * pow(2.0, (Double(v) - 40.0) / 8.0)
+        return "ISO \(Int(iso.rounded()))"
+    case (0xF1, 0x2000):    // ExpComp (signed int8 / 8 EV)
+        let signed = Int(Int8(bitPattern: UInt8(v & 0xFF)))
+        return String(format: "%+.2f EV", Double(signed) / 8.0)
+    case (0xF1, 0x4000):    // ABValue (same encoding as ExpComp)
+        let signed = Int(Int8(bitPattern: UInt8(v & 0xFF)))
+        return String(format: "%+.2f EV", Double(signed) / 8.0)
+    case (0xF1, 0x0008):    // CurrentLensFocalLength (uint16 fixed-point, 4 frac bits)
+        let mm = Double(v) / 16.0
+        return String(format: "%.1f mm", mm)
+    case (0xF1, 0x0010):    // BatteryState
+        return "\(v)%"
+    case (0xF2, 0x0100):    // DriveMode
+        return sigmaDriveModeTable[v] ?? "Drive ?(\(v))"
+    case (0xF2, 0x0400):    // ExposureMode
+        return sigmaExposureModeTable[v] ?? "Mode ?(\(v))"
+    case (0xF2, 0x0800):    // AEMeteringMode
+        return sigmaMeteringTable[v] ?? "Meter ?(\(v))"
+    case (0xF2, 0x0020):    // WhiteBalance
+        return sigmaWhiteBalanceTable[v] ?? "WB ?(\(v))"
+    case (0xF2, 0x0080):    // ImageQuality
+        return sigmaImageQualityTable[v] ?? "Quality ?(0x\(String(v, radix: 16)))"
+    case (0xF3, 0x1000):    // ColorMode
+        return sigmaColorModeTable[v] ?? "Color ?(\(v))"
+    case (0xF3, 0x0800):    // ColorSpace
+        return sigmaColorSpaceTable[v] ?? "Space ?(\(v))"
+    case (0xF3, 0x4000), (0xF3, 0x8000):  // Lens wide/tele focal length
+        let mm = Double(v) / 16.0
+        return String(format: "%.1f mm", mm)
+    default:
+        // Other DataGroup fields (Reserved, FrameBufferState, etc.) — just
+        // pass through raw integer.
+        return nil
+    }
+}
+
