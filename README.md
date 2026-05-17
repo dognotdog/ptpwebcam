@@ -130,8 +130,8 @@ sudo codesign -f -s - /Applications/Discord.app/Contents/Frameworks/Discord\ Hel
 ### Debug / Crash Logs
 
 PTP Webcam moved from a DAL plugin to a CoreMediaIO **system extension**
-(`org.ptpwebcam.CameraExtension`) plus a user-space agent
-(`org.ptpwebcam.PtpCameraAgent`). All diagnostic output goes through the
+(`org.ptpwebcam.PtpWebcamApp.CameraExtension`) plus a user-space agent
+(`org.ptpwebcam.PtpWebcamApp.PtpCameraAgent`). All diagnostic output goes through the
 unified `os_log` system. There is no longer a `/tmp/*.stderr.log` file.
 
 #### Reporting a bug — quickest path
@@ -152,9 +152,7 @@ the problem.
 In Terminal, before plugging in the camera:
 
 ```
-log stream --predicate 'subsystem == "org.ptpwebcam.CameraExtension" OR \
-                        subsystem == "org.ptpwebcam.PtpCameraAgent" OR \
-                        subsystem == "org.ptpwebcam.PtpWebcamApp"' \
+log stream --predicate 'subsystem == "org.ptpwebcam"' \
            --style compact > ~/Desktop/ptpwebcam.log
 ```
 
@@ -170,9 +168,7 @@ still has the last few minutes:
 
 ```
 log show --last 5m \
-         --predicate 'subsystem == "org.ptpwebcam.CameraExtension" OR \
-                      subsystem == "org.ptpwebcam.PtpCameraAgent" OR \
-                      subsystem == "org.ptpwebcam.PtpWebcamApp"' \
+         --predicate 'subsystem == "org.ptpwebcam"' \
          --style compact > ~/Desktop/ptpwebcam.log
 ```
 
@@ -180,7 +176,7 @@ log show --last 5m \
 
 System-extension crash reports land in
 `~/Library/Logs/DiagnosticReports/` with filenames starting with
-`org.ptpwebcam.CameraExtension-…`. Older legacy crash files starting
+`org.ptpwebcam.PtpWebcamApp.CameraExtension-…`. Older legacy crash files starting
 with `PtpWebcamLaunchAgent-…` are from the previous DAL-plugin
 architecture and can be ignored.
 
@@ -189,7 +185,7 @@ architecture and can be ignored.
 | What | Command |
 |---|---|
 | Confirm extension is activated | `systemextensionsctl list \| grep ptpwebcam` |
-| See current extension version | `defaults read /Applications/PTP\ Webcam.app/Contents/Library/SystemExtensions/org.ptpwebcam.CameraExtension.systemextension/Contents/Info.plist CFBundleVersion` |
+| See current extension version | `defaults read /Applications/PTP\ Webcam.app/Contents/Library/SystemExtensions/org.ptpwebcam.PtpWebcamApp.CameraExtension.systemextension/Contents/Info.plist CFBundleVersion` |
 | List camera devices visible to CMIO | `ffmpeg -hide_banner -f avfoundation -list_devices true -i ""` |
 | Force-relaunch the agent | `launchctl kickstart -k gui/$(id -u)/org.ptpwebcam.PtpCameraAgent` |
 

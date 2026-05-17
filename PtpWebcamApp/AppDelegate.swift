@@ -17,9 +17,16 @@ import StoreKit
 class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDelegate {
 
 	private let log = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp", category: "AppDelegate")
-	private let extensionIdentifier = "org.ptpwebcam.CameraExtension"
-	private let agentPlistName = "org.ptpwebcam.PtpCameraAgent.plist"
-	private let agentLabel     = "org.ptpwebcam.PtpCameraAgent"
+	// All nested bundle IDs follow the App Store prefix rule: helpers and
+	// extensions are `<host-app-bundle-id>.<suffix>`. Launchd label, plist
+	// filename, and Mach service names track the same prefix for
+	// consistency — easier to grep, easier to reason about. The mach
+	// service names declared in `org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.plist`
+	// must match `kPtpCameraAgentMachServiceName` /
+	// `kPtpSurfaceSharingMachServiceName` in PtpCameraAgentProtocol.swift.
+	private let extensionIdentifier = "org.ptpwebcam.PtpWebcamApp.CameraExtension"
+	private let agentPlistName = "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.plist"
+	private let agentLabel     = "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent"
 
 	// MARK: - OSSystemExtensionRequestDelegate
 
@@ -204,6 +211,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	// MARK: - Extension Activation
 
 	private func activateExtension() {
+		// Note: don't try to submit a deactivation request for a legacy
+		// bundle ID (e.g. the pre-App-Store `org.ptpwebcam.CameraExtension`).
+		// sysextd requires the requesting app to contain an extension with
+		// the matching identifier in its bundle, which our renamed build
+		// no longer does — the deactivation just fails with "extension not
+		// found in app bundle" and pollutes the logs. Legacy records have
+		// to be cleared from outside the app (System Settings → Login
+		// Items & Extensions → Camera Extensions, or
+		// `sudo systemextensionsctl uninstall` with SIP disabled).
 		let activationRequest = OSSystemExtensionRequest.activationRequest(
 			forExtensionWithIdentifier: extensionIdentifier, queue: .main)
 		activationRequest.delegate = self
@@ -325,11 +341,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	private func showApprovalNeededAlert() {
 		let alert = NSAlert()
 		alert.messageText = "Allow PTP Webcam in System Settings"
-		alert.informativeText = "The camera extension needs your approval to activate.\n\nOpen System Settings → Privacy & Security, scroll to Security, and click \"Allow\" next to PTP Webcam Camera Extension."
+		// Path varies by macOS release. Cover both locations because the
+		// Camera Extension category lives under Login Items & Extensions
+		// on macOS 15+, and the "Allow" button for blocked system
+		// extensions still appears under Privacy & Security → Security
+		// on earlier versions.
+		alert.informativeText = """
+			The camera extension needs your approval to activate.
+
+			On macOS 15 (Sequoia) or later:
+			  System Settings → General → Login Items & Extensions → \
+			scroll to Camera Extensions, click the (i) next to it, and \
+			enable PTP Webcam Camera Extension.
+
+			On macOS 14 (Sonoma) and earlier:
+			  System Settings → Privacy & Security → scroll to Security, \
+			and click "Allow" next to PTP Webcam Camera Extension.
+			"""
 		alert.addButton(withTitle: "Open System Settings")
 		alert.addButton(withTitle: "Later")
 		if alert.runModal() == .alertFirstButtonReturn {
-			let url = URL(string: "x-apple.systempreferences:com.apple.preference.security")!
+			// Open Login Items & Extensions on modern macOS — that's
+			// where camera extension approval lives now. On older macOS
+			// versions this URL falls back to the General pane, from
+			// which the user can navigate to Privacy & Security.
+			let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
+				?? URL(string: "x-apple.systempreferences:com.apple.preference.security")!
 			NSWorkspace.shared.open(url)
 		}
 	}

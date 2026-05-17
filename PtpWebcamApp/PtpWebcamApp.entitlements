@@ -6,21 +6,16 @@
 	<true/>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<!-- StoreKit 2 + AppStore.sync() / showManageSubscriptions() both
-	     reach Apple's App Store servers; without network-client they
-	     time out under the sandbox. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>$(TeamIdentifierPrefix)org.ptpwebcam.CameraExtension</string>
+		<string>$(TeamIdentifierPrefix)org.ptpwebcam.PtpWebcamApp.CameraExtension</string>
 	</array>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<key>com.apple.security.device.camera</key>
 	<true/>
-	<!-- Read/write user-selected files so the "List PTP Properties"
-	     NSSavePanel can write the dump anywhere the user picks. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 </dict>

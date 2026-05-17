@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.ptpwebcam.PtpWebcamApp.PtpCameraAgent</string>
+	<!-- AssociatedBundleIdentifiers is an ARRAY of bundle IDs (Apple's
+	     SMAppService spec). A bare <string> here is silently accepted by
+	     plist parsing but produces an empty host-app association in BTM,
+	     which then rejects SMAppService.register() with "Operation not
+	     permitted". The agent never appears in Login Items & Extensions. -->
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>org.ptpwebcam.PtpWebcamApp</string>
+	</array>
+	<key>BundleProgram</key>
+	<string>Contents/Library/LoginItems/PtpWebcamAgent.app/Contents/MacOS/PtpWebcamAgent</string>
+	<key>MachServices</key>
+	<dict>
+		<key>org.ptpwebcam.PtpWebcamApp.PtpCameraAgent</key>
+		<true/>
+		<key>org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.surface</key>
+		<true/>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+</dict>
+</plist>

@@ -2,7 +2,7 @@ import Foundation
 import IOSurface
 import os.log
 
-private let log = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "SurfaceSharing")
+private let log = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "SurfaceSharing")
 private func slog(_ msg: String) { log.fault("\(msg, privacy: .public)") }
 
 // MARK: - AgentXPCDelegate

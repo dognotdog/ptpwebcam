@@ -2,7 +2,7 @@
 import Foundation
 import IOSurface
 
-let kPtpCameraAgentMachServiceName = "org.ptpwebcam.PtpCameraAgent"
+let kPtpCameraAgentMachServiceName = "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent"
 
 let kPtpCameraStateNotification = "org.ptpwebcam.CameraStateChanged"
 let kPtpCameraStateRequestNotification = "org.ptpwebcam.CameraStateRequest"
@@ -12,12 +12,11 @@ let kPtpCameraStatePath = "/tmp/org.ptpwebcam.cameras.plist"
 let kDarwinCameraStateChanged = "org.ptpwebcam.darwin.CameraStateChanged"
 let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 
-// USB access coordination: extension → agent
-// Extension posts this before opening IOUSBHostInterface so the agent can kill
-// ptpcamerad (Apple's PTP daemon that otherwise holds exclusive USB ownership).
-let kDarwinNeedUsbAccess  = "org.ptpwebcam.darwin.NeedUsbAccess"
-// Agent posts this when ptpcamerad has been terminated and USB is free.
-let kDarwinUsbAccessReady = "org.ptpwebcam.darwin.UsbAccessReady"
+// Note: the kDarwinNeedUsbAccess / kDarwinUsbAccessReady channels used to
+// signal the agent to kill ptpcamerad before the extension claimed the USB
+// interface. Removed when the extension switched to USBInterfaceOpenSeize —
+// the kernel evicts the prior owner directly, and the agent is now
+// sandboxed (App Store requirement) so it couldn't perform a kill anyway.
 
 // State slots: each holds 8 bytes via notify_set_state/notify_get_state.
 // Slot 0 high 32 bits = total byte length, low 32 bits = reserved.
@@ -104,7 +103,7 @@ let kDarwinPtpDumpTextSlotCount  = 2048
 // Dedicated surface-sharing protocol — agent exposes this on kPtpSurfaceSharingMachServiceName.
 // IOSurface is transferred via Mach send right (NSXPCConnection / IOSurfaceCreateXPCObject internals),
 // bypassing the cross-UID IOSurfaceLookup restriction.
-let kPtpSurfaceSharingMachServiceName = "org.ptpwebcam.PtpCameraAgent.surface"
+let kPtpSurfaceSharingMachServiceName = "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.surface"
 
 // Temp-file directory for live view frames (cross-UID, cross-sandbox-namespace).
 // Agent writes JPEG atomically (write + rename); extension reads on Darwin notify.

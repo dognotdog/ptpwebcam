@@ -12,8 +12,15 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$PROJECT_DIR/PTP Webcam.xcodeproj"
-EXT_BUNDLE_ID="org.ptpwebcam.CameraExtension"
-EXT_BIN="org.ptpwebcam.CameraExtension"
+# Bundle ID — used by systemextensionsctl list / activation tracking.
+# Apple's sysextd locates the embedded extension by scanning for a wrapper
+# directory named "<EXT_BUNDLE_ID>.systemextension" inside the host app's
+# Contents/Library/SystemExtensions/, so the Xcode target's PRODUCT_NAME
+# also equals this string. The binary inside Contents/MacOS/ follows the
+# same convention, hence EXT_BIN tracks too.
+EXT_BUNDLE_ID="org.ptpwebcam.PtpWebcamApp.CameraExtension"
+EXT_PRODUCT_NAME="$EXT_BUNDLE_ID"
+EXT_BIN="$EXT_BUNDLE_ID"
 INSTALL_PATH="/Applications/PTP Webcam.app"
 TEAM_ID="ZYF8X9Z6M2"
 
@@ -38,19 +45,19 @@ wait_for_ext_process() {
     local log_file
     log_file=$(mktemp /tmp/ptpwebcam-ext-log.XXXXXX)
     /usr/bin/log stream \
-        --predicate 'subsystem == "org.ptpwebcam.CameraExtension"' \
+        --predicate 'subsystem == "org.ptpwebcam.PtpWebcamApp.CameraExtension"' \
         --style compact > "$log_file" 2>&1 &
     local log_pid=$!
     sleep 0.5   # let log stream attach before we trigger launch
 
     # Also check if it already logged (quick restart may have fired before we attached).
     if /usr/bin/log show --last 5s \
-            --predicate 'subsystem == "org.ptpwebcam.CameraExtension"' \
+            --predicate 'subsystem == "org.ptpwebcam.PtpWebcamApp.CameraExtension"' \
             --style compact 2>/dev/null | grep -q "PtpWebcam extension started build=$expected_ver"; then
         echo "    (already running — found in recent log history)"
         kill "$log_pid" 2>/dev/null; wait "$log_pid" 2>/dev/null
         /usr/bin/log show --last 5s \
-            --predicate 'subsystem == "org.ptpwebcam.CameraExtension"' \
+            --predicate 'subsystem == "org.ptpwebcam.PtpWebcamApp.CameraExtension"' \
             --style compact 2>/dev/null | grep "PtpWebcam extension" | head -6
         rm -f "$log_file"
         return 0
@@ -92,7 +99,7 @@ show_ext_logs() {
     echo ""
     echo "=== Recent extension logs (last 30s) ==="
     log show --last 30s \
-        --predicate 'subsystem == "org.ptpwebcam.CameraExtension"' \
+        --predicate 'subsystem == "org.ptpwebcam.PtpWebcamApp.CameraExtension"' \
         --style compact 2>/dev/null | tail -30 || true
     echo ""
     echo "=== Sandbox/crash hints ==="
@@ -107,7 +114,7 @@ if $RESTART_ONLY; then
     echo "=== PTP Webcam Extension Restart (no build) ==="
     # Read version from the app bundle (not systemextensionsctl, which may lag after a reset).
     CURRENT_VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
-        "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_BUNDLE_ID.systemextension/Contents/Info.plist" \
+        "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_PRODUCT_NAME.systemextension/Contents/Info.plist" \
         2>/dev/null || echo "?")
     echo "    App bundle version: $CURRENT_VER"
 
@@ -199,12 +206,12 @@ fi
 
 # Verify the built extension has the expected version
 BUILT_EXT_VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
-    "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_BUNDLE_ID.systemextension/Contents/Info.plist" \
+    "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_PRODUCT_NAME.systemextension/Contents/Info.plist" \
     2>/dev/null || echo "?")
 echo "    Extension bundle version in app: $BUILT_EXT_VER"
 
 # Sanity-check: ensure the built binary has our expected startup string
-INIT_VER=$(strings "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_BUNDLE_ID.systemextension/Contents/MacOS/$EXT_BUNDLE_ID" 2>/dev/null | grep "PtpWebcam extension started" | head -1 || echo "(not found)")
+INIT_VER=$(strings "$INSTALL_PATH/Contents/Library/SystemExtensions/$EXT_PRODUCT_NAME.systemextension/Contents/MacOS/$EXT_PRODUCT_NAME" 2>/dev/null | grep "PtpWebcam extension started" | head -1 || echo "(not found)")
 echo "    Binary reports: $INIT_VER"
 
 # ── 4. Open app — triggers OSSystemExtensionRequest upgrade ──────────
@@ -270,4 +277,4 @@ fi
 echo ""
 echo "Verify:"
 echo "  ffmpeg -hide_banner -f avfoundation -list_devices true -i \"\""
-echo "  log show --last 30s --predicate 'subsystem == \"org.ptpwebcam.CameraExtension\"' --style compact"
+echo "  log show --last 30s --predicate 'subsystem == \"org.ptpwebcam.PtpWebcamApp.CameraExtension\"' --style compact"

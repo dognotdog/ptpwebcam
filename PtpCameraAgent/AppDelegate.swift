@@ -20,8 +20,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isStatusMenuOpen = false
     private var rebuildPending   = false
 
-    private let logger = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "Agent")
-    private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpCameraAgent", category: "AgentLog")
+    private let logger = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "Agent")
+    private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "AgentLog")
     private var xpcListener: NSXPCListener!
     private var surfaceXpcListener: NSXPCListener!
 
@@ -175,13 +175,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         surfaceXpcListener.resume()
         AppDelegate.log("PtpCameraAgent: surface XPC listener started on \(kPtpSurfaceSharingMachServiceName)")
 
-        // USB access coordination: the extension can't kill ptpcamerad (different UID).
-        // We do it here (same UID 501) when the extension requests it (at stream start only).
-        var needUsbToken: Int32 = 0
-        darwin_notify_register_dispatch(kDarwinNeedUsbAccess, &needUsbToken, .main) { [weak self] _ in
-            self?.handleNeedUsbAccess()
-        }
-
         // Property state slots: extension publishes camera property JSON here.
         propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
             var token: Int32 = 0
@@ -224,53 +217,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: - USB Access Coordination
-
-    /// Kill ptpcamerad so the CMIO extension (user/262) can open the PTP USB interface.
-    /// ptpcamerad (Apple's PTP transport daemon) claims PTP interfaces automatically.
-    /// We use sysctl KERN_PROC_ALL + kill() directly — no child-process spawn needed,
-    /// which avoids the sandbox restriction that blocked pkill (exit code 3).
-    private func handleNeedUsbAccess() {
-        let killed = Self.killProcessByName("ptpcamerad")
-        AppDelegate.log("PtpCameraAgent: handleNeedUsbAccess killed=\(killed)")
-        // Signal extension that USB is ready (small delay for process cleanup).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            darwin_notify_post(kDarwinUsbAccessReady)
-        }
-    }
-
-    /// Find all processes named `name` and send SIGTERM.  Returns true if ≥1 was found.
-    /// Uses sysctl(KERN_PROC_ALL) + kill() — no child-process spawn.
-    @discardableResult
-    private static func killProcessByName(_ name: String) -> Bool {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        sysctl(&mib, 4, nil, &size, nil, 0)
-        let capacity = size / MemoryLayout<kinfo_proc>.stride + 1
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: capacity)
-        sysctl(&mib, 4, &procs, &size, nil, 0)
-
-        let count = size / MemoryLayout<kinfo_proc>.stride
-        var found = false
-        for i in 0..<count {
-            var p = procs[i]
-            // p_comm is a fixed-width C array (MAXCOMLEN=16 chars)
-            let procName = withUnsafeBytes(of: &p.kp_proc.p_comm) { raw -> String in
-                guard let base = raw.bindMemory(to: CChar.self).baseAddress else { return "" }
-                return String(cString: base)
-            }
-            if procName == name {
-                let pid = p.kp_proc.p_pid
-                let result = kill(pid, SIGKILL)
-                log("PtpCameraAgent: kill(\(name) pid=\(pid)) rc=\(result) errno=\(errno)")
-                found = true
-            }
-        }
-        if !found {
-            log("PtpCameraAgent: \(name) not found — nothing to kill")
-        }
-        return found
-    }
+    // Note: the agent used to kill ptpcamerad here (via sysctl + kill()) so
+    // the extension could claim the PTP USB interface. That side channel
+    // is gone — the extension now opens with USBInterfaceOpenSeize, which
+    // asks the kernel to politely evict the prior owner. Removing the kill
+    // lets the agent run inside the sandbox, which Apple's App Store review
+    // requires for any helper bundled inside a sandboxed parent app.
 
     // MARK: - Darwin Notify State Publishing
     //

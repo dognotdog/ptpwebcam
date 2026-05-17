@@ -279,10 +279,10 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	private(set) var provider: CMIOExtensionProvider!
 
-	private let logger = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: "Provider")
+	private let logger = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.CameraExtension", category: "Provider")
 	private var deviceSources: [String: PtpWebcamCameraExtensionDeviceSource] = [:]
 
-	private static let extLogger = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: "ExtLog")
+	private static let extLogger = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.CameraExtension", category: "ExtLog")
 
 	static func log(_ msg: String) {
 		extLogger.fault("\(msg, privacy: .public)")
@@ -732,8 +732,16 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// All dict mutations are dispatched back to main to avoid data races.
 	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource,
 	                           vid: UInt16, pid: UInt16, serial: String) {
-		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: requesting USB access (killing ptpcamerad)")
-		darwin_notify_post(kDarwinNeedUsbAccess)
+		// UsbPtpBridge now calls USBInterfaceOpenSeize / USBDeviceOpenSeize,
+		// which asks the kernel to politely evict the prior owner
+		// (ptpcamerad) instead of failing with kIOReturnExclusiveAccess.
+		// That makes the agent's old "kill ptpcamerad" side-channel
+		// unnecessary, and — critically for App Store distribution —
+		// removes the requirement that the agent stay outside the sandbox.
+		// We still poll for the matching IOKit service because the camera
+		// may not appear in the registry on the first iteration after a
+		// connect event.
+		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: opening via USBInterfaceOpenSeize (no agent ptpcamerad kill needed)")
 
 		var transport: UsbPtpTransport?
 		var lastError: Error?

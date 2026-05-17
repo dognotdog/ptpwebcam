@@ -12,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-AGENT_LABEL="org.ptpwebcam.PtpCameraAgent"
+AGENT_LABEL="org.ptpwebcam.PtpWebcamApp.PtpCameraAgent"
 APP_BUNDLE="/Applications/PtpWebcamApp.app"
 AGENT_PLIST_SOURCE="$PROJECT_DIR/PtpWebcamApp/$AGENT_LABEL.plist"
 
@@ -44,6 +44,7 @@ launchctl bootout "gui/$REAL_UID/org.ptpwebcam.CameraAgent" 2>/dev/null \
 # ── 3. Remove old LaunchAgent plists from ~/Library/LaunchAgents ──────
 echo "[3] Removing ~/Library/LaunchAgents plists..."
 for f in \
+    "$REAL_HOME/Library/LaunchAgents/org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.plist" \
     "$REAL_HOME/Library/LaunchAgents/org.ptpwebcam.PtpCameraAgent.plist" \
     "$REAL_HOME/Library/LaunchAgents/org.ptpwebcam.CameraAgent.plist" \
     "$REAL_HOME/Library/LaunchAgents/org.ptpwebcam.PtpWebcamAssistant.plist" \

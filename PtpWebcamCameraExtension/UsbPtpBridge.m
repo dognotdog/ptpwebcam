@@ -165,9 +165,19 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
         return nil;
     }
 
-    // 3. Open (takes exclusive ownership; may fail with kIOReturnExclusiveAccess
-    //    if ptpcamerad is running, or kIOReturnNotPrivileged if entitlements wrong).
-    IOReturn openResult = (*iface)->USBInterfaceOpen(iface);
+    // 3. Open (takes exclusive ownership). Use USBInterfaceOpenSeize rather
+    //    than USBInterfaceOpen so that if ptpcamerad (or any other userspace
+    //    client) is already holding the interface, the kernel asks them to
+    //    release it before our open completes. Plain USBInterfaceOpen would
+    //    return kIOReturnExclusiveAccess instead, forcing us to fall back to
+    //    killing ptpcamerad from a co-resident process — which is impossible
+    //    under App Sandbox (kill() of another session is blocked with EPERM).
+    //
+    //    Behaviour: if the prior owner doesn't respond to the close request,
+    //    USBInterfaceOpenSeize still returns kIOReturnExclusiveAccess. In
+    //    practice ptpcamerad is well-behaved and releases promptly. May also
+    //    return kIOReturnNotPrivileged if entitlements are wrong.
+    IOReturn openResult = (*iface)->USBInterfaceOpenSeize(iface);
     if (openResult != kIOReturnSuccess) {
         (*iface)->Release(iface);
         if (error) {
@@ -175,7 +185,7 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
                                          code:openResult
                                      userInfo:@{NSLocalizedDescriptionKey:
                                          [NSString stringWithFormat:
-                                             @"USBInterfaceOpen failed 0x%08x", openResult]}];
+                                             @"USBInterfaceOpenSeize failed 0x%08x", openResult]}];
         }
         return nil;
     }
@@ -395,8 +405,11 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
         return NO;
     }
 
-    // 4. Open the device.
-    IOReturn openResult = (*devIface)->USBDeviceOpen(devIface);
+    // 4. Open the device. Seize variant so we don't deadlock against
+    //    ptpcamerad's prior open — see USBInterfaceOpenSeize note above
+    //    for rationale (matters for App-Sandbox-compatible builds where
+    //    we can't fall back to killing ptpcamerad).
+    IOReturn openResult = (*devIface)->USBDeviceOpenSeize(devIface);
     if (openResult != kIOReturnSuccess && openResult != kIOReturnExclusiveAccess) {
         (*devIface)->Release(devIface);
         if (error) {

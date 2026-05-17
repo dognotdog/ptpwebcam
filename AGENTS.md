@@ -9,8 +9,8 @@ the deprecated CoreMediaIO DAL plugin.  The old DAL plugin code in
 | Target | Bundle ID | Role |
 |--------|-----------|------|
 | **PtpWebcamApp** | `org.ptpwebcam.PtpWebcamApp` | Host app. Installs the system extension and registers the launch agent. |
-| **PtpCameraAgent** | `org.ptpwebcam.PtpCameraAgent` | Background helper (launchd agent). Detects USB PTP cameras via `ICDeviceBrowser`. Publishes camera state to the extension via Darwin notify. |
-| **PtpWebcamCameraExtension** | `org.ptpwebcam.CameraExtension` | CMIOExtension system extension. Runs as `_cmiodalassistants` (UID 262). Exposes cameras to apps via `AVCaptureDevice`. |
+| **PtpCameraAgent** | `org.ptpwebcam.PtpWebcamApp.PtpCameraAgent` | Background helper (launchd agent). Detects USB PTP cameras via `ICDeviceBrowser`. Publishes camera state to the extension via Darwin notify. |
+| **PtpWebcamCameraExtension** | `org.ptpwebcam.PtpWebcamApp.CameraExtension` | CMIOExtension system extension. Runs as `_cmiodalassistants` (UID 262). Exposes cameras to apps via `AVCaptureDevice`. |
 
 ## How the pieces connect
 
@@ -94,7 +94,7 @@ cat /tmp/PtpCameraAgent.log
 
 # Extension receiving camera state?
 /usr/bin/log show --last 30s \
-  --predicate 'subsystem == "org.ptpwebcam.CameraExtension"' \
+  --predicate 'subsystem == "org.ptpwebcam"' \
   --style compact
 
 # Camera visible to apps?

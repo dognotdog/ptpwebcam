@@ -171,7 +171,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     init(transport: UsbPtpTransport, logTag: String) {
         self.transport = transport
         self.logTag = logTag
-        self.cameraLog = Logger(subsystem: "org.ptpwebcam.CameraExtension", category: logTag)
+        self.cameraLog = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.CameraExtension", category: logTag)
         self.queue = DispatchQueue(label: "org.ptpwebcam.\(logTag.lowercased())", qos: .userInteractive)
         cameraLog.fault("init vid=0x\(String(transport.vendorId, radix:16), privacy: .public) pid=0x\(String(transport.productId, radix:16), privacy: .public) name=\(transport.deviceName, privacy: .public)")
     }

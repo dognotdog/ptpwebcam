@@ -126,7 +126,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Turn your PTP-tethered DSLR or mirrorless camera into a webcam."
+            "value" : "Turn your USB-tethered DSLR or mirrorless camera into a webcam."
           }
         }
       }

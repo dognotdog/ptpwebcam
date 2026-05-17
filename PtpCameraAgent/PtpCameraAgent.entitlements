@@ -2,10 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- No app-sandbox: PtpCameraAgent is a LaunchAgent helper, not an App Store app.
-	     Without sandbox it can kill ptpcamerad (same UID 501) via kill() and open USB
-	     interfaces directly.  The CMIO extension provides the relevant security boundary. -->
+	<!-- Sandboxed. Required for App Store distribution: Apple's review
+	     rejects any helper bundled inside a sandboxed parent app unless
+	     the helper is itself sandboxed.
+
+	     Historically this target ran unsandboxed so it could send SIGTERM
+	     to ptpcamerad — Apple's PTP transport daemon claims PTP USB
+	     interfaces automatically and we needed to evict it before the
+	     CMIO extension could open the device. That side channel is no
+	     longer needed: the extension now opens via USBInterfaceOpenSeize,
+	     which asks the kernel to politely evict the prior owner. With
+	     the kill() gone, the sandbox is satisfied. -->
 	<key>com.apple.security.app-sandbox</key>
-	<false/>
+	<true/>
+
+	<!-- Shared app-group with the host app and extension. The Mach
+	     services declared in the matching LaunchAgent plist
+	     (org.ptpwebcam.PtpWebcamApp.PtpCameraAgent and …surface) resolve
+	     for the extension via this group identifier. SMAppService also
+	     uses it to verify the host app is allowed to register this
+	     helper from inside a sandboxed parent. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)org.ptpwebcam.CameraExtension</string>
+	</array>
 </dict>
 </plist>
