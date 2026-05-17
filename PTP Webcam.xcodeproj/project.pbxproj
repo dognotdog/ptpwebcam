@@ -17,17 +17,17 @@
 		A1B2C3D4E5F60013A1B2C3D4 /* UsbCameraRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */; };
 		A1B2C3D4E5F60020A1B2C3D4 /* UsbPtpCameraBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */; };
 		A1B2C3D4E5F60030A1B2C3D4 /* PtpDumper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60031A1B2C3D4 /* PtpDumper.swift */; };
+		A1B2C3D4E5F60040A1B2C3D4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
+		A1B2C3D4E5F60041A1B2C3D4 /* PtpCameraAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */; };
+		A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
+		A1B2C3D4E5F60051A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
+		A1B2C3D4E5F60052A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
 		A1B2C3D4E5F60060A1B2C3D4 /* UsbFujiCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60061A1B2C3D4 /* UsbFujiCamera.swift */; };
 		A1B2C3D4E5F60062A1B2C3D4 /* UsbOlympusCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60063A1B2C3D4 /* UsbOlympusCamera.swift */; };
 		A1B2C3D4E5F60064A1B2C3D4 /* UsbPanasonicCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60065A1B2C3D4 /* UsbPanasonicCamera.swift */; };
 		A1B2C3D4E5F60066A1B2C3D4 /* UsbPentaxCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60067A1B2C3D4 /* UsbPentaxCamera.swift */; };
 		A1B2C3D4E5F60070A1B2C3D4 /* UsbLeicaCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60071A1B2C3D4 /* UsbLeicaCamera.swift */; };
 		A1B2C3D4E5F60072A1B2C3D4 /* UsbSigmaCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60073A1B2C3D4 /* UsbSigmaCamera.swift */; };
-		A1B2C3D4E5F60040A1B2C3D4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F24CD4ADC3359C9376F068 /* DarwinNotify.swift */; };
-		A1B2C3D4E5F60041A1B2C3D4 /* PtpCameraAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8A7A692FAAE277001FB4BC /* PtpCameraAgentProtocol.swift */; };
-		A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
-		A1B2C3D4E5F60051A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
-		A1B2C3D4E5F60052A1B2C3D4 /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */; };
 		AA001111000000000000AA01 /* WbTuneGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA001111000000000000AA00 /* WbTuneGridView.swift */; };
 		B4F44C27A2E624CFC54B25B4 /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE4BDBB3B5A36F4FCF07D9 /* DarwinNotify.swift */; };
 		CC001111000000000000CC01 /* CameraPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001111000000000000CC00 /* CameraPreviewWindowController.swift */; };
@@ -45,7 +45,7 @@
 		DA1B26B12B1BC1A50075AAAB /* CameraAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26B02B1BC1A50075AAAB /* CameraAgentTests.swift */; };
 		DA1B26BB2B1BC1A70075AAAB /* CameraAgentUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26BA2B1BC1A70075AAAB /* CameraAgentUITests.swift */; };
 		DA1B26BD2B1BC1A70075AAAB /* CameraAgentUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1B26BC2B1BC1A70075AAAB /* CameraAgentUITestsLaunchTests.swift */; };
-		DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in Embed Login Items */ = {isa = PBXBuildFile; fileRef = DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DA1B26C72B1BC3410075AAAB /* PtpWebcamAgent.app in Embed Login Items */ = {isa = PBXBuildFile; fileRef = DA1B269E2B1BC1A10075AAAB /* PtpWebcamAgent.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA1B26D02B1BC4700075AAAB /* org.ptpwebcam.PtpCameraAgent.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = DA1B26CF2B1BC4700075AAAB /* org.ptpwebcam.PtpCameraAgent.plist */; };
 		DA2680FE2480CC2600FF75EF /* ImageCaptureCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2680FD2480CC2600FF75EF /* ImageCaptureCore.framework */; };
 		DA26810A2481BB4600FF75EF /* CoreMediaIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA2681092481BB4600FF75EF /* CoreMediaIO.framework */; };
@@ -145,7 +145,7 @@
 		DD005555000000000000DD09 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = DD005555000000000000DD08 /* AppIcon.icon */; };
 		DD006666000000000000DD0B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DD006666000000000000DD0A /* Localizable.xcstrings */; };
 		FF001111000000000000FF01 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
-		FF001111000000000000FF02 /* PropertyFormatter.swift in Sources (Extension) */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
+		FF001111000000000000FF02 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -242,7 +242,7 @@
 			dstPath = Contents/Library/LoginItems;
 			dstSubfolderSpec = 1;
 			files = (
-				DA1B26C72B1BC3410075AAAB /* PtpCameraAgent.app in Embed Login Items */,
+				DA1B26C72B1BC3410075AAAB /* PtpWebcamAgent.app in Embed Login Items */,
 			);
 			name = "Embed Login Items";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -353,13 +353,13 @@
 		A1B2C3D4E5F6000BA1B2C3D4 /* UsbCameraRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbCameraRegistry.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60021A1B2C3D4 /* UsbPtpCameraBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPtpCameraBase.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60031A1B2C3D4 /* PtpDumper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpDumper.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SupportedCameras.swift; path = PtpCameraAgent/SupportedCameras.swift; sourceTree = SOURCE_ROOT; };
 		A1B2C3D4E5F60061A1B2C3D4 /* UsbFujiCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbFujiCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60063A1B2C3D4 /* UsbOlympusCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbOlympusCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60065A1B2C3D4 /* UsbPanasonicCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPanasonicCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60067A1B2C3D4 /* UsbPentaxCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbPentaxCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60071A1B2C3D4 /* UsbLeicaCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbLeicaCamera.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60073A1B2C3D4 /* UsbSigmaCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsbSigmaCamera.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60053A1B2C3D4 /* SupportedCameras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SupportedCameras.swift; path = PtpCameraAgent/SupportedCameras.swift; sourceTree = SOURCE_ROOT; };
 		AA001111000000000000AA00 /* WbTuneGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WbTuneGridView.swift; sourceTree = "<group>"; };
 		BB001111000000000000BB02 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		CC001111000000000000CC00 /* CameraPreviewWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraPreviewWindowController.swift; path = PtpWebcamApp/CameraPreviewWindowController.swift; sourceTree = SOURCE_ROOT; };
@@ -374,7 +374,7 @@
 		DA1B26872B1BBCDB0075AAAB /* PtpWebcamAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpWebcamAppUITests.swift; sourceTree = "<group>"; };
 		DA1B26892B1BBCDB0075AAAB /* PtpWebcamAppUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtpWebcamAppUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		DA1B26982B1BBDC70075AAAB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = PtpCameraAgent.app; path = PtpWebcamAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA1B269E2B1BC1A10075AAAB /* PtpWebcamAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PtpWebcamAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DA1B26A52B1BC1A30075AAAB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
@@ -821,7 +821,7 @@
 				DA1B266B2B1BBCD70075AAAB /* PTP Webcam.app */,
 				DA1B26792B1BBCD80075AAAB /* PtpWebcamAppTests.xctest */,
 				DA1B26832B1BBCDA0075AAAB /* PtpWebcamAppUITests.xctest */,
-				DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */,
+				DA1B269E2B1BC1A10075AAAB /* PtpWebcamAgent.app */,
 				DA1B26AC2B1BC1A30075AAAB /* CameraAgentTests.xctest */,
 				DA1B26B62B1BC1A50075AAAB /* CameraAgentUITests.xctest */,
 			);
@@ -1057,7 +1057,7 @@
 			);
 			name = PtpCameraAgent;
 			productName = CameraAgent;
-			productReference = DA1B269E2B1BC1A10075AAAB /* PtpCameraAgent.app */;
+			productReference = DA1B269E2B1BC1A10075AAAB /* PtpWebcamAgent.app */;
 			productType = "com.apple.product-type.application";
 		};
 		DA1B26AB2B1BC1A30075AAAB /* CameraAgentTests */ = {
@@ -1710,7 +1710,7 @@
 				A1B2C3D4E5F60013A1B2C3D4 /* UsbCameraRegistry.swift in Sources */,
 				A1B2C3D4E5F60030A1B2C3D4 /* PtpDumper.swift in Sources */,
 				A1B2C3D4E5F60051A1B2C3D4 /* SupportedCameras.swift in Sources */,
-				FF001111000000000000FF02 /* PropertyFormatter.swift in Sources (Extension) */,
+				FF001111000000000000FF02 /* PropertyFormatter.swift in Sources */,
 				A1B2C3D4E5F60060A1B2C3D4 /* UsbFujiCamera.swift in Sources */,
 				A1B2C3D4E5F60062A1B2C3D4 /* UsbOlympusCamera.swift in Sources */,
 				A1B2C3D4E5F60064A1B2C3D4 /* UsbPanasonicCamera.swift in Sources */,
@@ -1841,7 +1841,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpWebcamApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 org.ptpwebcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -1852,7 +1852,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamApp;
 				PRODUCT_NAME = "PTP Webcam";
 				SKIP_INSTALL = NO;
@@ -1884,7 +1884,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpWebcamApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 org.ptpwebcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -1895,7 +1895,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpWebcamApp;
 				PRODUCT_NAME = "PTP Webcam";
 				SKIP_INSTALL = NO;
@@ -2019,6 +2019,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpCameraAgent/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam Agent";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 org.ptpwebcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -2028,7 +2029,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpCameraAgent;
 				PRODUCT_NAME = PtpWebcamAgent;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -2055,6 +2056,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpCameraAgent/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam Agent";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 org.ptpwebcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -2064,7 +2066,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.ptpwebcam.PtpCameraAgent;
 				PRODUCT_NAME = PtpWebcamAgent;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -2718,7 +2720,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpWebcamCameraExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = PtpWebcamCameraExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 InRobCo. All rights reserved.";
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2728,7 +2730,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = (
 					"-framework",
@@ -2763,7 +2765,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PtpWebcamCameraExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = PtpWebcamCameraExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "PTP Webcam Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2023 InRobCo. All rights reserved.";
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2773,7 +2775,7 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.6;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_LDFLAGS = (
 					"-framework",
 					IOUSBHost,

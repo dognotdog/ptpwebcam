@@ -6,6 +6,24 @@
 import SwiftUI
 import StoreKit
 
+/// PreferenceKey used to surface the natural intrinsic height of the
+/// MainWindowView's inner content stack up to the window controller.
+/// The `reduce` takes the max so partial subview measurements during
+/// transitions never shrink the published height below the real value.
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+extension Notification.Name {
+    /// Posted by MainWindowView whenever its inner content stack reports
+    /// a new natural height. MainWindowController pins the window's
+    /// contentMaxSize to this so the user can shrink-but-not-stretch.
+    static let mainWindowNaturalHeightChanged = Notification.Name("org.ptpwebcam.mainWindowNaturalHeightChanged")
+}
+
 struct MainWindowView: View {
     @StateObject private var store = SubscriptionStore()
 
@@ -25,15 +43,41 @@ struct MainWindowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            header
-            Divider()
-            subscriptionSection
-            Divider()
-            footer
+        // ScrollView so that on low-resolution screens (1366×768 laptops,
+        // where the menu bar + Dock leave only ~670 pt of usable height)
+        // the bottom of the content stays reachable when the window can't
+        // fit it all. `.scrollBounceBehavior(.basedOnSize)` keeps the
+        // overscroll feel only when there's actually something to scroll
+        // — on a 1080p+ display the content fits and the view behaves
+        // like an ordinary fixed panel.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                Divider()
+                subscriptionSection
+                Divider()
+                footer
+            }
+            .padding(28)
+            .frame(width: 520, alignment: .topLeading)
+            // Measure the natural intrinsic height of the content stack
+            // and publish it via NotificationCenter. The window
+            // controller listens and pins `contentMaxSize` to this value,
+            // so the user can shrink the window (the ScrollView handles
+            // overflow) but can't grow it past where empty space would
+            // start showing below the buttons.
+            .background(GeometryReader { proxy in
+                Color.clear
+                    .preference(key: ContentHeightKey.self, value: proxy.size.height)
+            })
         }
-        .padding(28)
-        .frame(width: 520, alignment: .topLeading)
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(ContentHeightKey.self) { newHeight in
+            NotificationCenter.default.post(
+                name: .mainWindowNaturalHeightChanged,
+                object: nil,
+                userInfo: ["height": newHeight])
+        }
         .task { await store.refresh() }
     }
 
@@ -233,6 +277,21 @@ struct MainWindowView: View {
     // MARK: - Footer
 
     private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Explains the experimental flag in the status-bar menu and
+            // points users at the issue tracker. Plain SwiftUI `Text` so
+            // the string is picked up automatically by the Localizable
+            // catalog — no NSLocalizedString call needed.
+            Text("If you have a camera that shows up as experimental, or doesn't show up at all, you can submit a GitHub issue to request improved support.")
+//                .font(.callout)
+//                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            footerButtons
+        }
+    }
+
+    private var footerButtons: some View {
         HStack(spacing: 12) {
             Button("Visit ptpwebcam.org") {
                 if let url = URL(string: "https://ptpwebcam.org") {

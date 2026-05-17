@@ -45,6 +45,9 @@
     "Help" : {
 
     },
+    "If you have a camera that shows up as experimental, or doesn't show up at all, you can submit a GitHub issue to request improved support." : {
+
+    },
     "List PTP Properties" : {
       "comment" : "File menu — submenu for PTP dump per USB device"
     },

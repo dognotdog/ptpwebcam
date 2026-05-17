@@ -715,11 +715,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Single clickable camera header that doubles as the claim toggle.
         //   Claimed:    "<Camera Name> [serial]"                  with checkmark, click to release
         //   Unclaimed:  "<Camera Name> [serial] (click to claim)" no checkmark
+        // Experimental bodies — anything not in our verified list — get an
+        // "(experimental)" suffix so users know the support hasn't been
+        // tested against real hardware and may have gaps or rough edges.
         let displaySerial = formatSerialForDisplay(camera.serial, vendor: camera.vendor)
         let nameWithSerial = displaySerial.isEmpty
             ? camera.name
             : "\(camera.name) [\(displaySerial)]"
-        let title = isClaimed ? nameWithSerial : "\(nameWithSerial) (click to claim)"
+        let isExperimental = !isCameraVerified(vid: camera.vid, pid: camera.pid)
+        let nameWithFlag = isExperimental
+            ? "\(nameWithSerial) (experimental)"
+            : nameWithSerial
+        let title = isClaimed ? nameWithFlag : "\(nameWithFlag) (click to claim)"
         let header = NSMenuItem(title: title,
                                 action: #selector(claimCameraAction(_:)),
                                 keyEquivalent: "")
@@ -1061,6 +1068,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// menu shows the human-readable form printed on the camera body
     /// ("5004922"). Other vendors typically use alphanumeric serials where
     /// leading zeros are significant — leave them untouched.
+    /// True when a camera is in our verified list — entries we've end-to-end
+    /// tested against real hardware. Unknown VID/PID combinations and
+    /// known-but-unconfirmed entries fall into "experimental" territory:
+    /// they may work fine, but property discovery / live view / control
+    /// might have rough edges we haven't ironed out.
+    private func isCameraVerified(vid: UInt16, pid: UInt16) -> Bool {
+        guard let entry = PtpKnownCameras.lookup(vid: vid, pid: pid) else { return false }
+        return entry.confirmed
+    }
+
     private func formatSerialForDisplay(_ serial: String, vendor: ProtocolFamily) -> String {
         guard vendor == .nikon, !serial.isEmpty else { return serial }
         let trimmed = String(serial.drop(while: { $0 == "0" }))
