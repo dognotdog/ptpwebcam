@@ -12,11 +12,8 @@ let kPtpCameraStatePath = "/tmp/org.ptpwebcam.cameras.plist"
 let kDarwinCameraStateChanged = "org.ptpwebcam.darwin.CameraStateChanged"
 let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 
-// Note: the kDarwinNeedUsbAccess / kDarwinUsbAccessReady channels used to
-// signal the agent to kill ptpcamerad before the extension claimed the USB
-// interface. Removed when the extension switched to USBInterfaceOpenSeize —
-// the kernel evicts the prior owner directly, and the agent is now
-// sandboxed (App Store requirement) so it couldn't perform a kill anyway.
+// Note: the kDarwinNeedUsbAccess / kDarwinUsbAccessReady channels are gone —
+// see the mirror PtpCameraAgent/PtpCameraAgentProtocol.swift for context.
 
 // State slots: each holds 8 bytes via notify_set_state/notify_get_state.
 // Slot 0 high 32 bits = total byte length, low 32 bits = reserved.
@@ -24,26 +21,14 @@ let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 let kDarwinStateSlotCount = 64
 let kDarwinStateSlotPrefix = "org.ptpwebcam.darwin.state."
 
-// Live view: extension → agent commands
-let kDarwinLiveViewStart = "org.ptpwebcam.darwin.LiveViewStart"
-let kDarwinLiveViewStop = "org.ptpwebcam.darwin.LiveViewStop"
-// Command payload slots: slot 0 = cameraId length (UInt64), slots 1-8 = cameraId bytes
-let kDarwinLiveViewCmdSlotPrefix = "org.ptpwebcam.darwin.lvcmd."
-let kDarwinLiveViewCmdSlotCount = 9
-
-// Live view: agent → extension surface registration
-// Agent creates the IOSurface; extension (_cmiodalassistants / UID 262) calls IOSurfaceLookup.
-let kDarwinLiveViewSurfaceReady = "org.ptpwebcam.darwin.LiveViewSurfaceReady"
-// Surface payload slots: slot 0 = (IOSurfaceID << 32) | cameraId length, slots 1-8 = cameraId bytes
-let kDarwinLiveViewSurfaceSlotPrefix = "org.ptpwebcam.darwin.lvsurface."
-let kDarwinLiveViewSurfaceSlotCount = 9
-
-// Live view: agent → extension frame-ready notification
-// Agent draws JPEG into extension's IOSurface, then notifies via this name.
-// Frame payload slots: slot 0 = cameraId length, slots 1-8 = cameraId bytes
-let kDarwinLiveViewFrame = "org.ptpwebcam.darwin.LiveViewFrame"
-let kDarwinLiveViewFrameSlotPrefix = "org.ptpwebcam.darwin.lvframe."
-let kDarwinLiveViewFrameSlotCount = 9
+// Note: the kDarwinLiveViewStart / Stop / Cmd* / Surface* / Frame* channels
+// were part of an earlier architecture where the extension shipped JPEG
+// frames to the agent for decoding into a shared IOSurface. Cross-UID
+// IOSurfaceLookup is blocked by the kernel and the XPC fallback was never
+// wired up end-to-end, so frame decoding now lives in the extension
+// (jpegIntoPixelBuffer → CVPixelBuffer → CMIO stream). The slot
+// definitions and the SurfaceSharingProtocol XPC service were removed
+// when we cleaned up after the IOKit migration landed.
 
 // Extension → Agent: camera property state publication (multi-page protocol).
 // Slot 0 (header): [63:32] totalLength | [31:16] pageIndex | [15:0] pageCount
@@ -100,22 +85,6 @@ let kDarwinPtpDumpTextSlotCount  = 2048
     func setPropertyValue(_ value: Any, forProperty propertyId: NSNumber, onCamera cameraId: String)
 }
 
-// Dedicated surface-sharing protocol — agent exposes this on kPtpSurfaceSharingMachServiceName.
-// IOSurface is transferred via Mach send right (NSXPCConnection / IOSurfaceCreateXPCObject internals),
-// bypassing the cross-UID IOSurfaceLookup restriction.
-let kPtpSurfaceSharingMachServiceName = "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.surface"
-
-// Temp-file directory for live view frames (cross-UID, cross-sandbox-namespace).
-// Agent writes JPEG atomically (write + rename); extension reads on Darwin notify.
-// Both sandboxes allow this path via temporary-exception.files.absolute-path.read/write.
-let kLiveViewDir = "/private/tmp/org.ptpwebcam.liveview"
-
-@objc protocol SurfaceSharingProtocol {
-    // Extension pushes its surface to the agent (agent draws JPEG into it).
-    func receiveSurface(_ surface: IOSurface, cameraId: String, reply: @escaping (Bool) -> Void)
-    // Extension pulls the agent's surface (agent creates it, extension wraps in CVPixelBuffer).
-    func requestSurface(cameraId: String, reply: @escaping (IOSurface?) -> Void)
-}
 
 // Agent -> Extension: events
 @objc protocol PtpCameraAgentDelegateProtocol {

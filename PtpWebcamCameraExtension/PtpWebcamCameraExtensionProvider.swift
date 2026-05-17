@@ -732,16 +732,13 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// All dict mutations are dispatched back to main to avoid data races.
 	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource,
 	                           vid: UInt16, pid: UInt16, serial: String) {
-		// UsbPtpBridge now calls USBInterfaceOpenSeize / USBDeviceOpenSeize,
-		// which asks the kernel to politely evict the prior owner
-		// (ptpcamerad) instead of failing with kIOReturnExclusiveAccess.
-		// That makes the agent's old "kill ptpcamerad" side-channel
-		// unnecessary, and — critically for App Store distribution —
-		// removes the requirement that the agent stay outside the sandbox.
-		// We still poll for the matching IOKit service because the camera
-		// may not appear in the registry on the first iteration after a
-		// connect event.
-		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: opening via USBInterfaceOpenSeize (no agent ptpcamerad kill needed)")
+		// UsbPtpBridge's open path now runs an
+		// `IOUSBHostObjectInitOptionsDeviceSeize` pass before the
+		// IOUSBLib interface-open. That modern eviction message is what
+		// ptpcamerad actually respects — the older IOUSBLib seize was
+		// ignored. We don't need the agent to kill ptpcamerad anymore,
+		// which is what lets the agent run inside the App Sandbox.
+		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: opening via IOUSBHost device-seize")
 
 		var transport: UsbPtpTransport?
 		var lastError: Error?

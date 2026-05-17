@@ -6,22 +6,21 @@
 	     rejects any helper bundled inside a sandboxed parent app unless
 	     the helper is itself sandboxed.
 
-	     Historically this target ran unsandboxed so it could send SIGTERM
-	     to ptpcamerad — Apple's PTP transport daemon claims PTP USB
-	     interfaces automatically and we needed to evict it before the
-	     CMIO extension could open the device. That side channel is no
-	     longer needed: the extension now opens via USBInterfaceOpenSeize,
-	     which asks the kernel to politely evict the prior owner. With
-	     the kill() gone, the sandbox is satisfied. -->
+	     This used to be `false` because the agent needed to send SIGKILL
+	     to ptpcamerad (which App Sandbox blocks across UIDs). That side
+	     channel is gone — the extension's USB-open path now uses
+	     IOUSBHost's `IOUSBHostObjectInitOptionsDeviceSeize`, which sends
+	     a modern eviction message that ptpcamerad's current driver does
+	     respond to. The userspace kill is unnecessary, and the agent can
+	     run inside the sandbox. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 
-	<!-- Shared app-group with the host app and extension. The Mach
-	     services declared in the matching LaunchAgent plist
-	     (org.ptpwebcam.PtpWebcamApp.PtpCameraAgent and …surface) resolve
-	     for the extension via this group identifier. SMAppService also
-	     uses it to verify the host app is allowed to register this
-	     helper from inside a sandboxed parent. -->
+	<!-- Shared app-group with the host app and extension. SMAppService
+	     uses this to verify the registration is allowed (sandboxed parent
+	     can only register helpers that share an app-group), and Mach
+	     service lookups across the three processes resolve through this
+	     same group ID. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>$(TeamIdentifierPrefix)org.ptpwebcam.CameraExtension</string>

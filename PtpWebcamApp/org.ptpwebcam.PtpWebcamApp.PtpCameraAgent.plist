@@ -19,8 +19,6 @@
 	<dict>
 		<key>org.ptpwebcam.PtpWebcamApp.PtpCameraAgent</key>
 		<true/>
-		<key>org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.surface</key>
-		<true/>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>

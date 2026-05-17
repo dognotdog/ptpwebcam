@@ -73,9 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
 		activateExtension()
-		migrateAgentIfNeeded { [weak self] in
-			self?.installAndStartCameraAgent()
-		}
+		installAndStartCameraAgent()
 		// Install the "List PTP Properties" submenu under File so users can
 		// generate a PTP property dump for any attached PTP/MTP device — the
 		// most useful artifact for adding support for new camera vendors.
@@ -227,43 +225,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		log.info("Submitted camera extension activation request")
 	}
 
-	// MARK: - Migration from old launchctl mechanism
-
-	/// If the agent was previously installed via the old launchctl mechanism (a hand-written
-	/// plist in ~/Library/LaunchAgents/), remove that plist and bootout the old service so
-	/// SMAppService can take clean ownership.  Calls completion when done (or if no migration needed).
-	private func migrateAgentIfNeeded(completion: @escaping () -> Void) {
-		let oldPlistPath = (NSHomeDirectory() as NSString)
-			.appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist")
-
-		guard FileManager.default.fileExists(atPath: oldPlistPath) else {
-			completion()
-			return
-		}
-
-		log.info("Migrating from old launchctl agent — removing \(oldPlistPath, privacy: .public)")
-
-		// Remove the old plist so launchd won't try to manage it anymore.
-		do {
-			try FileManager.default.removeItem(atPath: oldPlistPath)
-			log.info("Old LaunchAgents plist removed")
-		} catch {
-			log.error("Failed to remove old plist: \(error.localizedDescription, privacy: .public)")
-			// Proceed anyway — SMAppService will still try to take over.
-		}
-
-		// Bootout the running service so SMAppService gets a clean Mach namespace.
-		let uid = String(getuid())
-		let serviceTarget = "gui/\(uid)/\(agentLabel)"
-		runProcess("/bin/launchctl", ["bootout", serviceTarget]) { exitCode in
-			self.log.info("Migration bootout exit=\(exitCode, privacy: .public) (non-zero OK if not previously loaded)")
-			// Brief delay to let the old process exit before SMAppService registers.
-			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-				completion()
-			}
-		}
-	}
-
 	// MARK: - Camera Agent Lifecycle
 
 	/// Registers (or restarts) PtpWebcamAgent via SMAppService agent(plistName:).
@@ -313,26 +274,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		} catch {
 			let nsErr = error as NSError
 			log.error("PtpWebcamAgent register via \(label, privacy: .public) failed: \(nsErr.domain, privacy: .public)/\(nsErr.code) — \(error.localizedDescription, privacy: .public)")
-		}
-	}
-
-	// MARK: - Process helper (for one-time migration bootout only)
-
-	private func runProcess(_ executable: String, _ args: [String], completion: @escaping (Int32) -> Void) {
-		DispatchQueue.global(qos: .utility).async {
-			let task = Process()
-			task.executableURL = URL(fileURLWithPath: executable)
-			task.arguments = args
-			task.standardOutput = FileHandle.nullDevice
-			task.standardError = FileHandle.nullDevice
-			do {
-				try task.run()
-				task.waitUntilExit()
-				DispatchQueue.main.async { completion(task.terminationStatus) }
-			} catch {
-				self.log.error("Failed to run \(executable, privacy: .public): \(error.localizedDescription, privacy: .public)")
-				DispatchQueue.main.async { completion(-1) }
-			}
 		}
 	}
 

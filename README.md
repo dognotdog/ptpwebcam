@@ -187,7 +187,7 @@ architecture and can be ignored.
 | Confirm extension is activated | `systemextensionsctl list \| grep ptpwebcam` |
 | See current extension version | `defaults read /Applications/PTP\ Webcam.app/Contents/Library/SystemExtensions/org.ptpwebcam.PtpWebcamApp.CameraExtension.systemextension/Contents/Info.plist CFBundleVersion` |
 | List camera devices visible to CMIO | `ffmpeg -hide_banner -f avfoundation -list_devices true -i ""` |
-| Force-relaunch the agent | `launchctl kickstart -k gui/$(id -u)/org.ptpwebcam.PtpCameraAgent` |
+| Force-relaunch the agent | `launchctl kickstart -k gui/$(id -u)/org.ptpwebcam.PtpWebcamApp.PtpCameraAgent` |
 
 ### Canon EOS Webcam Utility Incompatibility
 

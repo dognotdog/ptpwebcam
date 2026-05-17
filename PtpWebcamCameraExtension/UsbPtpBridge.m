@@ -16,6 +16,7 @@
 // IOUSBInterfaceInterface300 has WritePipeTO / ReadPipeTO / GetNumEndpoints /
 // GetPipeProperties — everything we need.
 typedef IOUSBInterfaceInterface300 USBIfaceImpl;
+typedef IOUSBDeviceInterface300    USBDeviceImpl;
 
 
 // ─── PtpUsbPipe ────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
 
 @implementation PtpUsbInterface {
     USBIfaceImpl       **_iface;
+    USBDeviceImpl      **_device;  // parent USB device — kept open to hold the seizure
     NSArray<PtpUsbPipe *> *_pipes;
 }
 
@@ -165,20 +167,109 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
         return nil;
     }
 
-    // 3. Open (takes exclusive ownership). Use USBInterfaceOpenSeize rather
-    //    than USBInterfaceOpen so that if ptpcamerad (or any other userspace
-    //    client) is already holding the interface, the kernel asks them to
-    //    release it before our open completes. Plain USBInterfaceOpen would
-    //    return kIOReturnExclusiveAccess instead, forcing us to fall back to
-    //    killing ptpcamerad from a co-resident process — which is impossible
-    //    under App Sandbox (kill() of another session is blocked with EPERM).
+    // 3. Get the parent IOUSBDevice service so we can run two eviction
+    //    passes against ptpcamerad before opening our interface:
     //
-    //    Behaviour: if the prior owner doesn't respond to the close request,
-    //    USBInterfaceOpenSeize still returns kIOReturnExclusiveAccess. In
-    //    practice ptpcamerad is well-behaved and releases promptly. May also
-    //    return kIOReturnNotPrivileged if entitlements are wrong.
+    //      (a) IOUSBHost's `IOUSBHostObjectInitOptionsDeviceSeize` —
+    //          modern API, sends `kUSBHostMessageDeviceIsRequestingClose`
+    //          via the newer USB stack. Empirically more reliable than
+    //          IOUSBLib's USBDeviceOpenSeize against a sticky ptpcamerad.
+    //          We drop the IOUSBHostDevice immediately after init; the
+    //          eviction message has already been delivered to the prior
+    //          owner.
+    //      (b) IOUSBLib's `USBDeviceOpenSeize` — legacy API, fallback
+    //          path that runs regardless. Holds the device handle open
+    //          to prevent ptpcamerad from re-claiming between our
+    //          device-seize and the interface-open below.
+    io_service_t deviceService = IO_OBJECT_NULL;
+    kern_return_t pkr = IORegistryEntryGetParentEntry(service, kIOServicePlane, &deviceService);
+
+    // Pass (a): IOUSBHost-style seize. No special entitlement needed.
+    // Best-effort — failure to construct or seize is non-fatal because
+    // the IOUSBLib fallback path below covers the same job.
+    if (pkr == KERN_SUCCESS && deviceService != IO_OBJECT_NULL) {
+        @autoreleasepool {
+            NSError *hostErr = nil;
+            IOUSBHostDevice *hostDevice =
+                [[IOUSBHostDevice alloc]
+                  initWithIOService:deviceService
+                            options:IOUSBHostObjectInitOptionsDeviceSeize
+                              queue:nil
+                              error:&hostErr
+                    interestHandler:nil];
+            if (hostDevice == nil) {
+                // Expected on first attempt if ptpcamerad is the owner —
+                // the eviction message has nonetheless been sent. Don't
+                // log noisily; the IOUSBLib path below will report any
+                // real failure with a clearer error.
+            } else {
+                // Successful seize. Release immediately; we don't need
+                // to keep the IOUSBHost handle open — IOUSBLib will
+                // take over from here.
+                [hostDevice destroy];
+                hostDevice = nil;
+            }
+        }
+        // Give ptpcamerad ~50 ms to process the close message before we
+        // try to claim the device with IOUSBLib.
+        usleep(50 * 1000);
+    }
+
+    // Pass (b): IOUSBLib device-level seize. Re-acquire the parent service
+    // reference we may have just released, or re-walk from `service` if
+    // the autoreleasepool didn't free it.
+    if (pkr != KERN_SUCCESS || deviceService == IO_OBJECT_NULL) {
+        pkr = IORegistryEntryGetParentEntry(service, kIOServicePlane, &deviceService);
+    } else {
+        // deviceService was already retrieved; IORegistryEntryGetParentEntry
+        // doesn't add a retain reference we manually balance here — fall
+        // through with the existing handle.
+    }
+    USBDeviceImpl **device = NULL;
+    if (pkr == KERN_SUCCESS && deviceService != IO_OBJECT_NULL) {
+        IOCFPlugInInterface **devPlugin = NULL;
+        SInt32 devScore = 0;
+        kern_return_t dpkr = IOCreatePlugInInterfaceForService(
+            deviceService,
+            kIOUSBDeviceUserClientTypeID,
+            kIOCFPlugInInterfaceID,
+            &devPlugin,
+            &devScore);
+        IOObjectRelease(deviceService);
+        if (dpkr == KERN_SUCCESS && devPlugin) {
+            CFUUIDBytes devUUID = CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID300);
+            HRESULT devHr = (*devPlugin)->QueryInterface(devPlugin, devUUID, (LPVOID *)&device);
+            (*devPlugin)->Release(devPlugin);
+            if (devHr || !device) {
+                device = NULL;
+            } else {
+                IOReturn devOpen = (*device)->USBDeviceOpenSeize(device);
+                if (devOpen != kIOReturnSuccess) {
+                    (*device)->Release(device);
+                    device = NULL;
+                    // Don't fail outright — try the interface seize alone as
+                    // a fallback. Some bodies (e.g. cameras with no
+                    // ptpcamerad claim) don't need device-level eviction.
+                }
+            }
+        }
+    }
+    _device = device;
+
+    // 4. Now open the interface. USBInterfaceOpenSeize asks the kernel to
+    //    have any remaining client release. With the device handle held
+    //    above, ptpcamerad has already released its claim and the interface
+    //    is free; this open succeeds immediately. If we skipped the device
+    //    seize (device == NULL), this is the standard polite request that
+    //    sometimes works against fresh-state ptpcamerad and sometimes
+    //    returns kIOReturnExclusiveAccess.
     IOReturn openResult = (*iface)->USBInterfaceOpenSeize(iface);
     if (openResult != kIOReturnSuccess) {
+        if (_device) {
+            (*_device)->USBDeviceClose(_device);
+            (*_device)->Release(_device);
+            _device = NULL;
+        }
         (*iface)->Release(iface);
         if (error) {
             *error = [NSError errorWithDomain:@"IOUSBErrorDomain"
@@ -282,6 +373,15 @@ typedef IOUSBInterfaceInterface300 USBIfaceImpl;
         (*_iface)->Release(_iface);
         _iface = NULL;
         _pipes = @[];
+    }
+    if (_device) {
+        // Release the device-level seizure we took in -initWithService:error:.
+        // Close before Release so the kernel drops our exclusive claim and
+        // ptpcamerad can re-attach for whatever uses image-capture services
+        // need after we hand the camera back.
+        (*_device)->USBDeviceClose(_device);
+        (*_device)->Release(_device);
+        _device = NULL;
     }
 }
 

@@ -23,7 +23,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let logger = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "Agent")
     private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "AgentLog")
     private var xpcListener: NSXPCListener!
-    private var surfaceXpcListener: NSXPCListener!
 
     static func log(_ msg: String) {
         agentLog.fault("\(msg, privacy: .public)")
@@ -31,11 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var extensionConnections: [NSXPCConnection] = []
     private var darwinSlotTokens: [Int32] = []
-    private var lvFrameSlotTokens: [Int32] = []
-    private var lvCmdSlotTokens: [Int32] = []
-    private var lvSurfaceSlotTokens: [Int32] = []
-    // IOSurfaces created by the agent; extension calls IOSurfaceLookup to access them.
-    private var ownedSurfaces: [String: IOSurface] = [:]
 
     // Keeps slider/grid action holders alive for the lifetime of the current menu.
     private var menuActionHolders: [AnyObject] = []
@@ -140,40 +134,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.publishCameraState()
         }
 
-        lvFrameSlotTokens = (0..<kDarwinLiveViewFrameSlotCount).map { i in
-            var token: Int32 = 0
-            darwin_notify_register_check(kDarwinLiveViewFrameSlotPrefix + "\(i)", &token)
-            return token
-        }
-        lvCmdSlotTokens = (0..<kDarwinLiveViewCmdSlotCount).map { i in
-            var token: Int32 = 0
-            darwin_notify_register_check(kDarwinLiveViewCmdSlotPrefix + "\(i)", &token)
-            return token
-        }
-
-        lvSurfaceSlotTokens = (0..<kDarwinLiveViewSurfaceSlotCount).map { i in
-            var token: Int32 = 0
-            darwin_notify_register_check(kDarwinLiveViewSurfaceSlotPrefix + "\(i)", &token)
-            return token
-        }
-
-        var lvStartToken: Int32 = 0
-        darwin_notify_register_dispatch(kDarwinLiveViewStart, &lvStartToken, .main) { [weak self] _ in
-            self?.handleLiveViewStartCommand()
-        }
-        var lvStopToken: Int32 = 0
-        darwin_notify_register_dispatch(kDarwinLiveViewStop, &lvStopToken, .main) { [weak self] _ in
-            self?.handleLiveViewStopCommand()
-        }
         xpcListener = NSXPCListener(machServiceName: kPtpCameraAgentMachServiceName)
         xpcListener.delegate = self
         xpcListener.resume()
         AppDelegate.log("PtpCameraAgent: XPC listener started on \(kPtpCameraAgentMachServiceName)")
-
-        surfaceXpcListener = NSXPCListener(machServiceName: kPtpSurfaceSharingMachServiceName)
-        surfaceXpcListener.delegate = self
-        surfaceXpcListener.resume()
-        AppDelegate.log("PtpCameraAgent: surface XPC listener started on \(kPtpSurfaceSharingMachServiceName)")
 
         // Property state slots: extension publishes camera property JSON here.
         propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
@@ -217,12 +181,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // Note: the agent used to kill ptpcamerad here (via sysctl + kill()) so
-    // the extension could claim the PTP USB interface. That side channel
-    // is gone — the extension now opens with USBInterfaceOpenSeize, which
-    // asks the kernel to politely evict the prior owner. Removing the kill
-    // lets the agent run inside the sandbox, which Apple's App Store review
-    // requires for any helper bundled inside a sandboxed parent app.
+    // The agent used to kill ptpcamerad here so the extension's USB open
+    // could succeed. That side channel is gone — the extension's bridge
+    // uses IOUSBHost's `IOUSBHostObjectInitOptionsDeviceSeize` before
+    // opening the interface, and ptpcamerad respects that newer eviction
+    // message. App Sandbox blocks cross-UID `kill()`, so removing the kill
+    // is what enables `app-sandbox = true` in the agent's entitlements.
 
     // MARK: - Darwin Notify State Publishing
     //
@@ -554,39 +518,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         darwin_notify_post(notifyName)
         notify_cancel(slotToken)
         AppDelegate.log("PtpCameraAgent: posted \(label) on \(camera.name) (\(cameraId))")
-    }
-
-    // MARK: - Live View Command Handling (extension → agent)
-
-    private func readLiveViewCmdCameraId() -> String? {
-        var slot0: UInt64 = 0
-        darwin_notify_get_state(lvCmdSlotTokens[0], &slot0)
-        let length = Int(slot0 & 0xFFFFFFFF)
-        guard length > 0, length <= (kDarwinLiveViewCmdSlotCount - 1) * 8 else { return nil }
-
-        var idData = Data(count: length)
-        let slotCount = (length + 7) / 8
-        for i in 0..<slotCount {
-            var value: UInt64 = 0
-            darwin_notify_get_state(lvCmdSlotTokens[i + 1], &value)
-            let offset = i * 8
-            let chunkSize = min(8, length - offset)
-            _ = idData.withUnsafeMutableBytes { ptr in
-                memcpy(ptr.baseAddress! + offset, &value, chunkSize)
-            }
-        }
-        return String(data: idData, encoding: .utf8)
-    }
-
-    private func handleLiveViewStartCommand() {
-        guard let cameraId = readLiveViewCmdCameraId() else { return }
-        AppDelegate.log("PtpCameraAgent: Darwin live view start for \(cameraId) (no-op — extension owns LV)")
-    }
-
-    private func handleLiveViewStopCommand() {
-        guard let cameraId = readLiveViewCmdCameraId() else { return }
-        AppDelegate.log("PtpCameraAgent: Darwin live view stop for \(cameraId)")
-        ownedSurfaces.removeValue(forKey: cameraId)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
@@ -1089,92 +1020,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildMenu()
     }
 
-    // MARK: - Live View via IOSurface
-    //
-    // Extension creates an IOSurface (1920×1080 BGRA) and sends it to the agent via XPC
-    // (SurfaceSharingProtocol.receiveSurface — transfers the Mach send right, bypassing
-    // the cross-UID IOSurfaceLookup restriction).
-    // Agent draws each incoming JPEG into the surface and posts kDarwinLiveViewFrame.
-    // Extension wraps the same surface in a CVPixelBuffer and sends it to CMIO.
-
-    private func publishLiveViewFrame(_ jpegData: Data, cameraId: String) {
-        guard let surface = ownedSurfaces[cameraId] else {
-            AppDelegate.log("PtpCameraAgent: no surface for \(cameraId) — skipping frame")
-            return
-        }
-
-        // Decode JPEG → CGImage.
-        guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            AppDelegate.log("PtpCameraAgent: JPEG decode failed size=\(jpegData.count)")
-            return
-        }
-
-        surface.lock(options: [], seed: nil)
-        let w = surface.width
-        let h = surface.height
-        let bpr = surface.bytesPerRow
-        let baseAddr = surface.baseAddress
-        let ctxOk: Bool
-        if let ctx = CGContext(
-            data: baseAddr,
-            width: w, height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bpr,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) {
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-            ctxOk = true
-        } else {
-            AppDelegate.log("PtpCameraAgent: CGContext init failed w=\(w) h=\(h) bpr=\(bpr)")
-            ctxOk = false
-        }
-        surface.unlock(options: [], seed: nil)
-        guard ctxOk else { return }
-
-        // Signal extension to consume the frame.
-        let cameraIdData = cameraId.data(using: .utf8) ?? Data()
-        darwin_notify_set_state(lvFrameSlotTokens[0], UInt64(cameraIdData.count))
-        let slotCount = min((cameraIdData.count + 7) / 8, kDarwinLiveViewFrameSlotCount - 1)
-        for i in 0..<slotCount {
-            var value: UInt64 = 0
-            let offset = i * 8
-            let chunkSize = min(8, cameraIdData.count - offset)
-            _ = cameraIdData.withUnsafeBytes { buf in
-                memcpy(&value, buf.baseAddress! + offset, chunkSize)
-            }
-            darwin_notify_set_state(lvFrameSlotTokens[i + 1], value)
-        }
-        darwin_notify_post(kDarwinLiveViewFrame)
-    }
 }
 
 // MARK: - NSXPCListenerDelegate
 
 extension AppDelegate: NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
-        AppDelegate.log("PtpCameraAgent: shouldAcceptNewConnection on \(listener === surfaceXpcListener ? "surface" : "main") listener from PID \(newConnection.processIdentifier)")
+        AppDelegate.log("PtpCameraAgent: shouldAcceptNewConnection from PID \(newConnection.processIdentifier)")
 
-        if listener === surfaceXpcListener {
-            // Surface-sharing connection: extension sends us its IOSurface via Mach send right.
-            let surfaceInterface = NSXPCInterface(with: SurfaceSharingProtocol.self)
-            surfaceInterface.setClasses(
-                NSSet(object: IOSurface.self as AnyObject) as! Set<AnyHashable>,
-                for: #selector(SurfaceSharingProtocol.receiveSurface(_:cameraId:reply:)),
-                argumentIndex: 0,
-                ofReply: false
-            )
-            newConnection.exportedInterface = surfaceInterface
-            newConnection.exportedObject = self
-            newConnection.invalidationHandler = {
-                AppDelegate.log("PtpCameraAgent: surface XPC connection invalidated")
-            }
-            newConnection.resume()
-            return true
-        }
-
-        // Main agent connection.
         let agentInterface = NSXPCInterface(with: PtpCameraAgentProtocol.self)
         newConnection.exportedInterface = agentInterface
         newConnection.exportedObject = self
@@ -1201,21 +1054,6 @@ extension AppDelegate: NSXPCListenerDelegate {
     }
 }
 
-// MARK: - SurfaceSharingProtocol
-
-extension AppDelegate: SurfaceSharingProtocol {
-    func receiveSurface(_ surface: IOSurface, cameraId: String, reply: @escaping (Bool) -> Void) {
-        DispatchQueue.main.async {
-            self.ownedSurfaces[cameraId] = surface
-            AppDelegate.log("PtpCameraAgent: received IOSurface via XPC size=\(surface.width)×\(surface.height) for \(cameraId)")
-            reply(true)
-        }
-    }
-
-    func requestSurface(cameraId: String, reply: @escaping (IOSurface?) -> Void) {
-        reply(nil) // not used
-    }
-}
 
 // MARK: - PtpCameraAgentProtocol
 
@@ -1232,7 +1070,6 @@ extension AppDelegate: PtpCameraAgentProtocol {
 
     func stopLiveView(forCamera cameraId: String) {
         AppDelegate.log("PtpCameraAgent: legacy XPC stopLiveView(\(cameraId)) — no-op")
-        DispatchQueue.main.async { self.ownedSurfaces.removeValue(forKey: cameraId) }
     }
 
     func setPropertyValue(_ value: Any, forProperty propertyId: NSNumber, onCamera cameraId: String) {
