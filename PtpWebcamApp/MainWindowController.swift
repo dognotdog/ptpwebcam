@@ -19,10 +19,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         // the third one was disappearing below the title bar).
         host.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: host)
-        // Use NSLocalizedString so the title is extracted into the strings
-        // catalog. Brand-name passes through unchanged in English; other
-        // locales can override (e.g. for transliteration) via the catalog.
-        window.title = NSLocalizedString("PTP Webcam", comment: "Main window title")
+        // Brand-name + version in the title bar so users (and bug reports)
+        // can identify the build without opening About. Catalog uses
+        // NSLocalizedString for the brand half; the version suffix is
+        // appended verbatim. Reads the Info.plist values rather than
+        // depending on SwiftUI's view-level lookup so it stays accurate
+        // even before the view first renders.
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"]            as? String ?? "?"
+        let brand = NSLocalizedString("PTP Webcam", comment: "Main window title")
+        window.title = "\(brand) v\(short) (\(build))"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()

@@ -11,7 +11,7 @@
       "comment" : "PTP dump busy dialog title"
     },
     "Cancel" : {
-      "comment" : "Cancel\nDiscard the dump"
+      "comment" : "Cancel\nDiscard the dump\nIssue submit confirm dialog secondary"
     },
     "Checking your subscription…" : {
       "comment" : "Body text while StoreKit resolves the user's current entitlement"
@@ -25,8 +25,11 @@
     "Could Not Save Dump" : {
       "comment" : "Save error title"
     },
-    "Current plan:" : {
-      "comment" : "Label preceding the name of the user's active subscription tier"
+    "Current" : {
+
+    },
+    "Dump copied — ready to file the issue" : {
+      "comment" : "Issue submit confirm dialog title"
     },
     "Generated %d characters of property data for %@. How would you like to receive it?" : {
       "comment" : "Dump-delivery dialog body, char count + device label",
@@ -39,6 +42,9 @@
         }
       }
     },
+    "Help" : {
+
+    },
     "List PTP Properties" : {
       "comment" : "File menu — submenu for PTP dump per USB device"
     },
@@ -48,11 +54,20 @@
     "Manage Subscription" : {
       "comment" : "Button — opens the App Store Manage Subscriptions page"
     },
+    "No Camera / General Issue" : {
+      "comment" : "Issue-submit picker — skip dump"
+    },
     "No PTP devices detected" : {
       "comment" : "Empty state for List PTP Properties submenu"
     },
     "Not subscribed" : {
       "comment" : "Subscription status badge — user has no active entitlement"
+    },
+    "Open GitHub" : {
+      "comment" : "Issue submit confirm dialog primary"
+    },
+    "Pick the camera you'd like the PTP property dump to come from. The dump helps us reproduce camera-specific issues." : {
+      "comment" : "Issue-submit device picker body"
     },
     "PTP Property Dump Ready" : {
       "comment" : "Dump-delivery dialog title"
@@ -79,17 +94,39 @@
     "Stop Live View & Dump" : {
       "comment" : "Primary action"
     },
+    "Submit Issue" : {
+
+    },
     "Subscribe" : {
       "comment" : "Per-product purchase button"
     },
     "Subscription" : {
       "comment" : "Section title — subscription area of the main window"
     },
+    "Switch" : {
+
+    },
     "Thanks for supporting PTP Webcam." : {
-      "comment" : "Body text shown to active subscribers"
+      "comment" : "Body text shown to active subscribers",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thank you for supporting the development of PTP Webcam with your subscription!"
+          }
+        }
+      }
     },
     "Turn your PTP-tethered camera into a webcam." : {
-      "comment" : "Tagline shown under the app name in the header"
+      "comment" : "Tagline shown under the app name in the header",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn your PTP-tethered DSLR or mirrorless camera into a webcam."
+          }
+        }
+      }
     },
     "Version %@" : {
       "comment" : "App version line in the header. %@ is \"<short> (<build>)\".",
@@ -97,6 +134,12 @@
     },
     "Visit ptpwebcam.org" : {
       "comment" : "Button — opens the project website in the default browser"
+    },
+    "Which camera is this about?" : {
+      "comment" : "Issue-submit device picker title"
+    },
+    "Your PTP property dump is large, so it has been copied to the clipboard rather than embedded in the URL. After GitHub opens, paste it where the issue template says “paste dump here.”" : {
+      "comment" : "Issue submit confirm dialog body"
     }
   },
   "version" : "1.0"

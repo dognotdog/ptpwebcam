@@ -462,6 +462,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	/// live view.
 	private var pendingDumpLocationID: UInt32?
 	private var pendingDumpDisplayName: String?
+	/// Set when the in-flight dump was kicked off by the main window's
+	/// "Submit Issue" button. Tells `handleDumpTextPage` to route the
+	/// resulting text into the GitHub issue flow (clipboard + browser)
+	/// instead of the regular copy/save delivery dialog.
+	private var pendingDumpForIssue: Bool = false
 
 	@objc private func dumpPtpDeviceClicked(_ sender: NSMenuItem) {
 		guard let locationID = sender.representedObject as? UInt32 else { return }
@@ -556,10 +561,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 			return
 		}
 		let displayName = pendingDumpDisplayName ?? "PTP Device"
+		let forIssue = pendingDumpForIssue
 		pendingDumpLocationID = nil
 		pendingDumpDisplayName = nil
+		pendingDumpForIssue = false
 		log.info("PTP dump text received (\(text.count, privacy: .public) chars)")
-		presentDumpDeliveryOptions(dumpText: text, deviceLabel: displayName)
+		if forIssue {
+			openGitHubIssueWithDump(dumpText: text, deviceLabel: displayName)
+		} else {
+			presentDumpDeliveryOptions(dumpText: text, deviceLabel: displayName)
+		}
 	}
 
 	private func handleDumpBusy(label: String) {
@@ -703,6 +714,198 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		default:
 			log.info("PTP dump discarded by user")
 		}
+	}
+
+	// MARK: - Submit Issue
+
+	/// Entry point for the main window's "Submit Issue" button. Picks a PTP
+	/// device (auto if exactly one is attached, prompt if many, skip the
+	/// dump if none), runs the dump, and routes the result into the GitHub
+	/// new-issue flow via `openGitHubIssueWithDump`.
+	@objc func beginIssueSubmission() {
+		// Refresh the device list before we look at it — the menu's NSMenuDelegate
+		// path does this on submenu open, but the main-window button has no
+		// equivalent hook. Post the request now; if devices come back later
+		// we'll just see an empty list on this attempt and the user can retry.
+		darwin_notify_post(kDarwinPtpDumpDevicesRequest)
+		// Give the extension a brief moment to publish a fresh device list.
+		// The slot chain handler updates ptpDumpDevices synchronously when
+		// each page arrives, so by the time this fires we either have the
+		// up-to-date list or none was forthcoming (no PTP devices attached).
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+			self?.beginIssueSubmissionAfterRefresh()
+		}
+	}
+
+	private func beginIssueSubmissionAfterRefresh() {
+		switch ptpDumpDevices.count {
+		case 0:
+			// No camera attached — open the issue form with system info only.
+			// Users hitting this path are reporting bugs unrelated to a
+			// specific camera (UI, installation, etc.).
+			openGitHubIssueWithDump(dumpText: nil, deviceLabel: nil)
+		case 1:
+			startIssueDump(for: ptpDumpDevices[0])
+		default:
+			let alert = NSAlert()
+			alert.messageText = NSLocalizedString("Which camera is this about?",
+			                                       comment: "Issue-submit device picker title")
+			alert.informativeText = NSLocalizedString("Pick the camera you'd like the PTP property dump to come from. The dump helps us reproduce camera-specific issues.",
+			                                          comment: "Issue-submit device picker body")
+			for d in ptpDumpDevices { alert.addButton(withTitle: d.displayLabel) }
+			alert.addButton(withTitle: NSLocalizedString("No Camera / General Issue",
+			                                              comment: "Issue-submit picker — skip dump"))
+			let response = alert.runModal()
+			let idx = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+			if idx >= 0 && idx < ptpDumpDevices.count {
+				startIssueDump(for: ptpDumpDevices[idx])
+			} else {
+				openGitHubIssueWithDump(dumpText: nil, deviceLabel: nil)
+			}
+		}
+	}
+
+	private func startIssueDump(for device: PtpDumpDeviceEntry) {
+		pendingDumpLocationID = device.locationID
+		pendingDumpDisplayName = device.displayLabel
+		pendingDumpForIssue = true
+		postDumpCommand(locationID: device.locationID)
+	}
+
+	/// Opens a pre-filled GitHub new-issue URL with the PTP dump inlined in
+	/// the body whenever it fits. GitHub accepts long query strings (the
+	/// issue body cap is 65,535 chars), but the practical limit is the URL
+	/// length browsers and intermediate proxies will accept — empirically
+	/// ~8 KB is safe across Safari / Chrome / Firefox. If the encoded URL
+	/// would exceed that, we fall back to copying the dump to the system
+	/// pasteboard and inlining a `<paste dump here>` placeholder.
+	private func openGitHubIssueWithDump(dumpText: String?, deviceLabel: String?) {
+		let title: String
+		if let label = deviceLabel {
+			title = "[\(label)] "
+		} else {
+			title = ""
+		}
+
+		// First attempt: try the URL with the dump fully inlined. If that
+		// produces a URL within the safe budget we ship it and the user
+		// gets a one-click issue with no paste step. Otherwise we degrade
+		// gracefully to the clipboard fallback.
+		let inlineBody = buildIssueBody(dumpText: dumpText, deviceLabel: deviceLabel, inlineDump: true)
+		let issueBase = "https://github.com/dognotdog/ptpwebcam/issues/new"
+		// 32 KB matches Chrome's URL cap and is well under Safari's 80 KB
+		// limit. Intermediate hops (corporate proxies, URL-rewriting
+		// browser extensions) may truncate earlier — when that happens the
+		// user can re-run with the clipboard fallback by saving the dump
+		// from File → List PTP Properties.
+		let urlBudget = 32768
+
+		if dumpText != nil,
+		   let inlineURL = buildIssueURL(base: issueBase, title: title, body: inlineBody),
+		   inlineURL.absoluteString.count <= urlBudget {
+			log.info("PTP dump inlined into issue URL (\(inlineURL.absoluteString.count, privacy: .public) chars)")
+			NSWorkspace.shared.open(inlineURL)
+			return
+		}
+
+		// Fallback path: dump is too big to inline. Copy to clipboard, swap
+		// the inline dump for a `<paste dump here>` marker, then prompt the
+		// user before opening so they're not surprised by the placeholder.
+		let placeholderBody = buildIssueBody(dumpText: dumpText, deviceLabel: deviceLabel, inlineDump: false)
+		guard let url = buildIssueURL(base: issueBase, title: title, body: placeholderBody) else {
+			log.error("Could not build GitHub issue URL")
+			return
+		}
+
+		if let dumpText {
+			let pb = NSPasteboard.general
+			pb.clearContents()
+			pb.setString(dumpText, forType: .string)
+			log.info("PTP dump too large for URL — copied to clipboard (\(dumpText.count, privacy: .public) chars)")
+
+			let alert = NSAlert()
+			alert.messageText = NSLocalizedString("Dump copied — ready to file the issue",
+			                                       comment: "Issue submit confirm dialog title")
+			alert.informativeText = NSLocalizedString("Your PTP property dump is large, so it has been copied to the clipboard rather than embedded in the URL. After GitHub opens, paste it where the issue template says “paste dump here.”",
+			                                          comment: "Issue submit confirm dialog body")
+			alert.addButton(withTitle: NSLocalizedString("Open GitHub", comment: "Issue submit confirm dialog primary"))
+			alert.addButton(withTitle: NSLocalizedString("Cancel", comment: "Issue submit confirm dialog secondary"))
+			if alert.runModal() != .alertFirstButtonReturn { return }
+		}
+
+		NSWorkspace.shared.open(url)
+	}
+
+	/// Compose the markdown body for a new GitHub issue. `inlineDump=true`
+	/// embeds the full dump inside a code fence; `inlineDump=false` swaps in
+	/// a `<paste dump here>` placeholder for the clipboard fallback path.
+	private func buildIssueBody(dumpText: String?, deviceLabel: String?, inlineDump: Bool) -> String {
+		var lines: [String] = []
+		lines.append("**Describe the issue**")
+		lines.append("<!-- A clear and concise description of what's happening, what you expected, and steps to reproduce. -->")
+		lines.append("")
+		lines.append("**Environment**")
+		lines.append("- App version: \(appVersionString())")
+		lines.append("- macOS: \(macOSVersionString())")
+		lines.append("- Hardware: \(hardwareModelString())")
+		if let label = deviceLabel {
+			lines.append("- Camera: \(label)")
+		}
+		lines.append("")
+		lines.append("**PTP property dump**")
+		lines.append("")
+		if let dumpText, inlineDump {
+			// Wrap in <details> so the issue stays readable — most dumps are
+			// long enough to overwhelm the rest of the report.
+			lines.append("<details><summary>Click to expand</summary>")
+			lines.append("")
+			lines.append("```")
+			lines.append(dumpText)
+			lines.append("```")
+			lines.append("")
+			lines.append("</details>")
+		} else if dumpText != nil {
+			lines.append("<!-- The full dump has been copied to your clipboard. Paste it inside the code fence below. -->")
+			lines.append("")
+			lines.append("```")
+			lines.append("<paste dump here>")
+			lines.append("```")
+		} else {
+			lines.append("_No camera was attached when this issue was filed._")
+		}
+		return lines.joined(separator: "\n")
+	}
+
+	/// Build a `?title=...&body=...` URL using URLComponents so newlines,
+	/// brackets, quotes, and other unsafe characters are correctly
+	/// percent-encoded by the standard library.
+	private func buildIssueURL(base: String, title: String, body: String) -> URL? {
+		var components = URLComponents(string: base)
+		components?.queryItems = [
+			URLQueryItem(name: "title", value: title),
+			URLQueryItem(name: "body",  value: body),
+		]
+		return components?.url
+	}
+
+	private func appVersionString() -> String {
+		let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+		let build = Bundle.main.infoDictionary?["CFBundleVersion"]            as? String ?? "?"
+		return "\(short) (\(build))"
+	}
+
+	private func macOSVersionString() -> String {
+		let v = ProcessInfo.processInfo.operatingSystemVersion
+		return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+	}
+
+	private func hardwareModelString() -> String {
+		var size: size_t = 0
+		sysctlbyname("hw.model", nil, &size, nil, 0)
+		guard size > 0 else { return "unknown" }
+		var buf = [CChar](repeating: 0, count: size)
+		sysctlbyname("hw.model", &buf, &size, nil, 0)
+		return String(cString: buf)
 	}
 
 	private func saveDumpToFile(_ text: String, deviceLabel: String) {
