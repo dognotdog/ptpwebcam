@@ -333,6 +333,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	private var dumpTextSlotTokens: [Int32] = []
 	// Darwin notify tokens for live-view-failure text slots (extension → agent).
 	private var lvFailSlotTokens: [Int32] = []
+	private var usbBlockedSlotTokens: [Int32] = []
 	// Serialized dump queue so we never run two dumps (potentially fighting
 	// over the same USB endpoints) at once.
 	private let dumpQueue = DispatchQueue(label: "org.ptpwebcam.dump", qos: .userInitiated)
@@ -381,6 +382,10 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		lvFailSlotTokens = (0..<kDarwinLiveViewFailedSlotCount).map { i in
 			Self.registerCheckToken(kDarwinLiveViewFailedSlotPrefix + "\(i)",
 			                        label: "lvFailSlot[\(i)]")
+		}
+		usbBlockedSlotTokens = (0..<kDarwinUsbBlockedSlotCount).map { i in
+			Self.registerCheckToken(kDarwinUsbBlockedSlotPrefix + "\(i)",
+			                        label: "usbBlockedSlot[\(i)]")
 		}
 
 		// Per-camera claim and property-command channels are registered in cameraConnected.
@@ -732,13 +737,18 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// All dict mutations are dispatched back to main to avoid data races.
 	private func openUsbCamera(cameraId: String, deviceSource: PtpWebcamCameraExtensionDeviceSource,
 	                           vid: UInt16, pid: UInt16, serial: String) {
-		// UsbPtpBridge's open path now runs an
-		// `IOUSBHostObjectInitOptionsDeviceSeize` pass before the
-		// IOUSBLib interface-open. That modern eviction message is what
-		// ptpcamerad actually respects — the older IOUSBLib seize was
-		// ignored. We don't need the agent to kill ptpcamerad anymore,
-		// which is what lets the agent run inside the App Sandbox.
-		PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: opening via IOUSBHost device-seize")
+		// USB access strategy is gated by the bridge's
+		// `PTPWEBCAM_USB_OPEN_MODE` compile-time flag — see
+		// UsbPtpBridge.m for the three modes (PLAIN / SEIZE / KILL).
+		// The agent kill is fired only in KILL mode; SEIZE relies on
+		// the bridge's IOUSBHost seize pass instead, and PLAIN
+		// intentionally does nothing so a busy device fails fast and
+		// exercises the "camera busy — held by X" diagnostic UI.
+		PtpWebcamCameraExtensionProviderSource.log(
+			"openUsbCamera: mode = \(UsbPtpBridge.usbOpenModeDescription())")
+		if UsbPtpBridge.usesAgentKill() {
+			darwin_notify_post(kDarwinNeedUsbAccess)
+		}
 
 		var transport: UsbPtpTransport?
 		var lastError: Error?
@@ -764,6 +774,26 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 		guard let t = transport else {
 			PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: all attempts failed: \(String(describing: lastError))")
+			// If the failure was specifically "device held by another
+			// userspace driver" (kIOReturnExclusiveAccess = 0xe00002c5),
+			// signal the agent so it can identify the culprit app and
+			// surface an actionable menu item. lastError comes wrapped as
+			// `UsbPtpError.openFailed(inner)` — unwrap to get the real
+			// IOUSBErrorDomain NSError.
+			let innerError: NSError? = {
+				if let usbErr = lastError as? UsbPtpError {
+					if case let .openFailed(inner) = usbErr {
+						return inner as NSError
+					}
+				}
+				return lastError as NSError?
+			}()
+			if let nsErr = innerError,
+			   nsErr.domain == "IOUSBErrorDomain",
+			   IOReturn(Int32(truncatingIfNeeded: nsErr.code)) == kIOReturnExclusiveAccess {
+				PtpWebcamCameraExtensionProviderSource.log("openUsbCamera: kIOReturnExclusiveAccess — publishing blocked diagnostic")
+				publishUsbBlocked(cameraId: cameraId)
+			}
 			return
 		}
 
@@ -950,6 +980,22 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	/// slot chain. Format: "<Camera Name>\n<reason>". The agent reads it,
 	/// shows an NSAlert, and the user gets a clear explanation instead of
 	/// a silent black QuickTime preview.
+	/// Publish a USB-busy / camera-held-by-other-app signal to the agent
+	/// over the dedicated slot chain. Payload is the cameraId so the
+	/// agent can map it back to the matching ExtCamera entry, find which
+	/// running apps are likely holding ptpcamerad, and surface them as
+	/// actionable menu items.
+	fileprivate func publishUsbBlocked(cameraId: String) {
+		guard let data = cameraId.data(using: .utf8) else { return }
+		publishQueue.async { [weak self] in
+			guard let self else { return }
+			self.publishBytesViaSlotChain(data,
+			                              tokens: self.usbBlockedSlotTokens,
+			                              notificationName: kDarwinUsbBlocked)
+		}
+		Self.log("publishUsbBlocked: \(cameraId)")
+	}
+
 	fileprivate func publishLiveViewFailure(cameraName: String, reason: String) {
 		let combined = "\(cameraName)\n\(reason)"
 		guard let data = combined.data(using: .utf8) else { return }

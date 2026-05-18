@@ -40,10 +40,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// extension. Same multi-page slot-chain protocol as property state, just
     /// a much smaller chain since the payload is a short error string.
     private var lvFailSlotTokens: [Int32] = []
+    private var usbBlockedSlotTokens: [Int32] = []
     private var lvFailPageBuffer: Data?
     private var lvFailPageTotal: Int = 0
     private var lvFailPageCount: Int = 0
     private var lvFailNextPage: Int = 0
+    private var usbBlockedPageBuffer: Data?
+    private var usbBlockedPageTotal: Int = 0
+    private var usbBlockedPageCount: Int = 0
+    private var usbBlockedNextPage: Int = 0
     /// De-duplicate identical failure alerts that arrive within a short
     /// window — Canon's EVF state machine and Nikon's prohibit-condition
     /// flow can both fire onLiveViewStartFailed multiple times during a
@@ -134,6 +139,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.publishCameraState()
         }
 
+        // USB access coordination: kill ptpcamerad on behalf of the CMIO
+        // extension when it asks. See kDarwinNeedUsbAccess docs in
+        // PtpCameraAgentProtocol.swift for why this side channel exists.
+        var needUsbToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinNeedUsbAccess, &needUsbToken, .main) { [weak self] _ in
+            self?.handleNeedUsbAccess()
+        }
+
         xpcListener = NSXPCListener(machServiceName: kPtpCameraAgentMachServiceName)
         xpcListener.delegate = self
         xpcListener.resume()
@@ -168,6 +181,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.handleLiveViewFailure()
         }
 
+        // USB-busy / camera-held-by-other-app channel. Extension posts this
+        // when openUsbCamera exhausts retries with kIOReturnExclusiveAccess.
+        // The agent enumerates running apps known to keep ImageCapture
+        // sessions alive (Preview, Photos, Image Capture, etc.) and shows
+        // them in the menu as actionable items — much better UX than the
+        // user staring at "Opening PTP session…" forever.
+        usbBlockedSlotTokens = (0..<kDarwinUsbBlockedSlotCount).map { i in
+            var t: Int32 = 0
+            darwin_notify_register_check(kDarwinUsbBlockedSlotPrefix + "\(i)", &t)
+            return t
+        }
+        var usbBlockedToken: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinUsbBlocked, &usbBlockedToken, .main) { [weak self] _ in
+            self?.handleUsbBlocked()
+        }
+
+        // Watch for any of our known camera-holding apps exiting — by
+        // any means: our own "Quit X" dialog, the user hitting Cmd-Q,
+        // Force Quit, a crash, even the app being launched and exiting
+        // unrelated to the camera. When one terminates we clear it from
+        // every camera's blockingApps and retry the claim for any
+        // camera whose list became empty. This means the user can fix
+        // the situation themselves and we'll automatically catch up
+        // without them needing to invoke our menu action at all.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppTerminated(_:)),
+            name: NSWorkspace.didTerminateApplicationNotification,
+            object: nil)
+
         // Darwin notify posts are NOT replayed for subscribers that weren't
         // running when the post fired. After a fresh launch (launchd
         // respawn, reinstall, user-cycled camera causing agent restart),
@@ -181,12 +224,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // The agent used to kill ptpcamerad here so the extension's USB open
-    // could succeed. That side channel is gone — the extension's bridge
-    // uses IOUSBHost's `IOUSBHostObjectInitOptionsDeviceSeize` before
-    // opening the interface, and ptpcamerad respects that newer eviction
-    // message. App Sandbox blocks cross-UID `kill()`, so removing the kill
-    // is what enables `app-sandbox = true` in the agent's entitlements.
+    // MARK: - USB Access Coordination
+
+    /// Kill ptpcamerad so the CMIO extension (user/262) can claim the PTP
+    /// USB interface. Required because ptpcamerad ignores every documented
+    /// kernel-level eviction message (USBDeviceOpenSeize, USBInterfaceOpenSeize,
+    /// IOUSBHostObjectInitOptionsDeviceSeize). The reliable App-Store-compatible
+    /// replacement is IOUSBHost's DeviceCapture option — which requires the
+    /// managed `com.apple.vm.device-access` entitlement Apple grants per
+    /// application. Until that lands, the agent must run outside the App
+    /// Sandbox so this `kill()` succeeds.
+    private func handleNeedUsbAccess() {
+        let killed = Self.killProcessByName("ptpcamerad")
+        AppDelegate.log("PtpCameraAgent: handleNeedUsbAccess killed=\(killed)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            darwin_notify_post(kDarwinUsbAccessReady)
+        }
+    }
+
+    /// sysctl(KERN_PROC_ALL) + kill() — no child-process spawn, which lets us
+    /// avoid the sandbox restriction that blocks `Process.run("/usr/bin/pkill")`.
+    @discardableResult
+    private static func killProcessByName(_ name: String) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        sysctl(&mib, 4, nil, &size, nil, 0)
+        let capacity = size / MemoryLayout<kinfo_proc>.stride + 1
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: capacity)
+        sysctl(&mib, 4, &procs, &size, nil, 0)
+
+        let count = size / MemoryLayout<kinfo_proc>.stride
+        var found = false
+        for i in 0..<count {
+            var p = procs[i]
+            let procName = withUnsafeBytes(of: &p.kp_proc.p_comm) { raw -> String in
+                guard let base = raw.bindMemory(to: CChar.self).baseAddress else { return "" }
+                return String(cString: base)
+            }
+            if procName == name {
+                let pid = p.kp_proc.p_pid
+                let result = kill(pid, SIGKILL)
+                log("PtpCameraAgent: kill(\(name) pid=\(pid)) rc=\(result) errno=\(errno)")
+                found = true
+            }
+        }
+        if !found {
+            log("PtpCameraAgent: \(name) not found — nothing to kill")
+        }
+        return found
+    }
 
     // MARK: - Darwin Notify State Publishing
     //
@@ -275,6 +361,163 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lvFailPageTotal = 0; lvFailPageCount = 0; lvFailNextPage = 0
         guard let text = String(data: payload, encoding: .utf8) else { return }
         presentLiveViewFailureAlert(payload: text)
+    }
+
+    // MARK: - USB blocked (extension → agent)
+
+    /// Curated list of apps known to keep an ImageCapture session alive
+    /// just by running, even if their UI isn't actively showing camera
+    /// content. These are the most common "but PTP Webcam says my camera
+    /// is busy!" culprits. When the extension reports USB-blocked we
+    /// intersect this list with `NSWorkspace.runningApplications` to
+    /// build the "Held by …" UI.
+    ///
+    /// Order matters: the list is shown to the user in this order if
+    /// multiple are running, so put the highest-confidence offenders
+    /// first. Bundle IDs only — display names come from `localizedName`
+    /// on the NSRunningApplication so locale-translated names are
+    /// preserved automatically.
+    private static let knownImageCaptureHolders: [String] = [
+        "com.apple.Preview",        // adds an ICDeviceBrowser session on launch for "Import from …"
+        "com.apple.Photos",         // ditto, for the Import sidebar
+        "com.apple.Image_Capture",  // obvious
+        "com.adobe.LightroomClassicCC7", "com.adobe.LightroomClassic",  // tethering
+        "com.captureone.captureone16", "com.phaseone.captureone",        // Capture One
+        "com.helmut-kramer.iPhoto", "com.apple.iPhoto",
+        "com.smoothware.imageeditor",
+        "us.zoom.xos",              // Zoom enumerates AVCaptureDevices aggressively
+        "com.tinrocket.fragment",   // user reports
+    ]
+
+    /// Find running apps from `knownImageCaptureHolders`. Returns
+    /// (bundleId, localizedName) pairs in the same order as the curated
+    /// list — caller decides how many to surface.
+    private func detectRunningCameraHolders() -> [(bundleId: String, displayName: String)] {
+        let running = NSWorkspace.shared.runningApplications
+        var byBundle: [String: NSRunningApplication] = [:]
+        for app in running {
+            if let bid = app.bundleIdentifier { byBundle[bid] = app }
+        }
+        return Self.knownImageCaptureHolders.compactMap { bid in
+            guard let app = byBundle[bid] else { return nil }
+            let name = app.localizedName ?? bid
+            return (bundleId: bid, displayName: name)
+        }
+    }
+
+    private func handleUsbBlocked() {
+        var slot0: UInt64 = 0
+        darwin_notify_get_state(usbBlockedSlotTokens[0], &slot0)
+        let totalLength = Int(slot0 >> 32)
+        let pageIndex   = Int((slot0 >> 16) & 0xFFFF)
+        let pageCount   = Int(slot0 & 0xFFFF)
+        guard totalLength > 0, pageCount > 0, pageIndex < pageCount else { return }
+
+        let pageDataSlots = kDarwinUsbBlockedSlotCount - 2
+        let pageSize = pageDataSlots * 8
+        let pageOffset = pageIndex * pageSize
+        let pageLength = min(pageSize, totalLength - pageOffset)
+        guard pageLength > 0 else { return }
+
+        if pageIndex == 0 || usbBlockedPageBuffer == nil || usbBlockedPageTotal != totalLength {
+            usbBlockedPageBuffer = Data(count: totalLength)
+            usbBlockedPageTotal = totalLength
+            usbBlockedPageCount = pageCount
+            usbBlockedNextPage = 0
+        }
+        guard var buffer = usbBlockedPageBuffer, pageIndex == usbBlockedNextPage else {
+            usbBlockedPageBuffer = nil; return
+        }
+        buffer.withUnsafeMutableBytes { ptr in
+            for i in 0..<((pageLength + 7) / 8) {
+                var v: UInt64 = 0
+                darwin_notify_get_state(usbBlockedSlotTokens[i + 1], &v)
+                let chunkOffset = pageOffset + i * 8
+                let chunkSize = min(8, totalLength - chunkOffset)
+                if chunkSize > 0 { memcpy(ptr.baseAddress! + chunkOffset, &v, chunkSize) }
+            }
+        }
+        usbBlockedPageBuffer = buffer
+
+        var csValue: UInt64 = 0
+        darwin_notify_get_state(usbBlockedSlotTokens[kDarwinUsbBlockedSlotCount - 1], &csValue)
+        let expected = UInt32(csValue & 0xFFFFFFFF)
+        var computed: UInt32 = 0
+        for byte in buffer[pageOffset..<(pageOffset + pageLength)] { computed = computed &+ UInt32(byte) }
+        guard computed == expected else { usbBlockedPageBuffer = nil; return }
+
+        usbBlockedNextPage += 1
+        if usbBlockedNextPage < usbBlockedPageCount { return }
+
+        let payload = buffer
+        usbBlockedPageBuffer = nil
+        usbBlockedPageTotal = 0; usbBlockedPageCount = 0; usbBlockedNextPage = 0
+        guard let cameraId = String(data: payload, encoding: .utf8), !cameraId.isEmpty else { return }
+
+        let culprits = detectRunningCameraHolders()
+        AppDelegate.log("PtpCameraAgent: USB blocked for \(cameraId) — likely culprits: \(culprits.isEmpty ? "(none known running)" : culprits.map { $0.displayName }.joined(separator: ", "))")
+        guard extCameras[cameraId] != nil else { return }
+        // Record whether we know any culprits or not — the menu builder
+        // uses the empty-vs-non-empty distinction to choose between
+        // "⚠ held by X — click to release" and a generic "⚠ camera busy"
+        // message. We don't suppress the blocked state just because we
+        // couldn't identify the holder: the user still needs to know
+        // PTP Webcam can't open the camera so they can investigate.
+        extCameras[cameraId]?.blockingApps = culprits
+        extCameras[cameraId]?.isBusyUnknownHolder = culprits.isEmpty
+        rebuildMenu()
+    }
+
+    /// Observer for `NSWorkspace.didTerminateApplicationNotification`.
+    /// If a terminated app is in our `knownImageCaptureHolders` list and
+    /// is referenced by any camera's `blockingApps`, we remove that
+    /// entry. Cameras whose blockingApps list becomes empty get a fresh
+    /// claim retry — at that point ptpcamerad has either already exited
+    /// (no clients left) or is about to, and our next USB open should
+    /// succeed.
+    ///
+    /// This handles the "user quits Preview from the Dock" path: the
+    /// user doesn't have to invoke our menu action; we observe the
+    /// termination event and recover automatically.
+    @objc private func handleAppTerminated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication,
+              let bundleId = app.bundleIdentifier else { return }
+        // Only react to terminations of apps we tracked as blockers. We
+        // don't gate on `knownImageCaptureHolders` here because the
+        // blocker check already encodes that — but skipping irrelevant
+        // events early saves a dict walk on every random app launch.
+        guard Self.knownImageCaptureHolders.contains(bundleId) else { return }
+
+        var nowUnblocked: [String] = []
+        for (cid, cam) in extCameras {
+            guard cam.blockingApps.contains(where: { $0.bundleId == bundleId }) else { continue }
+            extCameras[cid]?.blockingApps.removeAll { $0.bundleId == bundleId }
+            // Only retry if this was the last blocker — there's no point
+            // racing ptpcamerad if other holders are still alive.
+            if extCameras[cid]?.blockingApps.isEmpty == true {
+                nowUnblocked.append(cid)
+            }
+        }
+
+        if !nowUnblocked.isEmpty {
+            AppDelegate.log("PtpCameraAgent: \(bundleId) terminated — retrying \(nowUnblocked.count) camera(s)")
+            rebuildMenu()
+            // Brief delay so ptpcamerad (now without its last client) has
+            // time to actually release the USB device before we try
+            // again. Empirically ptpcamerad shuts down within a few
+            // hundred ms of its last client disconnecting; 500 ms is
+            // comfortable headroom.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                for cid in nowUnblocked {
+                    self?.retryClaim(for: cid)
+                }
+            }
+        } else {
+            // App was a blocker but other blockers remain — just refresh
+            // the menu so the user sees the shortened list.
+            rebuildMenu()
+        }
     }
 
     /// Payload format is "<Camera Name>\n<reason>". Splitting on the first
@@ -428,10 +671,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let usbName = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
         let name = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: usbName)
         let vendor = PtpKnownCameras.protocolFamily(forVid: vid, pid: pid)
-        extCameras[cameraId] = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
-                                         vid: vid, pid: pid, serial: serial,
-                                         properties: properties, orderedPropertyIds: orderedIds,
-                                         vendor: vendor)
+        // Preserve a previously-set `blockingApps` / `isBusyUnknownHolder`
+        // across re-publishes that come in before the camera actually
+        // opens (the extension publishes an empty props=0 state at
+        // attach time, before it even tries to claim USB; the blocked
+        // diagnostic arrives after that and we shouldn't lose it on
+        // the next attach republish). Reset only when a non-empty
+        // property set arrives (camera opened — no longer blocked).
+        let previousBlockingApps = (properties.isEmpty ? extCameras[cameraId]?.blockingApps : nil) ?? []
+        let previousIsBusyUnknown = (properties.isEmpty ? extCameras[cameraId]?.isBusyUnknownHolder : nil) ?? false
+        var newCam = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
+                               vid: vid, pid: pid, serial: serial,
+                               properties: properties, orderedPropertyIds: orderedIds,
+                               vendor: vendor,
+                               blockingApps: previousBlockingApps)
+        newCam.isBusyUnknownHolder = previousIsBusyUnknown
+        extCameras[cameraId] = newCam
         AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(claimKey) props=\(properties.count)")
 
         // Auto-claim if this camera was previously claimed and the session isn't open yet.
@@ -620,19 +875,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if !isClaimed { return }
 
+        if camera.properties.isEmpty {
+            if !camera.blockingApps.isEmpty {
+                // Extension reported USB busy and the agent identified the
+                // culprit(s). Single clickable row opens the confirmation
+                // dialog that walks through terminating them.
+                let names = camera.blockingApps.map { $0.displayName }.joined(separator: ", ")
+                let item = NSMenuItem(title: "  ⚠ Camera Held by Other App, Release…",
+                                      action: #selector(promptReleaseBlockedCameraAction(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = camera.cameraId
+                menu.addItem(item)
+            } else if camera.isBusyUnknownHolder {
+                // Extension reported USB busy but no app from our curated
+                // holder list is currently running. Either ptpcamerad is
+                // lingering after a holder app already quit, or something
+                // we don't track (third-party tether app, browser-based
+                // WebUSB, etc.) has the device. No actionable terminate,
+                // but the user still sees the camera isn't accessible.
+                let item = NSMenuItem(title: "  ⚠ Camera Busy",
+                                      action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            } else {
+                let item = NSMenuItem(title: "  Opening PTP session…", action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+            return
+        }
+
+        // PTP session is open (properties non-empty). The preview-video
+        // item lives here so it doesn't appear while the camera is still
+        // being claimed / opened — clicking it before properties were
+        // discovered just opened a black preview window.
         let previewItem = NSMenuItem(title: "  Preview Video Stream…",
                                      action: #selector(showPreviewAction(_:)),
                                      keyEquivalent: "")
         previewItem.target = self
         previewItem.representedObject = camera.cameraId
         menu.addItem(previewItem)
-
-        if camera.properties.isEmpty {
-            let item = NSMenuItem(title: "  Opening PTP session…", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-            return
-        }
 
         let vendor  = camera.vendor
         let isNikon = vendor == .nikon
@@ -1004,6 +1287,89 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    /// Menu action for the "⚠ Camera busy — held by X — click to release"
+    /// row. Opens a confirmation NSAlert listing every app the agent has
+    /// identified as blocking ANY currently-affected camera (not just the
+    /// one the user clicked through), and on confirm terminates all of
+    /// them and retries the claim for every camera whose blockingApps
+    /// included any of the terminated bundles. The set-based handling is
+    /// what fixes the multi-camera case — if a single Preview holds two
+    /// cameras hostage, one click cleans both up.
+    @objc private func promptReleaseBlockedCameraAction(_ sender: NSMenuItem) {
+        guard let cameraId = sender.representedObject as? String else { return }
+        // Re-query at dialog time rather than trusting the cached
+        // `blockingApps` the extension reported earlier. Between the
+        // notification and the user clicking the menu item they may
+        // have closed some of the offenders manually — we should never
+        // list an app in the dialog that isn't actually running.
+        let currentHolders = detectRunningCameraHolders()
+
+        guard !currentHolders.isEmpty else {
+            // Nothing left to terminate. Clear stale blockingApps on
+            // every affected camera and ask the extension to retry —
+            // no dialog needed, the user already did the work.
+            AppDelegate.log("PtpCameraAgent: prompt-release — no holders currently running, clearing stale state")
+            var affected: [String] = []
+            for (cid, cam) in extCameras where !cam.blockingApps.isEmpty {
+                extCameras[cid]?.blockingApps.removeAll()
+                affected.append(cid)
+            }
+            rebuildMenu()
+            for cid in affected { retryClaim(for: cid) }
+            return
+        }
+
+        let bundleIds = currentHolders.map { $0.bundleId }
+        let displayNames = currentHolders.map { $0.displayName }
+        let names = displayNames.joined(separator: ", ")
+        let alert = NSAlert()
+        alert.messageText = "Release camera by quitting \(names)?"
+        alert.informativeText = """
+            PTP Webcam can't open the camera because the following app\(displayNames.count == 1 ? " is" : "s are") holding it:
+
+              • \(displayNames.joined(separator: "\n  • "))
+
+            Quitting \(displayNames.count == 1 ? "it" : "them") will release the camera so PTP Webcam can use it. Any unsaved work in \(displayNames.count == 1 ? "that app" : "those apps") may be lost.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quit \(displayNames.count == 1 ? displayNames[0] : "Apps")")
+        alert.addButton(withTitle: "Cancel")
+
+        // Activate ourselves so the modal sheet attaches to a key window
+        // and doesn't get hidden behind the offending app.
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Terminate every running instance of every culprit bundle.
+        // Polite terminate (NSRunningApplication.terminate) gives the app
+        // a chance to save state. The follow-up state cleanup + claim
+        // retry happens in `handleAppTerminated(_:)`, which observes
+        // NSWorkspace.didTerminateApplicationNotification — single source
+        // of truth whether the apps were quit through this dialog, via
+        // Cmd-Q, or by any other route.
+        let running = NSWorkspace.shared.runningApplications
+        for bid in bundleIds {
+            for app in running where app.bundleIdentifier == bid {
+                AppDelegate.log("PtpCameraAgent: terminating \(bid) pid=\(app.processIdentifier)")
+                app.terminate()
+            }
+        }
+        _ = cameraId  // unused after the dialog; the observer touches all affected cameras
+    }
+
+    /// Re-issue the claim command for a camera (used after we successfully
+    /// terminate a blocking app, so the extension gets another shot at
+    /// opening the USB interface).
+    private func retryClaim(for cameraId: String) {
+        guard let camera = extCameras[cameraId] else { return }
+        let parts = camera.claimKey.split(separator: ":")
+        let vid  = UInt16(parts.count > 0 ? UInt32(parts[0], radix: 16) ?? 0 : 0)
+        let pid  = UInt16(parts.count > 1 ? UInt32(parts[1], radix: 16) ?? 0 : 0)
+        let serial = parts.count > 2 ? String(parts[2...].joined(separator: ":")) : ""
+        AppDelegate.log("PtpCameraAgent: retry claim for \(camera.claimKey)")
+        sendClaimCommand(vid: vid, pid: pid, serial: serial, claim: true)
+    }
+
     @objc private func claimCameraAction(_ sender: NSMenuItem) {
         guard let cameraId = sender.representedObject as? String,
               let camera = extCameras[cameraId] else { return }
@@ -1110,6 +1476,20 @@ struct ExtCamera {
     var properties: [UInt32: ExtCameraProperty]
     let orderedPropertyIds: [UInt32]
     let vendor: ProtocolFamily
+    /// Apps known to keep ImageCapture sessions alive and therefore likely
+    /// to be holding ptpcamerad against us. Populated when the extension
+    /// publishes kDarwinUsbBlocked for this camera; reset to empty when
+    /// the next successful property publish arrives. Keys = bundleId,
+    /// values = display name. Surfaced in the menu as actionable items
+    /// ("Quit Preview to use this camera").
+    var blockingApps: [(bundleId: String, displayName: String)] = []
+    /// True if the extension reported the camera was held but the agent
+    /// couldn't identify a culprit from its `knownImageCaptureHolders`
+    /// list (e.g. ptpcamerad is lingering after a holder quit, or some
+    /// other process we don't recognise has the device). Menu falls back
+    /// to a generic "⚠ Camera busy" message in this case — no quit
+    /// action since we don't know what to terminate.
+    var isBusyUnknownHolder: Bool = false
 }
 
 private class ExtPropertyChangeInfo {
@@ -1123,6 +1503,7 @@ private class ExtPropertyChangeInfo {
         self.value = value
     }
 }
+
 
 // Keeps a slider's action alive for the duration of the menu.
 class SliderActionHolder: NSObject {

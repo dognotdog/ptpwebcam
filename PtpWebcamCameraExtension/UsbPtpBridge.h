@@ -75,6 +75,26 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface UsbPtpBridge : NSObject
 
+/// Runtime accessors for the `PTPWEBCAM_USB_OPEN_MODE` preprocessor flag
+/// defined in UsbPtpBridge.m. Lets the Swift side gate behaviour
+/// (agent-kill request, log messages, etc.) without having to mirror the
+/// mode into a separate Swift compilation condition — single source of
+/// truth lives in the ObjC bridge. Mutually exclusive:
+///
+///   PLAIN — both return NO; plain `USBInterfaceOpen` fails immediately
+///           on a busy device, perfect for triggering the "camera busy"
+///           menu UI deterministically.
+///   SEIZE — `usesIOUSBHostSeize == YES`. Bridge runs IOUSBHost +
+///           IOUSBLib seize. No agent kill.
+///   KILL  — `usesAgentKill == YES`. Bridge runs IOUSBLib seize only.
+///           Extension asks the agent to SIGKILL ptpcamerad.
++ (BOOL)usesIOUSBHostSeize;
++ (BOOL)usesAgentKill;
+
+/// Human-readable mode string for log messages. e.g.
+/// "SEIZE (IOUSBHost + IOUSBLib seize, no agent kill)".
++ (NSString *)usbOpenModeDescription;
+
 /// Returns a CFMutableDictionary matching IOUSBHostInterface services with
 /// bInterfaceClass=6 (Still Imaging / PTP) and bInterfaceSubClass=1.
 /// Caller receives +1 retain; use __bridge_transfer or CFRelease.

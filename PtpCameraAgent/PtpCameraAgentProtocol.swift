@@ -11,12 +11,21 @@ let kPtpCameraStatePath = "/tmp/org.ptpwebcam.cameras.plist"
 let kDarwinCameraStateChanged = "org.ptpwebcam.darwin.CameraStateChanged"
 let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 
-// Note: the kDarwinNeedUsbAccess / kDarwinUsbAccessReady channels used to
-// ask the agent to kill ptpcamerad before the extension's USB open. Removed
-// when the bridge switched to IOUSBHost's
-// `IOUSBHostObjectInitOptionsDeviceSeize` — that newer eviction message is
-// honored by ptpcamerad, so no userspace kill is needed and the agent runs
-// inside the sandbox now.
+// USB access coordination: extension → agent.
+// Extension posts kDarwinNeedUsbAccess before opening the USB interface so
+// the agent can kill ptpcamerad — Apple's PTP daemon holds the interface
+// exclusively and ignores all kernel-level eviction messages
+// (USBDeviceOpenSeize, USBInterfaceOpenSeize, IOUSBHost DeviceSeize) once
+// it's settled on a device. The userspace SIGKILL from a co-resident
+// process is the only reliable way short of IOUSBHost DeviceCapture, which
+// needs the managed `com.apple.vm.device-access` entitlement.
+//
+// App Store gap: this side channel requires an unsandboxed agent (App
+// Sandbox blocks cross-UID kill() with EPERM). Closing this gap requires
+// either Apple granting `com.apple.vm.device-access` or finding another
+// way to evict ptpcamerad that ptpcamerad actually honors.
+let kDarwinNeedUsbAccess  = "org.ptpwebcam.darwin.NeedUsbAccess"
+let kDarwinUsbAccessReady = "org.ptpwebcam.darwin.UsbAccessReady"
 
 // State slots: each holds 8 bytes via notify_set_state/notify_get_state.
 // Slot 0 high 32 bits = total byte length, low 32 bits = reserved.
@@ -77,6 +86,23 @@ let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 let kDarwinLiveViewFailed         = "org.ptpwebcam.darwin.LiveViewFailed"
 let kDarwinLiveViewFailedSlotPrefix = "org.ptpwebcam.darwin.lvfail."
 let kDarwinLiveViewFailedSlotCount  = 64  // 64 × 8 = 512 bytes, plenty for an error
+
+// MARK: - Extension → Agent: USB-busy / camera-held-by-other-app diagnostic
+//
+// Posted when openUsbCamera exhausts its retry loop with
+// kIOReturnExclusiveAccess — meaning ptpcamerad (or another userspace
+// driver) has the device claimed and won't release. The agent uses this
+// signal to enumerate likely culprits (Preview, Photos, Image Capture,
+// etc. — apps known to keep ImageCapture sessions alive) and surface them
+// in the menu as actionable items ("Quit Preview to use this camera")
+// instead of leaving the user staring at "Opening PTP session…".
+//
+// Payload is the cameraId string (e.g. "usb-0000000100002ebf") via the
+// shared slot-chain protocol. The agent maps it back to the right
+// ExtCamera and updates its `blockingApps` field.
+let kDarwinUsbBlocked             = "org.ptpwebcam.darwin.UsbBlocked"
+let kDarwinUsbBlockedSlotPrefix   = "org.ptpwebcam.darwin.usbblock."
+let kDarwinUsbBlockedSlotCount    = 32  // 32 × 8 = 256 bytes, plenty for a cameraId
 
 // MARK: PTP property-dump channels (debugging unsupported cameras)
 //

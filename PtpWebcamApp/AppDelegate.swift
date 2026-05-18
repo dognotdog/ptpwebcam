@@ -210,7 +210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 
 	private func activateExtension() {
 		// Note: don't try to submit a deactivation request for a legacy
-		// bundle ID (e.g. the pre-App-Store `org.ptpwebcam.CameraExtension`).
+		// bundle ID (e.g. the pre-App-Store `org.ptpwebcam.PtpWebcamApp.CameraExtension`).
 		// sysextd requires the requesting app to contain an extension with
 		// the matching identifier in its bundle, which our renamed build
 		// no longer does — the deactivation just fails with "extension not

@@ -12,8 +12,12 @@ let kPtpCameraStatePath = "/tmp/org.ptpwebcam.cameras.plist"
 let kDarwinCameraStateChanged = "org.ptpwebcam.darwin.CameraStateChanged"
 let kDarwinCameraStateRequest = "org.ptpwebcam.darwin.CameraStateRequest"
 
-// Note: the kDarwinNeedUsbAccess / kDarwinUsbAccessReady channels are gone —
-// see the mirror PtpCameraAgent/PtpCameraAgentProtocol.swift for context.
+// USB access coordination: extension → agent. See mirror copy in
+// PtpCameraAgent/PtpCameraAgentProtocol.swift for the full App-Store-gap
+// commentary. Required as long as ptpcamerad eviction depends on the
+// agent's userspace kill rather than IOUSBHost DeviceCapture.
+let kDarwinNeedUsbAccess  = "org.ptpwebcam.darwin.NeedUsbAccess"
+let kDarwinUsbAccessReady = "org.ptpwebcam.darwin.UsbAccessReady"
 
 // State slots: each holds 8 bytes via notify_set_state/notify_get_state.
 // Slot 0 high 32 bits = total byte length, low 32 bits = reserved.
@@ -64,6 +68,14 @@ let kDarwinPropertyCmdSlot     = "org.ptpwebcam.darwin.propcmd"
 let kDarwinLiveViewFailed         = "org.ptpwebcam.darwin.LiveViewFailed"
 let kDarwinLiveViewFailedSlotPrefix = "org.ptpwebcam.darwin.lvfail."
 let kDarwinLiveViewFailedSlotCount  = 64
+
+// USB-busy diagnostic — see mirror PtpCameraAgent/PtpCameraAgentProtocol.swift
+// for the full commentary. Posted when openUsbCamera fails with
+// kIOReturnExclusiveAccess so the agent can identify which app is
+// holding ptpcamerad and offer to quit it.
+let kDarwinUsbBlocked             = "org.ptpwebcam.darwin.UsbBlocked"
+let kDarwinUsbBlockedSlotPrefix   = "org.ptpwebcam.darwin.usbblock."
+let kDarwinUsbBlockedSlotCount    = 32
 
 // MARK: PTP property-dump channels (mirrored from PtpCameraAgent copy).
 let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"

@@ -10,7 +10,39 @@
 #import <IOKit/IOKitLib.h>
 #import <IOKit/IOCFPlugIn.h>
 #import <IOKit/usb/IOUSBLib.h>
-#import <IOUSBHost/IOUSBHost.h>   // only used for ptpMatchingDictionary
+#import <IOUSBHost/IOUSBHost.h>   // used for ptpMatchingDictionary, optional seize
+
+// ─── Feature flag: PTPWEBCAM_USB_OPEN_MODE ────────────────────────────────
+// Three mutually-exclusive strategies for opening the USB interface. The
+// mode controls both what the bridge does at open time and what the
+// extension's Swift code asks the agent to do — the Swift side reads
+// `[UsbPtpBridge usesAgentKill]` / `[UsbPtpBridge usesIOUSBHostSeize]`
+// so all behaviour comes from this one flag.
+//
+//   PLAIN — Plain `USBInterfaceOpen` (no seize, no kill). Fails
+//           immediately with kIOReturnExclusiveAccess if ptpcamerad
+//           has the device. Use this to deterministically exercise the
+//           "camera busy — held by X" menu UI without having to set up
+//           Preview-first / replug timing tricks.
+//   SEIZE — IOUSBHost `DeviceSeize` pass + IOUSBLib `USBDeviceOpenSeize`
+//           + `USBInterfaceOpenSeize`. Agent kill of ptpcamerad is NOT
+//           triggered. Sandbox-friendly path being debugged for
+//           App Store distribution.
+//   KILL  — IOUSBLib `USBDeviceOpenSeize` + `USBInterfaceOpenSeize`
+//           (no IOUSBHost seize), and the extension posts
+//           `kDarwinNeedUsbAccess` so the agent kills ptpcamerad. This
+//           is the current production-working path; requires the agent
+//           to be unsandboxed.
+//
+// Toggling: edit the `PTPWEBCAM_USB_OPEN_MODE` default below or define
+// via Xcode build setting GCC_PREPROCESSOR_DEFINITIONS=PTPWEBCAM_USB_OPEN_MODE=N.
+#define PTPWEBCAM_USB_OPEN_MODE_PLAIN 0
+#define PTPWEBCAM_USB_OPEN_MODE_SEIZE 1
+#define PTPWEBCAM_USB_OPEN_MODE_KILL  2
+
+#ifndef PTPWEBCAM_USB_OPEN_MODE
+#define PTPWEBCAM_USB_OPEN_MODE PTPWEBCAM_USB_OPEN_MODE_PLAIN
+#endif
 
 // ─── IOUSBLib type alias ───────────────────────────────────────────────────
 // IOUSBInterfaceInterface300 has WritePipeTO / ReadPipeTO / GetNumEndpoints /
@@ -184,36 +216,53 @@ typedef IOUSBDeviceInterface300    USBDeviceImpl;
     io_service_t deviceService = IO_OBJECT_NULL;
     kern_return_t pkr = IORegistryEntryGetParentEntry(service, kIOServicePlane, &deviceService);
 
-    // Pass (a): IOUSBHost-style seize. No special entitlement needed.
-    // Best-effort — failure to construct or seize is non-fatal because
-    // the IOUSBLib fallback path below covers the same job.
+#if PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_SEIZE
+    // Pass (a): IOUSBHost-style seize. Sends `kUSBHostMessageDeviceIsRequestingClose`
+    // via the modern USB stack. Currently this is being debugged — the
+    // kernel sometimes rejects our IOServiceOpen with "Unable to open
+    // io_service_t object and create user client" (IOUSBHost user-client
+    // entitlement gating that we haven't fully understood yet). When it
+    // does succeed, ptpcamerad's behaviour after receiving the message is
+    // inconsistent (settled ptpcamerad ignores the request).
+    //
+    // We retry up to 5 times with 150 ms between attempts to give
+    // ptpcamerad a chance to drain its state machine and call back. If
+    // the seize eventually succeeds, the IOUSBLib seize below has nothing
+    // to evict and our subsequent USBInterfaceOpenSeize trivially
+    // succeeds. If all 5 fail, we still fall through to the IOUSBLib
+    // pass — when the experiment is going badly the user can flip
+    // PTPWEBCAM_USE_IOUSBHOST_SEIZE to 0 and re-enable the agent kill.
     if (pkr == KERN_SUCCESS && deviceService != IO_OBJECT_NULL) {
-        @autoreleasepool {
-            NSError *hostErr = nil;
-            IOUSBHostDevice *hostDevice =
-                [[IOUSBHostDevice alloc]
-                  initWithIOService:deviceService
-                            options:IOUSBHostObjectInitOptionsDeviceSeize
-                              queue:nil
-                              error:&hostErr
-                    interestHandler:nil];
-            if (hostDevice == nil) {
-                // Expected on first attempt if ptpcamerad is the owner —
-                // the eviction message has nonetheless been sent. Don't
-                // log noisily; the IOUSBLib path below will report any
-                // real failure with a clearer error.
-            } else {
-                // Successful seize. Release immediately; we don't need
-                // to keep the IOUSBHost handle open — IOUSBLib will
-                // take over from here.
-                [hostDevice destroy];
-                hostDevice = nil;
+        BOOL hostSeized = NO;
+        for (int hostAttempt = 1; hostAttempt <= 5 && !hostSeized; hostAttempt++) {
+            @autoreleasepool {
+                NSError *hostErr = nil;
+                IOUSBHostDevice *hostDevice =
+                    [[IOUSBHostDevice alloc]
+                      initWithIOService:deviceService
+                                options:IOUSBHostObjectInitOptionsDeviceSeize
+                                  queue:nil
+                                  error:&hostErr
+                        interestHandler:nil];
+                if (hostDevice != nil) {
+                    [hostDevice destroy];
+                    hostDevice = nil;
+                    hostSeized = YES;
+                    NSLog(@"UsbPtpBridge: IOUSBHost device-seize succeeded on attempt %d",
+                          hostAttempt);
+                } else {
+                    NSLog(@"UsbPtpBridge: IOUSBHost device-seize attempt %d failed: %@",
+                          hostAttempt, hostErr.localizedDescription ?: @"(no detail)");
+                }
             }
+            if (!hostSeized) usleep(150 * 1000);
         }
-        // Give ptpcamerad ~50 ms to process the close message before we
-        // try to claim the device with IOUSBLib.
-        usleep(50 * 1000);
+        if (!hostSeized) {
+            NSLog(@"UsbPtpBridge: IOUSBHost device-seize gave up after 5 attempts "
+                  @"— falling through to IOUSBLib seize");
+        }
     }
+#endif // PTPWEBCAM_USB_OPEN_MODE == SEIZE
 
     // Pass (b): IOUSBLib device-level seize. Re-acquire the parent service
     // reference we may have just released, or re-walk from `service` if
@@ -226,7 +275,11 @@ typedef IOUSBDeviceInterface300    USBDeviceImpl;
         // through with the existing handle.
     }
     USBDeviceImpl **device = NULL;
+#if PTPWEBCAM_USB_OPEN_MODE != PTPWEBCAM_USB_OPEN_MODE_PLAIN
     if (pkr == KERN_SUCCESS && deviceService != IO_OBJECT_NULL) {
+        // Pass (b): IOUSBLib device-level seize. Skipped in PLAIN mode
+        // because we want a deterministic fail-fast against ptpcamerad
+        // to exercise the "blocked" UI without any eviction effort.
         IOCFPlugInInterface **devPlugin = NULL;
         SInt32 devScore = 0;
         kern_return_t dpkr = IOCreatePlugInInterfaceForService(
@@ -254,16 +307,24 @@ typedef IOUSBDeviceInterface300    USBDeviceImpl;
             }
         }
     }
+#else
+    // PLAIN mode: release the parent device handle we grabbed for the
+    // potential seize pass — we won't be using it. Keep the pointer
+    // for the interface-open log message but no-op the device claim.
+    if (deviceService != IO_OBJECT_NULL) IOObjectRelease(deviceService);
+#endif
     _device = device;
 
-    // 4. Now open the interface. USBInterfaceOpenSeize asks the kernel to
-    //    have any remaining client release. With the device handle held
-    //    above, ptpcamerad has already released its claim and the interface
-    //    is free; this open succeeds immediately. If we skipped the device
-    //    seize (device == NULL), this is the standard polite request that
-    //    sometimes works against fresh-state ptpcamerad and sometimes
-    //    returns kIOReturnExclusiveAccess.
+    // 4. Open the interface. In SEIZE / KILL modes we use
+    //    USBInterfaceOpenSeize so the kernel asks the prior owner to
+    //    release; in PLAIN mode we use plain USBInterfaceOpen which
+    //    just returns kIOReturnExclusiveAccess immediately — perfect
+    //    for triggering the busy diagnostic.
+#if PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_PLAIN
+    IOReturn openResult = (*iface)->USBInterfaceOpen(iface);
+#else
     IOReturn openResult = (*iface)->USBInterfaceOpenSeize(iface);
+#endif
     if (openResult != kIOReturnSuccess) {
         if (_device) {
             (*_device)->USBDeviceClose(_device);
@@ -393,6 +454,34 @@ typedef IOUSBDeviceInterface300    USBDeviceImpl;
 // ─── UsbPtpBridge (static helpers) ────────────────────────────────────────
 
 @implementation UsbPtpBridge
+
++ (BOOL)usesIOUSBHostSeize {
+#if PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_SEIZE
+    return YES;
+#else
+    return NO;
+#endif
+}
+
++ (BOOL)usesAgentKill {
+#if PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_KILL
+    return YES;
+#else
+    return NO;
+#endif
+}
+
++ (NSString *)usbOpenModeDescription {
+#if PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_PLAIN
+    return @"PLAIN (no seize, no kill — for testing the busy diagnostic)";
+#elif PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_SEIZE
+    return @"SEIZE (IOUSBHost + IOUSBLib seize, no agent kill)";
+#elif PTPWEBCAM_USB_OPEN_MODE == PTPWEBCAM_USB_OPEN_MODE_KILL
+    return @"KILL (IOUSBLib seize + agent kills ptpcamerad)";
+#else
+    return @"UNKNOWN";
+#endif
+}
 
 + (nullable CFMutableDictionaryRef)ptpMatchingDictionary
 {

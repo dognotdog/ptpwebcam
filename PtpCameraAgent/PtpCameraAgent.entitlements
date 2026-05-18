@@ -2,28 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sandboxed. Required for App Store distribution: Apple's review
-	     rejects any helper bundled inside a sandboxed parent app unless
-	     the helper is itself sandboxed.
+	<!-- Sandboxed. This pairs with PTPWEBCAM_USB_OPEN_MODE = PLAIN (or
+	     SEIZE) in UsbPtpBridge.m. In PLAIN mode the extension does not
+	     ask the agent to kill ptpcamerad — instead, when the USB open
+	     fails with kIOReturnExclusiveAccess, the agent surfaces a
+	     "Camera busy — held by X" menu item that calls
+	     NSRunningApplication.terminate() on the offending app. That API
+	     is sandbox-allowed for same-user GUI apps.
 
-	     This used to be `false` because the agent needed to send SIGKILL
-	     to ptpcamerad (which App Sandbox blocks across UIDs). That side
-	     channel is gone — the extension's USB-open path now uses
-	     IOUSBHost's `IOUSBHostObjectInitOptionsDeviceSeize`, which sends
-	     a modern eviction message that ptpcamerad's current driver does
-	     respond to. The userspace kill is unnecessary, and the agent can
-	     run inside the sandbox. -->
+	     If you switch the bridge to PTPWEBCAM_USB_OPEN_MODE = KILL,
+	     this entitlement must flip to `false` — the cross-UID
+	     `kill(ptpcamerad)` path the agent uses in KILL mode is blocked
+	     by App Sandbox (EPERM). KILL mode is the legacy production path
+	     that pre-dates the busy-diagnostic UI; new App Store builds
+	     should use PLAIN. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 
-	<!-- Shared app-group with the host app and extension. SMAppService
-	     uses this to verify the registration is allowed (sandboxed parent
-	     can only register helpers that share an app-group), and Mach
-	     service lookups across the three processes resolve through this
-	     same group ID. -->
+	<!-- Shared app-group with the host app and extension. Mach service
+	     lookups resolve through this group ID, and SMAppService's
+	     registration of a sandboxed helper under a sandboxed parent
+	     requires it. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>$(TeamIdentifierPrefix)org.ptpwebcam.CameraExtension</string>
+		<string>$(TeamIdentifierPrefix)org.ptpwebcam.PtpWebcamApp.CameraExtension</string>
 	</array>
 </dict>
 </plist>

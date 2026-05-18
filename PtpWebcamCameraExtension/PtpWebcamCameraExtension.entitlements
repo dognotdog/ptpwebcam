@@ -18,5 +18,18 @@
 		<string>IOUSBHostInterfaceUserClient</string>
 		<string>IOUSBHostDeviceUserClient</string>
 	</array>
+	<!-- Tried and rejected by signing pipeline (notes for future):
+	       * `com.apple.developer.driverkit.transport.usb`
+	         → "requires approval from Apple to include in a profile.
+	            Please request access to the associated capability."
+	         Public capability — requestable via Apple Developer Portal
+	         → Identifier → Capabilities → DriverKit USB Transport. The
+	         realistic App-Store path.
+	       * `com.apple.vm.device-access`
+	         → "not found and could not be included in profile. This
+	            likely is not a valid entitlement and should be removed."
+	         Restricted/private entitlement — no public request path.
+	         Referenced by IOUSBHost docs but not exposed to general
+	         third-party developers. -->
 </dict>
 </plist>
