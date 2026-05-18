@@ -27,5 +27,13 @@
 	<array>
 		<string>$(TeamIdentifierPrefix)org.ptpwebcam.PtpWebcamApp.CameraExtension</string>
 	</array>
+
+	<!-- This agent intentionally has NO `automation.apple-events`
+	     entitlement. The "Camera busy" UI is purely informative — we
+	     list the apps holding the camera and let the user quit them
+	     themselves. The `handleAppTerminated(_:)` observer
+	     (NSWorkspace.didTerminateApplicationNotification — needs no
+	     entitlement) catches each quit and retries the blocked camera
+	     claim automatically. -->
 </dict>
 </plist>

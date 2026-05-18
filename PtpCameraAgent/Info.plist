@@ -8,5 +8,9 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Used to preview the live camera stream from a connected PTP camera.</string>
+	<!-- No Apple-Events usage description: we don't send `aevt/quit`
+	     to ImageCapture-holder apps from any process. The "Camera busy"
+	     UI is purely informative — the user quits holders themselves
+	     and our NSWorkspace termination observer auto-recovers. -->
 </dict>
 </plist>

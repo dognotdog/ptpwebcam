@@ -140,7 +140,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		}
 	}
 
-	private func openPreview(cameraName: String) {
+private func openPreview(cameraName: String) {
 		if let existing = previewWindows[cameraName] {
 			existing.showWindow(nil)
 			existing.window?.makeKeyAndOrderFront(nil)

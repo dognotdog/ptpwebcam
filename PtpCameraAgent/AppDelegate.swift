@@ -500,6 +500,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        // Always refresh the live "Camera busy" panel — even if no
+        // camera is fully unblocked yet, the list shown to the user
+        // should shrink by one entry so they see progress.
+        refreshBlockerPanelIfVisible()
+
         if !nowUnblocked.isEmpty {
             AppDelegate.log("PtpCameraAgent: \(bundleId) terminated — retrying \(nowUnblocked.count) camera(s)")
             rebuildMenu()
@@ -881,7 +886,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // culprit(s). Single clickable row opens the confirmation
                 // dialog that walks through terminating them.
                 let names = camera.blockingApps.map { $0.displayName }.joined(separator: ", ")
-                let item = NSMenuItem(title: "  ⚠ Camera Held by Other App, Release…",
+                _ = names
+                let item = NSMenuItem(title: "  ⚠ Camera Held by Other App…",
                                       action: #selector(promptReleaseBlockedCameraAction(_:)),
                                       keyEquivalent: "")
                 item.target = self
@@ -1297,18 +1303,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// cameras hostage, one click cleans both up.
     @objc private func promptReleaseBlockedCameraAction(_ sender: NSMenuItem) {
         guard let cameraId = sender.representedObject as? String else { return }
-        // Re-query at dialog time rather than trusting the cached
-        // `blockingApps` the extension reported earlier. Between the
-        // notification and the user clicking the menu item they may
-        // have closed some of the offenders manually — we should never
-        // list an app in the dialog that isn't actually running.
-        let currentHolders = detectRunningCameraHolders()
+        // We could try to send `quit` Apple Events from here, but every
+        // sandbox-compatible path we explored is broken on current macOS:
+        //   - `NSRunningApplication.terminate()` from the agent: sandboxd
+        //     denies appleevent-send even with `automation.apple-events`
+        //     declared (TCC attribution walks to the SMAppService parent
+        //     and never resolves correctly for LSUIElement helpers).
+        //   - Routing the same call through the host app via a custom
+        //     URL: NSAppleScript "tell application id" hits
+        //     `procNotFound destPort == NULL` from a sandboxed sender on
+        //     macOS 26 even though the target app is reachable from
+        //     `osascript` in Terminal.
+        //   - `temporary-exception.apple-events`: requires hardcoded
+        //     bundle IDs, which kills the dynamic-detection design.
+        // So we surface a purely informative panel and let the user
+        // quit the apps themselves. The `handleAppTerminated(_:)`
+        // observer (NSWorkspace notification — no entitlement required)
+        // picks up each quit and refreshes this panel. When the holder
+        // list becomes empty, the panel closes and the camera claim
+        // retries automatically.
+        _ = cameraId  // recovery is camera-agnostic — observer touches all blocked cameras
+        showOrRefreshBlockerPanel()
+    }
 
-        guard !currentHolders.isEmpty else {
-            // Nothing left to terminate. Clear stale blockingApps on
-            // every affected camera and ask the extension to retry —
-            // no dialog needed, the user already did the work.
-            AppDelegate.log("PtpCameraAgent: prompt-release — no holders currently running, clearing stale state")
+    /// Modeless panel listing apps that are holding the camera. Stays
+    /// onscreen and updates live as the user quits each app; auto-closes
+    /// when nothing's left to quit. Single-instance.
+    private var blockerPanel: NSPanel?
+    private var blockerPanelBodyLabel: NSTextField?
+
+    private func showOrRefreshBlockerPanel() {
+        let holders = detectRunningCameraHolders()
+        guard !holders.isEmpty else {
+            // Nothing actually holds the camera right now — close any
+            // stale panel, clear stale blockingApps, and retry every
+            // affected camera. (User may have quit the holders before
+            // clicking our menu item.)
+            AppDelegate.log("PtpCameraAgent: blocker panel — no holders currently running, clearing stale state")
+            closeBlockerPanel()
             var affected: [String] = []
             for (cid, cam) in extCameras where !cam.blockingApps.isEmpty {
                 extCameras[cid]?.blockingApps.removeAll()
@@ -1319,42 +1351,92 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
-        let bundleIds = currentHolders.map { $0.bundleId }
-        let displayNames = currentHolders.map { $0.displayName }
-        let names = displayNames.joined(separator: ", ")
-        let alert = NSAlert()
-        alert.messageText = "Release camera by quitting \(names)?"
-        alert.informativeText = """
-            PTP Webcam can't open the camera because the following app\(displayNames.count == 1 ? " is" : "s are") holding it:
-
-              • \(displayNames.joined(separator: "\n  • "))
-
-            Quitting \(displayNames.count == 1 ? "it" : "them") will release the camera so PTP Webcam can use it. Any unsaved work in \(displayNames.count == 1 ? "that app" : "those apps") may be lost.
-            """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Quit \(displayNames.count == 1 ? displayNames[0] : "Apps")")
-        alert.addButton(withTitle: "Cancel")
-
-        // Activate ourselves so the modal sheet attaches to a key window
-        // and doesn't get hidden behind the offending app.
         NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        // Terminate every running instance of every culprit bundle.
-        // Polite terminate (NSRunningApplication.terminate) gives the app
-        // a chance to save state. The follow-up state cleanup + claim
-        // retry happens in `handleAppTerminated(_:)`, which observes
-        // NSWorkspace.didTerminateApplicationNotification — single source
-        // of truth whether the apps were quit through this dialog, via
-        // Cmd-Q, or by any other route.
-        let running = NSWorkspace.shared.runningApplications
-        for bid in bundleIds {
-            for app in running where app.bundleIdentifier == bid {
-                AppDelegate.log("PtpCameraAgent: terminating \(bid) pid=\(app.processIdentifier)")
-                app.terminate()
-            }
+        if blockerPanel == nil {
+            let panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 220),
+                styleMask: [.titled, .closable, .utilityWindow],
+                backing: .buffered,
+                defer: false)
+            panel.title = "Camera Busy"
+            panel.isFloatingPanel = true
+            panel.hidesOnDeactivate = false
+            panel.becomesKeyOnlyIfNeeded = false
+            panel.isReleasedWhenClosed = false
+            panel.level = .floating
+
+            let container = NSView(frame: panel.contentView!.bounds)
+            container.autoresizingMask = [.width, .height]
+
+            let label = NSTextField(wrappingLabelWithString: "")
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.isSelectable = true
+            label.font = .systemFont(ofSize: NSFont.systemFontSize)
+            container.addSubview(label)
+            blockerPanelBodyLabel = label
+
+            let dismissButton = NSButton(title: "Dismiss",
+                                         target: self,
+                                         action: #selector(closeBlockerPanelAction(_:)))
+            dismissButton.translatesAutoresizingMaskIntoConstraints = false
+            dismissButton.keyEquivalent = "\r"
+            dismissButton.bezelStyle = .rounded
+            container.addSubview(dismissButton)
+
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+                label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+                label.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+                dismissButton.topAnchor.constraint(greaterThanOrEqualTo: label.bottomAnchor, constant: 16),
+                dismissButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+                dismissButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            ])
+
+            panel.contentView = container
+            panel.center()
+            blockerPanel = panel
         }
-        _ = cameraId  // unused after the dialog; the observer touches all affected cameras
+
+        updateBlockerPanelText(with: holders)
+        blockerPanel?.makeKeyAndOrderFront(nil)
+    }
+
+    private func updateBlockerPanelText(with holders: [(bundleId: String, displayName: String)]) {
+        guard let label = blockerPanelBodyLabel else { return }
+        let displayNames = holders.map { $0.displayName }
+        let bulletList = displayNames.map { "  •  \($0)" }.joined(separator: "\n")
+        let lead = displayNames.count == 1
+            ? "PTP Webcam can't access the camera because this app is using it:"
+            : "PTP Webcam can't access the camera because these apps are using it:"
+        let trail = displayNames.count == 1
+            ? "Please quit it to release the camera. You can reopen it once PTP Webcam has finished enumerating the cameras."
+            : "Please quit them to release the camera. You can reopen them once PTP Webcam has finished enumerating the cameras."
+        label.stringValue = "\(lead)\n\n\(bulletList)\n\n\(trail)\n\nThis window will close automatically when the apps have been quit."
+    }
+
+    /// Re-evaluate the holder list and refresh or auto-close the panel.
+    /// Called from `handleAppTerminated(_:)` so the list shrinks live as
+    /// the user closes each holder.
+    private func refreshBlockerPanelIfVisible() {
+        guard blockerPanel != nil else { return }
+        let holders = detectRunningCameraHolders()
+        if holders.isEmpty {
+            closeBlockerPanel()
+        } else {
+            updateBlockerPanelText(with: holders)
+        }
+    }
+
+    @objc private func closeBlockerPanelAction(_ sender: Any?) {
+        closeBlockerPanel()
+    }
+
+    private func closeBlockerPanel() {
+        blockerPanel?.orderOut(nil)
+        blockerPanel?.close()
+        blockerPanel = nil
+        blockerPanelBodyLabel = nil
     }
 
     /// Re-issue the claim command for a camera (used after we successfully

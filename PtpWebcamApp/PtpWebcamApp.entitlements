@@ -18,5 +18,14 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- No `automation.apple-events` here anymore. We don't send
+	     `aevt/quit` to ImageCapture-holder apps from any of our
+	     processes — every sandbox-compatible path is broken on macOS 26
+	     (PSN-based AE delivery returns `procNotFound destPort == NULL`
+	     for sandboxed senders; the TCC attribution chain for
+	     SMAppService helpers never resolves the consent prompt
+	     correctly). Instead the agent surfaces an informative panel
+	     listing the holder apps and the user quits them manually; an
+	     NSWorkspace termination observer auto-recovers from there. -->
 </dict>
 </plist>
