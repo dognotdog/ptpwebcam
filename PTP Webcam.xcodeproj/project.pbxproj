@@ -148,6 +148,11 @@
 		DD006666000000000000DD0B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DD006666000000000000DD0A /* Localizable.xcstrings */; };
 		FF001111000000000000FF01 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
 		FF001111000000000000FF02 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
+		FF002222000000000000FF03 /* PropertyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF001111000000000000FF00 /* PropertyFormatter.swift */; };
+		FF003333000000000000FF04 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF003333000000000000FF00 /* CameraModel.swift */; };
+		FF003333000000000000FF05 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF003333000000000000FF00 /* CameraModel.swift */; };
+		FF004444000000000000FF06 /* CameraPropertyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF004444000000000000FF00 /* CameraPropertyStore.swift */; };
+		FF005555000000000000FF07 /* PreviewHud.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF005555000000000000FF00 /* PreviewHud.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -525,6 +530,9 @@
 		DD005555000000000000DD08 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = PtpWebcamApp/AppIcon.icon; sourceTree = SOURCE_ROOT; };
 		DD006666000000000000DD0A /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = PtpWebcamApp/Localizable.xcstrings; sourceTree = SOURCE_ROOT; };
 		FF001111000000000000FF00 /* PropertyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyFormatter.swift; sourceTree = "<group>"; };
+		FF003333000000000000FF00 /* CameraModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraModel.swift; sourceTree = "<group>"; };
+		FF004444000000000000FF00 /* CameraPropertyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraPropertyStore.swift; path = PtpWebcamApp/CameraPropertyStore.swift; sourceTree = SOURCE_ROOT; };
+		FF005555000000000000FF00 /* PreviewHud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PreviewHud.swift; path = PtpWebcamApp/PreviewHud.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -653,6 +661,8 @@
 				DA1B26982B1BBDC70075AAAB /* Info.plist */,
 				DA1B266D2B1BBCD70075AAAB /* AppDelegate.swift */,
 				CC001111000000000000CC00 /* CameraPreviewWindowController.swift */,
+				FF004444000000000000FF00 /* CameraPropertyStore.swift */,
+				FF005555000000000000FF00 /* PreviewHud.swift */,
 				DD001111000000000000DD00 /* SubscriptionStore.swift */,
 				DD002222000000000000DD02 /* MainWindowView.swift */,
 				DD003333000000000000DD04 /* MainWindowController.swift */,
@@ -707,6 +717,7 @@
 				DA1B26A02B1BC1A20075AAAB /* AppDelegate.swift */,
 				AA001111000000000000AA00 /* WbTuneGridView.swift */,
 				FF001111000000000000FF00 /* PropertyFormatter.swift */,
+				FF003333000000000000FF00 /* CameraModel.swift */,
 				DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */,
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
@@ -1530,6 +1541,10 @@
 				A1B2C3D4E5F60040A1B2C3D4 /* DarwinNotify.swift in Sources */,
 				A1B2C3D4E5F60041A1B2C3D4 /* PtpCameraAgentProtocol.swift in Sources */,
 				A1B2C3D4E5F60052A1B2C3D4 /* SupportedCameras.swift in Sources */,
+				FF002222000000000000FF03 /* PropertyFormatter.swift in Sources */,
+				FF003333000000000000FF04 /* CameraModel.swift in Sources */,
+				FF004444000000000000FF06 /* CameraPropertyStore.swift in Sources */,
+				FF005555000000000000FF07 /* PreviewHud.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1562,6 +1577,7 @@
 				DAC52C8C2FB7F05A0026922E /* SupportedCameras.swift in Sources */,
 				DAC52C8D2FB7F05A0026922E /* DarwinNotify.swift in Sources */,
 				A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */,
+				FF003333000000000000FF05 /* CameraModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,9 +1,18 @@
 import Cocoa
 import AVFoundation
+import Combine
+import SwiftUI
 import os.log
 
 private class PreviewView: NSView {
     let previewLayer: AVCaptureVideoPreviewLayer
+    /// Invoked when the user clicks anywhere in the preview area.
+    /// Wired up by `CameraPreviewWindowController` to toggle the HUD
+    /// overlay's visibility. Kept as a closure (rather than a
+    /// delegate protocol) because there's exactly one observer and
+    /// the indirection isn't earning us anything.
+    var onMouseDown: (() -> Void)?
+
     init(session: AVCaptureSession) {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspect
@@ -20,10 +29,65 @@ private class PreviewView: NSView {
         previewLayer.frame = bounds
         CATransaction.commit()
     }
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+        // Don't call super — we don't want default mouseDown handling
+        // (which would do nothing useful for an AVCaptureVideoPreviewLayer
+        // host anyway, but explicitly noting the choice).
+    }
 }
 
 private let previewLogger = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp", category: "CameraPreview")
 private func log(_ msg: String) { previewLogger.fault("\(msg, privacy: .public)") }
+
+/// View-model for the preview HUD overlay. Lives as long as the
+/// `CameraPreviewWindowController` and feeds the SwiftUI `PreviewHud`
+/// the current camera + visibility toggle. Keeping this as a tiny
+/// ObservableObject (rather than driving the HUD directly off the
+/// store + an Optional binding) means we can extend it later for
+/// phase-2 interactivity (drag to rearrange chips, per-window layout
+/// overrides, etc.) without restructuring the view tree.
+final class PreviewHudViewModel: ObservableObject {
+    /// User-visible label from `AVCaptureDevice.localizedName`. The
+    /// view looks the matching `ExtCamera` up in the store by name
+    /// each render — cheap (it's a dictionary lookup with substring
+    /// fallback) and avoids stale references when the camera
+    /// disconnects and reconnects with a different cameraId.
+    let cameraName: String
+    @Published var visible: Bool
+    /// Republishes the `CameraPropertyStore.shared.cameras` change
+    /// stream so SwiftUI re-renders the chips whenever the agent
+    /// pushes a new property snapshot. We don't try to filter to
+    /// just our camera here — the chip view does that lookup at
+    /// render time and SwiftUI's diffing absorbs irrelevant updates.
+    @Published var camerasSnapshot: [String: ExtCamera] = [:]
+
+    private var subscription: AnyCancellable?
+
+    init(cameraName: String, initiallyVisible: Bool) {
+        self.cameraName = cameraName
+        self.visible = initiallyVisible
+        subscription = CameraPropertyStore.shared.$cameras
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.camerasSnapshot, on: self)
+    }
+
+    func toggle() { visible.toggle() }
+}
+
+/// SwiftUI wrapper that resolves the camera + renders `PreviewHud`.
+/// Sits inside an NSHostingView pinned over the preview area.
+private struct PreviewHudContainer: View {
+    @ObservedObject var viewModel: PreviewHudViewModel
+
+    var body: some View {
+        PreviewHud(
+            camera: CameraPropertyStore.shared.camera(matchingName: viewModel.cameraName),
+            layout: .default,
+            visible: viewModel.visible)
+    }
+}
 
 class CameraPreviewWindowController: NSWindowController, NSWindowDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
@@ -31,6 +95,10 @@ class CameraPreviewWindowController: NSWindowController, NSWindowDelegate, AVCap
     private var videoOutput: AVCaptureVideoDataOutput?
     private var aspectSet = false
     var onClose: (() -> Void)?
+    /// View-model for the HUD overlay. Created once per preview window
+    /// so `visible` toggles are per-window (closing/reopening resets
+    /// to the default "visible on open" behavior).
+    private var hudViewModel: PreviewHudViewModel?
 
     init(cameraName: String) {
         self.cameraName = cameraName
@@ -111,6 +179,23 @@ class CameraPreviewWindowController: NSWindowController, NSWindowDelegate, AVCap
         previewView.autoresizingMask = [.width, .height]
         previewView.frame = window!.contentView!.bounds
         window!.contentView!.addSubview(previewView)
+
+        // HUD overlay: SwiftUI view in an NSHostingView pinned to the
+        // preview's bounds. The view-model controls its visibility;
+        // clicking the preview area toggles it. Visible on first open
+        // (per the design discussion) so users discover the feature
+        // immediately rather than having to find it.
+        let hudVM = PreviewHudViewModel(cameraName: cameraName, initiallyVisible: true)
+        self.hudViewModel = hudVM
+        let hudHost = NSHostingView(rootView: PreviewHudContainer(viewModel: hudVM))
+        hudHost.autoresizingMask = [.width, .height]
+        hudHost.frame = previewView.bounds
+        // Hosting view is added on top of the preview layer so the
+        // chips draw above the video. Hit-testing on the SwiftUI side
+        // is disabled (see PreviewHud.allowsHitTesting), so clicks
+        // pass through to PreviewView.mouseDown and toggle the HUD.
+        previewView.addSubview(hudHost)
+        previewView.onMouseDown = { [weak hudVM] in hudVM?.toggle() }
 
         captureSession.startRunning()
         log("CameraPreview: startRunning isRunning=\(captureSession.isRunning)")

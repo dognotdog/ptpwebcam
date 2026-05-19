@@ -161,11 +161,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// extension republishes property state (post-set, or via the
     /// kDarwinCameraStateRepublish handshake).
     private var stickyApplied: Set<String> = []
-    // Page-reassembly state for multi-page property state transfers.
-    private var propPageBuffer: Data? = nil
-    private var propPageTotal: Int = 0
-    private var propPageCount: Int = 0
-    private var propNextPage: Int = 0
+    /// Page-reassembly state for multi-page `kDarwinCameraPropertyState`
+    /// transfers. Lifted out of inlined Data/index ivars into the shared
+    /// `CameraPropertyStatePageReassembler` so the host app's HUD can
+    /// reuse the same wire-format logic without duplicating it.
+    private let propPageReassembler: CameraPropertyStatePageReassembler = {
+        let r = CameraPropertyStatePageReassembler()
+        r.onError = { msg in AppDelegate.error(msg) }
+        return r
+    }()
 
     private var statusItem: NSStatusItem!
 
@@ -787,75 +791,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func handlePropertyStateChange() {
-        var slot0: UInt64 = 0
-        darwin_notify_get_state(propSlotTokens[0], &slot0)
-        let totalLength = Int(slot0 >> 32)
-        let pageIndex = Int((slot0 >> 16) & 0xFFFF)
-        let pageCount = Int(slot0 & 0xFFFF)
-        guard totalLength > 0, pageCount > 0, pageIndex < pageCount else { return }
-
-        let pageDataSlots = kDarwinPropertySlotCount - 2  // 1022 data slots per page
-        let pageSize = pageDataSlots * 8                   // 8176 bytes per page
-        let pageOffset = pageIndex * pageSize
-        let pageLength = min(pageSize, totalLength - pageOffset)
-        guard pageLength > 0 else { return }
-
-        // Start fresh buffer on page 0 or unexpected state.
-        if pageIndex == 0 || propPageBuffer == nil || propPageTotal != totalLength {
-            propPageBuffer = Data(count: totalLength)
-            propPageTotal = totalLength
-            propPageCount = pageCount
-            propNextPage = 0
-        }
-
-        guard var buffer = propPageBuffer,
-              pageIndex == propNextPage else {
-            AppDelegate.error("PtpCameraAgent: property state page \(pageIndex) out of order (expected \(propNextPage)), resetting")
-            propPageBuffer = nil
-            return
-        }
-
-        // Read data slots into the correct position in the buffer.
-        buffer.withUnsafeMutableBytes { ptr in
-            for i in 0..<((pageLength + 7) / 8) {
-                var value: UInt64 = 0
-                darwin_notify_get_state(propSlotTokens[i + 1], &value)
-                let chunkOffset = pageOffset + i * 8
-                let chunkSize = min(8, totalLength - chunkOffset)
-                if chunkSize > 0 { memcpy(ptr.baseAddress! + chunkOffset, &value, chunkSize) }
-            }
-        }
-        propPageBuffer = buffer
-
-        // Verify checksum for this page.
-        var csValue: UInt64 = 0
-        darwin_notify_get_state(propSlotTokens[kDarwinPropertySlotCount - 1], &csValue)
-        let expectedChecksum = UInt32(csValue & 0xFFFFFFFF)
-        var computedChecksum: UInt32 = 0
-        for byte in buffer[pageOffset..<(pageOffset + pageLength)] {
-            computedChecksum = computedChecksum &+ UInt32(byte)
-        }
-        guard computedChecksum == expectedChecksum else {
-            AppDelegate.error("PtpCameraAgent: property state page \(pageIndex) checksum mismatch (\(computedChecksum) != \(expectedChecksum)), resetting")
-            propPageBuffer = nil
-            return
-        }
-
-        propNextPage += 1
-
-        if propNextPage == pageCount {
-            let completeData = propPageBuffer!
-            propPageBuffer = nil
-            processPropertyStateJson(completeData)
-        }
+        // Delegate the slot-chain page reassembly to the shared
+        // `CameraPropertyStatePageReassembler` (in CameraModel.swift).
+        // The host app's CameraPropertyStore uses the same class so the
+        // wire-format logic only exists in one place.
+        guard let completeData = propPageReassembler.handlePage(slotTokens: propSlotTokens) else { return }
+        processPropertyStateJson(completeData)
     }
 
     private func processPropertyStateJson(_ jsonData: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-              let cameraId = json["id"] as? String,
-              let propsList = json["props"] as? [[String: Any]] else { return }
-
-        if let removed = json["disconnected"] as? Bool, removed {
+        // Wire-format parsing now lives in the shared `ExtCamera.parse`
+        // function (see CameraModel.swift). This wrapper only applies
+        // the agent-specific side effects: blocked-app continuity,
+        // auto-claim on first publish, sticky-property replay, and
+        // menu rebuild. The host app's HUD uses the same parser and
+        // skips all of these.
+        let parsed = ExtCamera.parse(jsonData: jsonData)
+        switch parsed {
+        case .invalid:
+            return
+        case .disconnected(let cameraId):
             extCameras.removeValue(forKey: cameraId)
             // Re-arm sticky-replay for this cameraId — if it reconnects later
             // (or under a fresh IOKit registry entry id), we want to replay
@@ -864,64 +819,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             AppDelegate.log("PtpCameraAgent: camera removed from menu: \(cameraId)")
             rebuildMenu()
             return
-        }
-
-        // Build stable claim key from VID:PID:serial.
-        let vid    = (json["vid"]    as? UInt16) ?? (json["vid"] as? Int).map { UInt16($0) } ?? 0
-        let pid    = (json["pid"]    as? UInt16) ?? (json["pid"] as? Int).map { UInt16($0) } ?? 0
-        let serial = (json["serial"] as? String) ?? ""
-        let claimKey = serial.isEmpty
-            ? String(format: "%04x:%04x", vid, pid)
-            : String(format: "%04x:%04x:%@", vid, pid, serial)
-
-        var properties: [UInt32: ExtCameraProperty] = [:]
-        var orderedIds: [UInt32] = []
-
-        for entry in propsList {
-            guard let propId = (entry["i"] as? Int).map({ UInt32($0) }),
-                  let dataType = (entry["dt"] as? Int).map({ UInt16($0) }),
-                  let writable = (entry["w"] as? Int).map({ $0 != 0 }),
-                  let value = entry["v"] as? NSNumber else { continue }
-            let enumValues = (entry["e"] as? [NSNumber])
-            var rangeMin: NSNumber?; var rangeMax: NSNumber?; var rangeStep: NSNumber?
-            if let r = entry["r"] as? [String: NSNumber] {
-                rangeMin = r["min"]; rangeMax = r["max"]; rangeStep = r["step"]
+        case .camera(var newCam):
+            // Preserve a previously-set `blockingApps` / `isBusyUnknownHolder`
+            // across re-publishes that come in before the camera actually
+            // opens (the extension publishes an empty props=0 state at
+            // attach time, before it even tries to claim USB; the blocked
+            // diagnostic arrives after that and we shouldn't lose it on
+            // the next attach republish). Reset only when a non-empty
+            // property set arrives (camera opened — no longer blocked).
+            //
+            // Also: if the extension republishes without a "name" field
+            // for an unrecognised-VID/PID camera, the shared parser
+            // substitutes the literal "PTP Camera" fallback. Restore
+            // the previously-known name if we had one, so the menu
+            // entry doesn't suddenly degrade from a real model name.
+            let cameraId = newCam.cameraId
+            if let prev = extCameras[cameraId] {
+                if newCam.properties.isEmpty {
+                    newCam.blockingApps = prev.blockingApps
+                    newCam.isBusyUnknownHolder = prev.isBusyUnknownHolder
+                }
+                if newCam.name == "PTP Camera", prev.name != "PTP Camera" {
+                    newCam = ExtCamera(
+                        cameraId: cameraId, name: prev.name, claimKey: newCam.claimKey,
+                        vid: newCam.vid, pid: newCam.pid, serial: newCam.serial,
+                        properties: newCam.properties, orderedPropertyIds: newCam.orderedPropertyIds,
+                        vendor: newCam.vendor,
+                        blockingApps: newCam.blockingApps)
+                    newCam.isBusyUnknownHolder = prev.isBusyUnknownHolder
+                }
             }
-            let incremental = (entry["inc"] as? Int) == 1
-            let isButton    = (entry["btn"] as? Int) == 1
-            let prop = ExtCameraProperty(
-                propertyId: propId, dataType: dataType, writable: writable,
-                value: value, enumValues: enumValues,
-                rangeMin: rangeMin, rangeMax: rangeMax, rangeStep: rangeStep,
-                incremental: incremental, isButton: isButton)
-            properties[propId] = prop
-            orderedIds.append(propId)
-        }
+            extCameras[cameraId] = newCam
+            AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(newCam.claimKey) props=\(newCam.properties.count)")
 
-        // Prefer the shared known-cameras lookup over whatever the extension
-        // published — USB descriptor names are inconsistent ("ILCE-1" vs the
-        // user-recognisable "A1"). Falls back to the published USB name if
-        // the VID/PID isn't in our table.
-        let usbName = (json["name"] as? String) ?? extCameras[cameraId]?.name ?? "PTP Camera"
-        let name = PtpKnownCameras.displayName(vid: vid, pid: pid, fallback: usbName)
-        let vendor = PtpKnownCameras.protocolFamily(forVid: vid, pid: pid)
-        // Preserve a previously-set `blockingApps` / `isBusyUnknownHolder`
-        // across re-publishes that come in before the camera actually
-        // opens (the extension publishes an empty props=0 state at
-        // attach time, before it even tries to claim USB; the blocked
-        // diagnostic arrives after that and we shouldn't lose it on
-        // the next attach republish). Reset only when a non-empty
-        // property set arrives (camera opened — no longer blocked).
-        let previousBlockingApps = (properties.isEmpty ? extCameras[cameraId]?.blockingApps : nil) ?? []
-        let previousIsBusyUnknown = (properties.isEmpty ? extCameras[cameraId]?.isBusyUnknownHolder : nil) ?? false
-        var newCam = ExtCamera(cameraId: cameraId, name: name, claimKey: claimKey,
-                               vid: vid, pid: pid, serial: serial,
-                               properties: properties, orderedPropertyIds: orderedIds,
-                               vendor: vendor,
-                               blockingApps: previousBlockingApps)
-        newCam.isBusyUnknownHolder = previousIsBusyUnknown
-        extCameras[cameraId] = newCam
-        AppDelegate.log("PtpCameraAgent: property state for \(cameraId) claimKey=\(claimKey) props=\(properties.count)")
+            applySideEffects(for: newCam)
+            rebuildMenu()
+        }
+    }
+
+    /// Side effects after a successful property-state parse: auto-claim
+    /// the camera if it was previously claimed, and replay sticky
+    /// property values once per session. Extracted so
+    /// `processPropertyStateJson` reads as a clean dispatch over the
+    /// parser's result enum.
+    private func applySideEffects(for newCam: ExtCamera) {
+        let claimKey = newCam.claimKey
+        let vid = newCam.vid
+        let pid = newCam.pid
+        let serial = newCam.serial
+        let cameraId = newCam.cameraId
+        let vendor = newCam.vendor
+        let properties = newCam.properties
 
         // Auto-claim if this camera was previously claimed and the session isn't open yet.
         if properties.isEmpty, claimedCameraKeys.contains(claimKey), vid != 0 {
@@ -948,7 +896,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        rebuildMenu()
+        // Note: `rebuildMenu()` is invoked by `processPropertyStateJson`
+        // after this returns — kept there so disconnect and update paths
+        // are symmetric.
     }
 
     // MARK: - Claim Command (agent → extension)
@@ -1259,7 +1209,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             addedAny = true
 
             let displayName = displayName(for: propId, vendor: vendor) ?? String(format: "0x%04X", propId)
-            let valueStr = formatExtPropValue(prop, vendor: vendor)
+            // `camera.formattedValue` honors the composite-display rules
+            // in CameraModel.swift — most importantly, when WB is in
+            // Color Temperature mode it substitutes the actual Kelvin
+            // reading instead of the static "Color Temperature" label.
+            // Falls back to the previous per-property formatter when no
+            // composite rule applies, so every other row renders the
+            // same as before.
+            let valueStr = camera.formattedValue(forPropertyId: propId)
+                ?? formatExtPropValue(prop, vendor: vendor)
             let item = NSMenuItem(title: "  \(displayName): \(valueStr)", action: nil, keyEquivalent: "")
             item.submenu = buildExtPropSubmenu(prop, propId: propId, camera: camera, vendor: vendor, parentItem: item)
             menu.addItem(item)
@@ -1757,51 +1715,11 @@ extension AppDelegate: PtpCameraAgentProtocol {
 
 // MARK: - Extension-published camera types
 //
-// `ProtocolFamily` is declared in SupportedCameras.swift (shared across the
-// extension, agent, and app) so PropertyFormatter and PtpDumper can take it
-// as a parameter without circular dependencies.
-
-struct ExtCameraProperty {
-    let propertyId: UInt32
-    let dataType: UInt16
-    let writable: Bool
-    let value: NSNumber
-    let enumValues: [NSNumber]?
-    let rangeMin: NSNumber?
-    let rangeMax: NSNumber?
-    let rangeStep: NSNumber?
-    // Sony step-flags (default false for other vendors). `incremental` means
-    // the camera is driven by SetPropStep — the menu shows +/- steppers
-    // rather than a value picker. `isButton` is a momentary control.
-    var incremental: Bool = false
-    var isButton: Bool = false
-}
-
-struct ExtCamera {
-    let cameraId: String
-    let name: String
-    let claimKey: String
-    let vid: UInt16
-    let pid: UInt16
-    let serial: String
-    var properties: [UInt32: ExtCameraProperty]
-    let orderedPropertyIds: [UInt32]
-    let vendor: ProtocolFamily
-    /// Apps known to keep ImageCapture sessions alive and therefore likely
-    /// to be holding ptpcamerad against us. Populated when the extension
-    /// publishes kDarwinUsbBlocked for this camera; reset to empty when
-    /// the next successful property publish arrives. Keys = bundleId,
-    /// values = display name. Surfaced in the menu as actionable items
-    /// ("Quit Preview to use this camera").
-    var blockingApps: [(bundleId: String, displayName: String)] = []
-    /// True if the extension reported the camera was held but the agent
-    /// couldn't identify a culprit from its `knownImageCaptureHolders`
-    /// list (e.g. ptpcamerad is lingering after a holder quit, or some
-    /// other process we don't recognise has the device). Menu falls back
-    /// to a generic "⚠ Camera busy" message in this case — no quit
-    /// action since we don't know what to terminate.
-    var isBusyUnknownHolder: Bool = false
-}
+// The `ExtCameraProperty` and `ExtCamera` structs, plus the JSON parser
+// for the `kDarwinCameraPropertyState` slot chain, now live in the
+// shared file `CameraModel.swift` so the host app's preview-window HUD
+// can read the same data without duplicating the wire-format logic.
+// `ProtocolFamily` is declared in SupportedCameras.swift (also shared).
 
 private class ExtPropertyChangeInfo {
     let cameraId: String
