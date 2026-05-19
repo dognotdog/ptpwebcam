@@ -104,6 +104,36 @@ let kDarwinUsbBlocked             = "org.ptpwebcam.darwin.UsbBlocked"
 let kDarwinUsbBlockedSlotPrefix   = "org.ptpwebcam.darwin.usbblock."
 let kDarwinUsbBlockedSlotCount    = 32  // 32 × 8 = 256 bytes, plenty for a cameraId
 
+// MARK: Menu-bar status item visibility (agent → host app)
+//
+// The agent is a LSUIElement helper; it has no Dock icon, only an
+// NSStatusItem in the menu bar. On macOS versions / device configurations
+// where the menu bar is crowded — notably notched MacBook displays
+// running many menu-bar utilities, or when third-party menu-bar managers
+// (Bartender, Ice) collapse overflow items — our item can end up hidden
+// without the user knowing the app is running. macOS 26 also added a
+// "Menu Bar" pane in System Settings that lets users toggle individual
+// menu bar items off.
+//
+// The agent detects this via three signals on the NSStatusItem's hosting
+// window: (a) NSWindow.didChangeOcclusionStateNotification, (b) a delayed
+// +3s sanity check after launch (the initial occlusion state is reported
+// once and never re-fired if the item starts hidden), and (c) a 2-second
+// polling timer covering the System-Settings-toggle case (the OS may
+// destroy and re-create the NSStatusBarWindow on toggle, so the
+// occlusion observer we registered on the old window stops firing).
+//
+// The slot payload is a single bool packed into the low byte. We
+// experimented with a reason-byte distinction (overflow vs. user
+// disabled the item) but the two states are observationally identical
+// on macOS 26: the window's frame stays at its menu-bar slot, occlusion
+// drops the .visible flag, and no defaults domain flips between them.
+// The About-window banner therefore covers both possibilities in one
+// message, branching only on OS version (since "System Settings → Menu
+// Bar" doesn't exist on pre-26 macOS).
+let kDarwinMenuBarHidden     = "org.ptpwebcam.darwin.MenuBarHidden"
+let kDarwinMenuBarHiddenSlot = "org.ptpwebcam.darwin.menubarhidden"
+
 // MARK: PTP property-dump channels (debugging unsupported cameras)
 //
 // Used by the app's "List PTP Properties" submenu. Lets the user generate a

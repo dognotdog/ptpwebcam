@@ -41,6 +41,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// a much smaller chain since the payload is a short error string.
     private var lvFailSlotTokens: [Int32] = []
     private var usbBlockedSlotTokens: [Int32] = []
+    /// Token for the single-slot menu-bar-visibility publication channel
+    /// (see kDarwinMenuBarHidden in PtpCameraAgentProtocol.swift).
+    private var menuBarHiddenSlotToken: Int32 = 0
+    /// Last published value, used to suppress repeat posts when occlusion
+    /// flips between two states that map to the same hidden/visible bool
+    /// (e.g. windowing system toggling a private occlusion flag the user
+    /// can't see).
+    private var lastPublishedMenuBarHidden: Bool? = nil
+    /// Full packed payload of the last publication, used to debounce
+    /// reason-only transitions (e.g. disabled→overflow) that don't
+    /// change the hidden bool but DO change the banner text in the
+    /// About window.
+    private var lastPublishedMenuBarPayload: UInt64? = nil
+    /// Suppresses publication during the launch settling window — for
+    /// the first ~3 s after `applicationDidFinishLaunching`, occlusion
+    /// notifications fire with non-final window frames and produce
+    /// false-positive "hidden" verdicts that the +3 s sanity check then
+    /// corrects. Both transitions get published if we don't gate them,
+    /// causing a visible banner flash in the About window at launch.
+    /// Set to false by the +3 s delayed check, after which all verdicts
+    /// are published normally.
+    private var menuBarVisibilityGracePeriod: Bool = true
+    /// Polling fallback for visibility transitions that don't fire
+    /// `NSWindow.didChangeOcclusionStateNotification` — notably, when
+    /// the user toggles the agent's menu bar entry in System Settings
+    /// → Menu Bar (macOS 26+), the OS destroys the old NSStatusBarWindow
+    /// and constructs a fresh one when re-enabled. Our occlusion
+    /// observer was registered on the old window, which no longer
+    /// exists, so we'd never see the "re-enabled" transition without a
+    /// timer-driven re-check. Two seconds is a comfortable tradeoff
+    /// between responsiveness and overhead — the check itself is just
+    /// a couple of property reads.
+    private var menuBarVisibilityPollTimer: Timer? = nil
     private var lvFailPageBuffer: Data?
     private var lvFailPageTotal: Int = 0
     private var lvFailPageCount: Int = 0
@@ -126,6 +159,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.button?.title = "PTP"
         }
         rebuildMenu()
+
+        // Register the publication slot for menu-bar item visibility (one
+        // bool packed into the low byte of a uint64 — the slot model gives
+        // us free cross-process sharing without needing the chain
+        // protocol other channels use). The +3 s delayed sanity check
+        // covers the case where the item starts hidden behind the notch
+        // and no further occlusion change ever fires.
+        darwin_notify_register_check(kDarwinMenuBarHiddenSlot, &menuBarHiddenSlotToken)
+        if let button = statusItem.button, let window = button.window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleStatusItemOcclusionChanged(_:)),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: window)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            // End of the launch grace window — from now on publish
+            // every verdict transition, including the initial baseline.
+            self?.menuBarVisibilityGracePeriod = false
+            self?.checkStatusItemVisibility()
+        }
+
+        // Periodic poll fallback (see comment on
+        // menuBarVisibilityPollTimer). Started here so it runs for the
+        // lifetime of the process; stopped only at termination, which
+        // we don't bother explicitly handling because the process is
+        // going away anyway.
+        menuBarVisibilityPollTimer = Timer.scheduledTimer(
+            withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkStatusItemVisibility()
+        }
 
         darwinSlotTokens = (0..<kDarwinStateSlotCount).map { i in
             var token: Int32 = 0
@@ -222,6 +286,149 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             darwin_notify_post(kDarwinCameraStateRepublish)
         }
+    }
+
+    // MARK: - Menu-bar status item visibility detection
+
+    /// Receives NSWindow.didChangeOcclusionStateNotification for the
+    /// status item's hosting window. Re-runs the visibility check; if
+    /// the bool changed since last publication, posts an update to the
+    /// host app so it can show / hide the warning banner in its About
+    /// window.
+    @objc private func handleStatusItemOcclusionChanged(_ notification: Notification) {
+        checkStatusItemVisibility()
+    }
+
+    /// Three-state visibility verdict. We need the .undetermined case
+    /// because the very first occlusion notification often fires before
+    /// the OS has actually placed the status item button in the menu
+    /// bar — `button.window.frame.origin` is still at (0,0) or the
+    /// button is hosted in a sentinel window with NSZeroRect bounds.
+    /// Publishing "hidden" in that window of time produces a spurious
+    /// warning banner that never gets corrected (because subsequent
+    /// occlusion events match `lastPublishedMenuBarHidden` and the
+    /// debounce filter swallows the correction).
+    ///
+    /// We deliberately do NOT split "hidden" by reason (overflow vs
+    /// disabled-in-Settings). The two cases are observationally
+    /// indistinguishable on macOS 26: both produce a window frame
+    /// inside the menu-bar y-band but with the .visible occlusion flag
+    /// cleared. Defaults domains don't expose the toggle state either,
+    /// so we surface a single banner that addresses both possibilities.
+    private enum StatusItemVisibility {
+        case visible
+        case hidden
+        case undetermined
+    }
+
+    /// Compute whether our NSStatusItem is currently visible to the
+    /// user. Combines two signals because neither alone is sufficient:
+    ///
+    /// 1. Occlusion state. `NSWindow.occlusionState.contains(.visible)`
+    ///    is the OS's authoritative answer when it knows the answer, and
+    ///    macOS does fire `didChangeOcclusionStateNotification` for
+    ///    status-bar windows when overflow managers (Control Center,
+    ///    Bartender / Ice / Hand Mirror, etc.) collapse them out.
+    /// 2. Geometry sanity check. Some macOS versions don't update
+    ///    occlusion when the item is pushed off-screen by notch overflow
+    ///    — the button still reports a frame, but it's at negative x or
+    ///    doesn't intersect any screen's menu bar rect. We catch those
+    ///    cases by checking whether the button's screen-space frame
+    ///    actually overlaps a visible menu bar.
+    ///
+    /// If we can't tell yet (no window, NSZeroRect frame), returns
+    /// .undetermined so the caller skips publication and waits for the
+    /// next occlusion event or the +3s delayed sanity check.
+    private func statusItemVisibility() -> StatusItemVisibility {
+        guard let button = statusItem?.button,
+              let window = button.window else {
+            // No button or window means either (a) the item hasn't
+            // materialised yet (early in launch — grace period
+            // suppresses publication) or (b) the user disabled the item
+            // in System Settings → Menu Bar, or a menu bar manager set
+            // "always hide" on it. After the grace window, all those
+            // map to .hidden — the banner copy covers both reasons.
+            return menuBarVisibilityGracePeriod ? .undetermined : .hidden
+        }
+
+        let frame = window.frame
+        // NSZeroRect / origin-at-zero / sub-pixel frame means the OS
+        // hasn't placed the window in the menu bar yet. Don't guess.
+        if frame.width < 1 || frame.height < 1 || frame.origin == .zero {
+            return .undetermined
+        }
+
+        // Two signals — either one voting "hidden" → .hidden:
+        //
+        //  1. Occlusion state. NSStatusBarWindow clears the .visible
+        //     flag whenever the item isn't actually drawn — covers
+        //     System Settings toggle off, Bartender "always hide", and
+        //     the steady-state of menu-bar overflow.
+        //
+        //  2. Geometry. Frame doesn't intersect any screen's menu bar
+        //     rect — catches the brief moments during menu-bar
+        //     shuffling where the OS parks the item off-screen (e.g.
+        //     (0, -33)) before bouncing it back.
+        //
+        // We deliberately don't try to distinguish reason: the two
+        // hidden states (user toggle vs. overflow) are observationally
+        // identical once the menu bar settles, and the banner copy
+        // covers both possibilities.
+        let occluded = !window.occlusionState.contains(.visible)
+        let menuBarHeight = NSStatusBar.system.thickness
+        var intersectsMenuBar = false
+        for screen in NSScreen.screens {
+            let menuBarRect = NSRect(
+                x: screen.frame.minX,
+                y: screen.frame.maxY - menuBarHeight,
+                width: screen.frame.width,
+                height: menuBarHeight)
+            if menuBarRect.intersects(frame) {
+                intersectsMenuBar = true
+                break
+            }
+        }
+        if !intersectsMenuBar || occluded {
+            return .hidden
+        }
+        return .visible
+    }
+
+    /// Publish the current hidden/visible bool to the host app via
+    /// the kDarwinMenuBarHidden slot. Debounced — only posts when the
+    /// value actually changes, so the host app doesn't redraw its
+    /// banner on every spurious occlusion flip.
+    private func checkStatusItemVisibility() {
+        let verdict = statusItemVisibility()
+        let hidden: Bool
+        switch verdict {
+        case .visible:
+            hidden = false
+        case .hidden:
+            hidden = true
+        case .undetermined:
+            // Window/frame not settled yet. Schedule a quick retry so
+            // we don't miss the resolve point if the OS happens to not
+            // fire another occlusion notification once it places the
+            // button. 250 ms is well below human-perceptible latency
+            // for the warning banner appearing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.checkStatusItemVisibility()
+            }
+            return
+        }
+        // Suppress all publications during the launch grace window —
+        // see comment on menuBarVisibilityGracePeriod for rationale.
+        if menuBarVisibilityGracePeriod { return }
+
+        let payload: UInt64 = hidden ? 1 : 0
+        if lastPublishedMenuBarPayload == payload { return }
+        lastPublishedMenuBarPayload = payload
+        lastPublishedMenuBarHidden = hidden
+
+        darwin_notify_set_state(menuBarHiddenSlotToken, payload)
+        darwin_notify_post(kDarwinMenuBarHidden)
+        AppDelegate.log("PtpCameraAgent: menu-bar item \(hidden ? "HIDDEN" : "visible") — published kDarwinMenuBarHidden=\(payload)")
     }
 
     // MARK: - USB Access Coordination

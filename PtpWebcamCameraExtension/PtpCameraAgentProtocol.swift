@@ -77,6 +77,10 @@ let kDarwinUsbBlocked             = "org.ptpwebcam.darwin.UsbBlocked"
 let kDarwinUsbBlockedSlotPrefix   = "org.ptpwebcam.darwin.usbblock."
 let kDarwinUsbBlockedSlotCount    = 32
 
+// Menu-bar status item visibility (mirrored from PtpCameraAgent copy).
+let kDarwinMenuBarHidden     = "org.ptpwebcam.darwin.MenuBarHidden"
+let kDarwinMenuBarHiddenSlot = "org.ptpwebcam.darwin.menubarhidden"
+
 // MARK: PTP property-dump channels (mirrored from PtpCameraAgent copy).
 let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"
 let kDarwinPtpDumpDevicesState   = "org.ptpwebcam.darwin.PtpDumpDevicesState"
