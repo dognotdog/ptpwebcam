@@ -24,7 +24,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let agentLog = Logger(subsystem: "org.ptpwebcam.PtpWebcamApp.PtpCameraAgent", category: "AgentLog")
     private var xpcListener: NSXPCListener!
 
+    /// Routine status / telemetry logging. Logged at `.info` level so
+    /// these lines are dropped from Console.app's default view (they
+    /// surface only when you turn on the "Info" filter or pull a
+    /// sysdiagnose). Reserve this helper for normal operational
+    /// progress messages — anything an end user shouldn't see as
+    /// "fault" in their system log.
+    ///
+    /// History: previously called through to `agentLog.fault(...)`,
+    /// which meant every routine "posted claim" / "property state" /
+    /// "applicationDidFinishLaunching" line appeared in Console.app's
+    /// default view as a fault. Users (and reviewers) interpret that
+    /// as "the app is misbehaving"; reduce noise by demoting to info.
     static func log(_ msg: String) {
+        agentLog.info("\(msg, privacy: .public)")
+    }
+
+    /// Genuine error-level logging. Stays at `.fault` level so it's
+    /// visible in Console.app's default view and captured in
+    /// sysdiagnose without any extra filters. Use this for conditions
+    /// that indicate something is actually broken — e.g. checksum
+    /// mismatches in the property-state slot protocol, oversized
+    /// payloads we had to drop, USB claim that couldn't recover.
+    static func error(_ msg: String) {
         agentLog.fault("\(msg, privacy: .public)")
     }
 
@@ -495,7 +517,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: cameraList) else { return }
         let maxPayload = (kDarwinStateSlotCount - 1) * 8
         guard jsonData.count <= maxPayload else {
-            AppDelegate.log("PtpCameraAgent: camera state too large (\(jsonData.count) bytes, max \(maxPayload))")
+            AppDelegate.error("PtpCameraAgent: camera state too large (\(jsonData.count) bytes, max \(maxPayload))")
             return
         }
 
@@ -662,7 +684,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let cameraId = String(data: payload, encoding: .utf8), !cameraId.isEmpty else { return }
 
         let culprits = detectRunningCameraHolders()
-        AppDelegate.log("PtpCameraAgent: USB blocked for \(cameraId) — likely culprits: \(culprits.isEmpty ? "(none known running)" : culprits.map { $0.displayName }.joined(separator: ", "))")
+        AppDelegate.error("PtpCameraAgent: USB blocked for \(cameraId) — likely culprits: \(culprits.isEmpty ? "(none known running)" : culprits.map { $0.displayName }.joined(separator: ", "))")
         guard extCameras[cameraId] != nil else { return }
         // Record whether we know any culprits or not — the menu builder
         // uses the empty-vs-non-empty distinction to choose between
@@ -748,7 +770,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lastLvFailAlertText = payload
         lastLvFailAlertAt = now
 
-        AppDelegate.log("PtpCameraAgent: live view failed (\(cameraName)) — \(reason)")
+        AppDelegate.error("PtpCameraAgent: live view failed (\(cameraName)) — \(reason)")
         // NSAlert from a status-bar process needs the app to be active or it
         // can appear behind the foreground app (QuickTime). activate() + the
         // standard NSAlert.runModal flow puts it on top regardless.
@@ -788,7 +810,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         guard var buffer = propPageBuffer,
               pageIndex == propNextPage else {
-            AppDelegate.log("PtpCameraAgent: property state page \(pageIndex) out of order (expected \(propNextPage)), resetting")
+            AppDelegate.error("PtpCameraAgent: property state page \(pageIndex) out of order (expected \(propNextPage)), resetting")
             propPageBuffer = nil
             return
         }
@@ -814,7 +836,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             computedChecksum = computedChecksum &+ UInt32(byte)
         }
         guard computedChecksum == expectedChecksum else {
-            AppDelegate.log("PtpCameraAgent: property state page \(pageIndex) checksum mismatch (\(computedChecksum) != \(expectedChecksum)), resetting")
+            AppDelegate.error("PtpCameraAgent: property state page \(pageIndex) checksum mismatch (\(computedChecksum) != \(expectedChecksum)), resetting")
             propPageBuffer = nil
             return
         }
@@ -972,7 +994,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Common per-camera Darwin-notify post for both SET_PROP and TRIGGER_AF.
     private func postCameraCommand(cameraId: String, packed: UInt64, label: String) {
         guard let camera = extCameras[cameraId] else {
-            AppDelegate.log("PtpCameraAgent: postCameraCommand — unknown cameraId \(cameraId)")
+            AppDelegate.error("PtpCameraAgent: postCameraCommand — unknown cameraId \(cameraId)")
             return
         }
         let crc = crc32OfString(camera.serial) & 0x00FFFFFF

@@ -79,7 +79,15 @@
       "comment" : "Main window title"
     },
     "PTP Webcam is free, but if you like PTP Webcam, you can support development with one of the following subscriptions." : {
-      "comment" : "Description shown above the list of subscription tiers when the user is not yet subscribed"
+      "comment" : "Description shown above the list of subscription tiers when the user is not yet subscribed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PTP Webcam is free, but if you like PTP Webcam, you can support development with one of the following subscriptions:"
+          }
+        }
+      }
     },
     "PTP Webcam’s menu bar icon isn’t visible" : {
 
