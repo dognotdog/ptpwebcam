@@ -123,8 +123,8 @@ enum SemanticCameraProperty: CaseIterable {
     var displayName: String {
         switch self {
         case .iso:                  return "ISO"
-        case .shutterSpeed:         return "SS"
-        case .aperture:             return "AV"
+        case .shutterSpeed:         return "S"
+        case .aperture:             return "A"
         case .exposureCompensation: return "EV"
         case .exposureMode:         return "M"
         case .whiteBalance:         return "WB"
@@ -196,14 +196,65 @@ extension ExtCamera {
         ]
     }
 
-    /// True when the PTP property id holds a raw Kelvin reading that
-    /// the HUD should expose with the Planckian-locus picker instead
-    /// of the generic value-wheel. Numeric range properties whose
-    /// value happens to be a Kelvin number (0xD01E Nikon / 0xD20F
-    /// Sony) — the same set as `colorTemperatureCandidatePropIds`.
+    /// True when the PTP property id holds a raw Kelvin reading
+    /// that the HUD should expose with the Planckian-locus picker.
+    /// Vendor-gated — `0xD01E` is Nikon's WB Color Temperature, and
+    /// `0xD20F` is Sony's, but the PTP vendor-extension code space
+    /// reuses these numbers freely (e.g. a Nikon Z8 exposes `0xD20F`
+    /// with completely different semantics). Without the gate the
+    /// chip plan would add a bogus second "CT 0K" chip on bodies
+    /// that happen to expose the other vendor's id.
     public func isColorTemperatureProperty(_ propId: UInt32) -> Bool {
-        propId == 0xD01E || propId == 0xD20F
+        switch vendor {
+        case .nikon, .leica: return propId == 0xD01E
+        case .sony:          return propId == 0xD20F
+        default:             return false
+        }
     }
+}
+
+// MARK: - WB 2D tune-grid encoding (shared)
+//
+// The WB fine-tune grid is a 13×13 matrix; the PTP property
+// value encodes both axes in a single integer. Two encodings the
+// menu / HUD pickers recognise, distinguished by the property's
+// `rangeMax`:
+//
+//   • `rangeMax = 168`  (Nikon "dense"):  value = x + y * 13
+//   • `rangeMax = 1224` (Sony "sparse"):  value = x * 2 + y * 100
+//
+// y = 0 is the visually top row in both encodings.
+
+public let wbTuneGridSize: Int = 13
+
+/// Decode a 2D grid value to its draw-loop `(x, y)` cell. `y = 0`
+/// is the visually top row.
+public func decodeWbTuneGrid(value: Int, rangeMax: Int) -> (x: Int, y: Int) {
+    if rangeMax == 168 {
+        let y = max(0, min(wbTuneGridSize - 1, value / wbTuneGridSize))
+        let x = max(0, min(wbTuneGridSize - 1, value - y * wbTuneGridSize))
+        return (x, y)
+    }
+    if rangeMax == 1224 {
+        let y = max(0, min(wbTuneGridSize - 1, value / 100))
+        let x = max(0, min(wbTuneGridSize - 1, (value - y * 100) / 2))
+        return (x, y)
+    }
+    return (0, 0)
+}
+
+/// Inverse of `decodeWbTuneGrid`. Produces the canonical PTP
+/// value for a `(x, y)` cell — what callers should send via
+/// `postSet` when the user clicks that cell.
+public func encodeWbTuneGrid(x: Int, y: Int, rangeMax: Int) -> Int {
+    if rangeMax == 168  { return x + y * wbTuneGridSize }
+    if rangeMax == 1224 { return x * 2 + y * 100 }
+    return 0
+}
+
+/// 0..1 fraction of a grid coordinate (for colour blending).
+public func wbTuneGridFraction(_ idx: Int) -> Double {
+    Double(idx) / Double(wbTuneGridSize - 1)
 }
 
 // MARK: - Planckian locus + chromaticity math (shared)
@@ -242,6 +293,139 @@ public func planckianChromaticity(kelvin t: Double) -> (x: Double, y: Double) {
     }
     return (x, y)
 }
+
+// MARK: - Planckian locus geometry (shared)
+
+/// View-independent locus geometry: the sampled chromaticities
+/// from `rangeMin` to `rangeMax` in `step`-K increments, plus the
+/// chromaticity extents (padded for breathing room) the picker
+/// views map to view coordinates. Both the SwiftUI HUD picker
+/// and the AppKit menu picker compute the same samples, so
+/// pulling this here means the geometry stays bit-exact across
+/// surfaces and we don't pay the polynomial-fit cost twice.
+public struct PlanckianLocusGeometry {
+    public struct Sample {
+        public let kelvin: Int
+        public let chromaticityX: Double
+        public let chromaticityY: Double
+    }
+
+    public let samples: [Sample]
+    public let minX: Double
+    public let spanX: Double
+    public let minY: Double
+    public let spanY: Double
+
+    public init(rangeMin: Int, rangeMax: Int, step: Int) {
+        var rawSamples: [Sample] = []
+        var t = rangeMin
+        while t <= rangeMax {
+            let (cx, cy) = planckianChromaticity(kelvin: Double(t))
+            rawSamples.append(Sample(kelvin: t,
+                                     chromaticityX: cx,
+                                     chromaticityY: cy))
+            t += step
+        }
+        // Pad the chromaticity window slightly so the locus
+        // doesn't sit flush against the rendered chromaticity
+        // background's edges.
+        let pad: Double = 0.04
+        let xs = rawSamples.map(\.chromaticityX)
+        let ys = rawSamples.map(\.chromaticityY)
+        let lowX  = (xs.min() ?? 0) - pad
+        let highX = (xs.max() ?? 0) + pad
+        let lowY  = (ys.min() ?? 0) - pad
+        let highY = (ys.max() ?? 0) + pad
+        self.samples = rawSamples
+        self.minX  = lowX
+        self.spanX = max(0.0001, highX - lowX)
+        self.minY  = lowY
+        self.spanY = max(0.0001, highY - lowY)
+    }
+
+    /// Map a sample's chromaticity coords to view-space (x, y),
+    /// applying the inset margin on all sides. `y = 0` is the
+    /// top of the view (y-down convention — flipped NSView or
+    /// SwiftUI).
+    public func viewPoint(for sample: Sample,
+                          viewWidth: CGFloat, viewHeight: CGFloat,
+                          inset: CGFloat) -> CGPoint {
+        let nx = (sample.chromaticityX - minX) / spanX
+        let ny = 1.0 - (sample.chromaticityY - minY) / spanY
+        let px = inset + CGFloat(nx) * (viewWidth - 2 * inset)
+        let py = inset + CGFloat(ny) * (viewHeight - 2 * inset)
+        return CGPoint(x: px, y: py)
+    }
+
+    /// Find the sample whose view-space point is closest to the
+    /// given drag location. Used by both pickers to map an
+    /// arbitrary cursor position to the nearest CT.
+    public func closestSample(to p: CGPoint,
+                              viewWidth: CGFloat, viewHeight: CGFloat,
+                              inset: CGFloat) -> Sample? {
+        var best: Sample?
+        var bestDist = CGFloat.infinity
+        for s in samples {
+            let q = viewPoint(for: s, viewWidth: viewWidth,
+                              viewHeight: viewHeight, inset: inset)
+            let dx = q.x - p.x, dy = q.y - p.y
+            let d = dx * dx + dy * dy
+            if d < bestDist { bestDist = d; best = s }
+        }
+        return best
+    }
+}
+
+// MARK: - Chromaticity-fill image (shared)
+
+#if canImport(CoreGraphics)
+import CoreGraphics
+
+/// Render the chromaticity-fill background for a Planckian-locus
+/// picker into a `CGImage` once, so both the SwiftUI HUD picker
+/// (`Image(decorative:scale:)`) and the AppKit menu picker
+/// (`NSImage(cgImage:size:)`) can blit the same pixels without
+/// running the per-pixel sRGB transform twice. `width` /
+/// `height` are point sizes; the inset is the margin the locus
+/// view uses internally (chromaticity coords map to `[inset,
+/// size - inset]` inside this rect).
+public func renderChromaticityFillImage(
+    geometry: PlanckianLocusGeometry,
+    width: Int, height: Int, inset: Int
+) -> CGImage? {
+    let bytesPerPixel = 4
+    let bytesPerRow = width * bytesPerPixel
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+    guard let data = context.data?.assumingMemoryBound(to: UInt8.self) else {
+        return nil
+    }
+    let usableW = max(1, Double(width - 2 * inset))
+    let usableH = max(1, Double(height - 2 * inset))
+    for y in 0..<height {
+        let nyd = (Double(y) + 0.5 - Double(inset)) / usableH
+        let nyClamped = max(0, min(1, nyd))
+        let chromY = geometry.minY + (1.0 - nyClamped) * geometry.spanY
+        for x in 0..<width {
+            let nxd = (Double(x) + 0.5 - Double(inset)) / usableW
+            let nxClamped = max(0, min(1, nxd))
+            let chromX = geometry.minX + nxClamped * geometry.spanX
+            let (r, g, b) = chromaticityRGB(x: chromX, y: chromY)
+            let offset = y * bytesPerRow + x * bytesPerPixel
+            data[offset]     = UInt8(max(0, min(255, Int(r * 255))))
+            data[offset + 1] = UInt8(max(0, min(255, Int(g * 255))))
+            data[offset + 2] = UInt8(max(0, min(255, Int(b * 255))))
+            data[offset + 3] = 255
+        }
+    }
+    return context.makeImage()
+}
+#endif
 
 /// Convert CIE 1931 (x, y) chromaticity coordinates (assuming
 /// Y = 1) to a brightness-equalised sRGB triple suitable for
@@ -293,22 +477,24 @@ public func chromaticityRGB(x: Double, y: Double) -> (Double, Double, Double) {
 
 // MARK: - Tune (matrix / bar) visualisation
 
-/// PTP property IDs that represent white-balance fine-tune controls,
-/// rather than enums or simple numeric ranges. These get a visual
-/// matrix (2D) or bar (1D) widget in the HUD instead of the regular
-/// value-wheel — the actual integer they carry encodes a position on
-/// a colour-tuning grid and is meaningless as a number to the user.
-///
-/// Matches `nikonWbTuneIds` in the agent menu (which is the same set
-/// used to decide whether to build a `WbTuneGridView` submenu) plus
-/// the Sony pair `0xD210` / `0xD21C` which are independent 1D axes.
-private let tunePropertyIds: Set<UInt32> = [
-    // Nikon WB mode-specific tunes (typically 1D, range 0..12,
+/// PTP property IDs that represent WB fine-tune controls, split by
+/// vendor because the Dxxx half of the PTP code space is vendor-
+/// extension territory and the same numeric id often means
+/// completely different things across vendors (e.g. Sony's 0xD21C
+/// is "WB Tune A-B" but Nikon uses the same code for something
+/// else on Z-series bodies — without this gating the HUD/menu
+/// would render Nikon's 0xD21C as a Sony amber-blue tune bar with
+/// nonsense range/step semantics).
+private let nikonTunePropertyIds: Set<UInt32> = [
+    // Nikon WB mode-specific tunes (typically 1D, range 0..12
     // with 6 = neutral; some bodies expose them as 2D in the
     // 0..168 / 0..1224 encodings).
     0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
     // Nikon Color Temp Tune.
     0xD150,
+]
+
+private let sonyTunePropertyIds: Set<UInt32> = [
     // Sony Green↔Magenta and Amber↔Blue axes (independent 1D),
     // plus the mode-specific Sony tunes that show up in the
     // 0..168 / 0..1224 encodings.
@@ -389,9 +575,21 @@ extension ExtCamera {
     /// Returns the tune-widget style for the property if it's a
     /// known WB fine-tune control with a usable range; otherwise
     /// nil, meaning the HUD should render it with the default
-    /// value-wheel instead.
+    /// value-wheel instead. Vendor-gated — see the comment on
+    /// `nikonTunePropertyIds` / `sonyTunePropertyIds` for why the
+    /// same propId can mean different things on different
+    /// vendors and must be matched against the right set.
     public func tuneStyle(forPropertyId propId: UInt32) -> TuneStyle? {
-        guard tunePropertyIds.contains(propId),
+        let isTune: Bool
+        switch vendor {
+        // Leica reuses Nikon-style WB controls in its
+        // PtpCameraNikon-derived flow, so the Nikon tune set
+        // applies there too.
+        case .nikon, .leica: isTune = nikonTunePropertyIds.contains(propId)
+        case .sony:          isTune = sonyTunePropertyIds.contains(propId)
+        default:             isTune = false
+        }
+        guard isTune,
               let prop = properties[propId],
               let rMin = prop.rangeMin?.intValue,
               let rMax = prop.rangeMax?.intValue,
@@ -443,22 +641,48 @@ extension ExtCamera {
     /// currently-selected white-balance mode. Used by both the agent
     /// menu (as sub-items under each WB mode) and the host-app HUD
     /// (as extra chips next to the WB chip). Filtered to only the
-    /// IDs the camera actually exposes — entry-level bodies may not
-    /// have every tune control listed in the canonical table.
+    /// IDs the camera actually exposes AND that match the camera's
+    /// vendor — the shared sub-properties table lists every
+    /// vendor's Color Temp / tune propIds under each WB mode value
+    /// for convenience, but the Dxxx code space overlaps so we
+    /// need to drop the wrong-vendor entries here.
     func whiteBalanceTunePropertyIds() -> [UInt32] {
         guard let wb = property(for: .whiteBalance) else { return [] }
-        var result: [UInt32] = []
-        // Nikon: per-mode tune IDs from the table above.
-        if let nikonTunes = nikonWhiteBalanceSubProperties[wb.value.uint32Value] {
-            result.append(contentsOf: nikonTunes.filter { properties[$0] != nil })
-        }
+        var result = Self.whiteBalanceSubPropertyIds(forModeValue: wb.value.uint32Value)
+            .filter { propId in
+                guard properties[propId] != nil else { return false }
+                // Vendor-specific CT propIds: only include the
+                // one that actually means "Kelvin reading" on
+                // this camera's vendor. Otherwise a Nikon Z8
+                // exposing 0xD20F (something else entirely)
+                // would get a bogus second CT chip showing 0K.
+                switch propId {
+                case 0xD01E: return vendor == .nikon || vendor == .leica
+                case 0xD20F: return vendor == .sony
+                default:     return true
+                }
+            }
         // Sony G-M / A-B tune grid: independent of WB mode, present
         // whenever the camera exposes them. Two separate properties
         // for the two axes — show both chips when they exist.
-        for sonyId in [UInt32(0xD210), UInt32(0xD21C)] {
-            if properties[sonyId] != nil { result.append(sonyId) }
+        // Gated on vendor: Nikon Z-series bodies reuse `0xD21C`
+        // for something unrelated and would otherwise pick up a
+        // bogus amber-blue chip.
+        if vendor == .sony {
+            for sonyId in [UInt32(0xD210), UInt32(0xD21C)] {
+                if properties[sonyId] != nil { result.append(sonyId) }
+            }
         }
         return result
+    }
+
+    /// Raw sub-property table lookup, unfiltered. Used by the
+    /// agent menu's per-mode sub-item builder, which iterates
+    /// every WB enum value and offers the relevant sub-properties
+    /// under each — distinct from `whiteBalanceTunePropertyIds()`
+    /// which only returns IDs for the *currently-selected* mode.
+    public static func whiteBalanceSubPropertyIds(forModeValue value: UInt32) -> [UInt32] {
+        nikonWhiteBalanceSubProperties[value] ?? []
     }
 }
 

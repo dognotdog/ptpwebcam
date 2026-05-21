@@ -31,6 +31,14 @@ class PlanckianLocusView: NSView {
     /// mouseUp.
     private var proposedKelvin: Int? = nil
 
+    /// Debounced "post during drag" task. Replaces the in-flight
+    /// item every time the user moves to a new sample so we send
+    /// at most one SET ~150 ms after the user pauses — matches
+    /// the slider builder's `SliderActionHolder` pattern and the
+    /// host-app HUD's behaviour.
+    private var dragPostTask: DispatchWorkItem? = nil
+    private let dragPostDelay: TimeInterval = 0.15
+
     private static let viewWidth: CGFloat = 220
     private static let viewHeight: CGFloat = 110
     private static let inset: CGFloat = 14
@@ -44,22 +52,22 @@ class PlanckianLocusView: NSView {
     // without inverting for AppKit's normal y-up convention.
     override var isFlipped: Bool { true }
 
-    private var samples: [(kelvin: Int, point: CGPoint)] = []
-    private var minX: Double = 0
-    private var spanX: Double = 1
-    private var minY: Double = 0
-    private var spanY: Double = 1
+    /// Shared geometry computed from the configured range. Lives
+    /// in `CameraModel.swift`'s `PlanckianLocusGeometry` so the
+    /// SwiftUI HUD picker uses the same samples and chromaticity
+    /// extents as we do.
+    private var geometry: PlanckianLocusGeometry =
+        PlanckianLocusGeometry(rangeMin: 2500, rangeMax: 10000, step: 100)
 
-    /// Cached chromaticity-fill rendering. Computed once when the
-    /// geometry / range changes; cell rendering is ~24 k fills, too
-    /// slow to redo on every drag frame. The cache invalidates
-    /// when `rangeMin`/`rangeMax`/`step` change via the setter
-    /// (build pattern via `configure(...)` below).
-    private var cachedBackground: NSImage?
+    /// Cached chromaticity-fill bitmap. Built once per
+    /// configuration via the shared `renderChromaticityFillImage`
+    /// helper so the menu and HUD pickers blit bit-exactly
+    /// identical pixels.
+    private var cachedBackground: CGImage?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        buildSamples()
+        rebuildGeometry()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -73,52 +81,26 @@ class PlanckianLocusView: NSView {
         self.rangeMax = rangeMax
         self.step = step
         self.currentKelvin = currentKelvin
-        buildSamples()
+        rebuildGeometry()
         cachedBackground = nil
         needsDisplay = true
     }
 
-    // MARK: - Locus geometry
-
-    private func buildSamples() {
-        var chromPoints: [(t: Int, x: Double, y: Double)] = []
-        var t = rangeMin
-        while t <= rangeMax {
-            let (x, y) = planckianChromaticity(kelvin: Double(t))
-            chromPoints.append((t, x, y))
-            t += step
-        }
-        guard !chromPoints.isEmpty else { return }
-        // Pad the chromaticity window slightly so the locus
-        // doesn't sit flush against the rendered chromaticity
-        // background's edges — gives the diagram a bit of CIE
-        // context (greens above the locus, magentas below).
-        let pad: Double = 0.04
-        minX = (chromPoints.map(\.x).min() ?? 0) - pad
-        let maxX = (chromPoints.map(\.x).max() ?? 0) + pad
-        minY = (chromPoints.map(\.y).min() ?? 0) - pad
-        let maxY = (chromPoints.map(\.y).max() ?? 0) + pad
-        spanX = max(0.0001, maxX - minX)
-        spanY = max(0.0001, maxY - minY)
-        samples = chromPoints.map { sample in
-            let nx = (sample.x - minX) / spanX
-            let ny = 1.0 - (sample.y - minY) / spanY
-            let px = Self.inset + CGFloat(nx) * (Self.viewWidth - 2 * Self.inset)
-            let py = Self.inset + CGFloat(ny) * (Self.viewHeight - 2 * Self.inset)
-            return (sample.t, CGPoint(x: px, y: py))
-        }
+    private func rebuildGeometry() {
+        geometry = PlanckianLocusGeometry(
+            rangeMin: rangeMin, rangeMax: rangeMax, step: step)
     }
 
-    private func closestSample(to p: CGPoint) -> (kelvin: Int, point: CGPoint)? {
-        var best: (kelvin: Int, point: CGPoint)?
-        var bestDist = CGFloat.infinity
-        for s in samples {
-            let dx = s.point.x - p.x
-            let dy = s.point.y - p.y
-            let d = dx * dx + dy * dy
-            if d < bestDist { bestDist = d; best = s }
-        }
-        return best
+    /// View-coord for a locus sample (proxies to the shared
+    /// geometry's `viewPoint`).
+    private func point(for sample: PlanckianLocusGeometry.Sample) -> CGPoint {
+        geometry.viewPoint(for: sample, viewWidth: Self.viewWidth,
+                           viewHeight: Self.viewHeight, inset: Self.inset)
+    }
+
+    private func closestSample(to p: CGPoint) -> PlanckianLocusGeometry.Sample? {
+        geometry.closestSample(to: p, viewWidth: Self.viewWidth,
+                               viewHeight: Self.viewHeight, inset: Self.inset)
     }
 
     private var displayedKelvin: Int { proposedKelvin ?? currentKelvin }
@@ -132,59 +114,46 @@ class PlanckianLocusView: NSView {
         drawReadout()
     }
 
-    /// Renders the (x, y) chromaticity field to an NSImage and
-    /// caches it. Calling `draw(...)` then just blits the cached
-    /// bitmap. ~24 k 1-pt fills the first time; near-free thereafter.
+    /// Blit the cached chromaticity-fill `CGImage` produced by
+    /// the shared `renderChromaticityFillImage` helper in
+    /// `CameraModel.swift`. Pixel-identical with the host-app
+    /// HUD's background.
     private func drawChromaticityBackground() {
         if cachedBackground == nil {
-            let size = NSSize(width: Self.viewWidth, height: Self.viewHeight)
-            let image = NSImage(size: size)
-            image.lockFocus()
-            // The locked focus uses the image's coordinate space
-            // (y-up by default for NSImage). Render with our usual
-            // y-down logic by flipping at the end of each row.
-            let cellSize: CGFloat = 1
-            let cols = Int(ceil(size.width / cellSize))
-            let rows = Int(ceil(size.height / cellSize))
-            for col in 0..<cols {
-                let cellX = CGFloat(col) * cellSize
-                let nx = Double((cellX + cellSize / 2 - Self.inset) /
-                                max(1, Self.viewWidth - 2 * Self.inset))
-                let chromX = minX + max(0, min(1, nx)) * spanX
-                for row in 0..<rows {
-                    let cellY = CGFloat(row) * cellSize
-                    // Convert to y-down "ny" since the locus map
-                    // assumes top=0.
-                    let nyTopDown = Double(
-                        (Self.viewHeight - cellY - cellSize / 2 - Self.inset) /
-                        max(1, Self.viewHeight - 2 * Self.inset))
-                    let chromY = minY + (1.0 - max(0, min(1, nyTopDown))) * spanY
-                    let rgb = chromaticityRGB(x: chromX, y: chromY)
-                    NSColor(srgbRed: CGFloat(rgb.0),
-                            green:  CGFloat(rgb.1),
-                            blue:   CGFloat(rgb.2),
-                            alpha: 1.0).set()
-                    NSBezierPath(rect: CGRect(x: cellX, y: cellY,
-                                              width: cellSize, height: cellSize)).fill()
-                }
-            }
-            image.unlockFocus()
-            cachedBackground = image
+            cachedBackground = renderChromaticityFillImage(
+                geometry: geometry,
+                width: Int(Self.viewWidth),
+                height: Int(Self.viewHeight),
+                inset: Int(Self.inset))
         }
-        cachedBackground?.draw(in: bounds)
+        guard let cg = cachedBackground,
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        // The view is `isFlipped == true`, so the current
+        // CGContext has its y axis flipped relative to the
+        // default CG orientation. `CGContext.draw(_:in:)` blits
+        // the image with its own y-up convention, which is what
+        // we want — but we need to compensate the flip back so
+        // the image lands the right way up.
+        context.saveGState()
+        context.translateBy(x: 0, y: Self.viewHeight)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cg, in: CGRect(x: 0, y: 0,
+                                    width: Self.viewWidth,
+                                    height: Self.viewHeight))
+        context.restoreGState()
     }
 
     /// Subtle white locus stroke with shadow. Same look as the
     /// SwiftUI version — see comments in `TuneChip` / the HUD's
     /// `locusPath` for why we don't colour-stripe the curve here.
     private func drawLocus() {
-        guard samples.count >= 2 else { return }
+        guard geometry.samples.count >= 2 else { return }
         let path = NSBezierPath()
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         path.lineWidth = 1.5
-        path.move(to: samples.first!.point)
-        for s in samples.dropFirst() { path.line(to: s.point) }
+        path.move(to: point(for: geometry.samples.first!))
+        for s in geometry.samples.dropFirst() { path.line(to: point(for: s)) }
 
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
@@ -198,13 +167,14 @@ class PlanckianLocusView: NSView {
     }
 
     private func drawMarker() {
-        guard let current = samples.min(by: {
+        guard let current = geometry.samples.min(by: {
             abs($0.kelvin - displayedKelvin) < abs($1.kelvin - displayedKelvin)
         }) else { return }
+        let pt = point(for: current)
         let markerSize: CGFloat = 10
         let rect = CGRect(
-            x: current.point.x - markerSize / 2,
-            y: current.point.y - markerSize / 2,
+            x: pt.x - markerSize / 2,
+            y: pt.y - markerSize / 2,
             width: markerSize, height: markerSize)
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
@@ -253,6 +223,7 @@ class PlanckianLocusView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         if let nearest = closestSample(to: pt) {
             proposedKelvin = nearest.kelvin
+            scheduleDragPost(kelvin: nearest.kelvin)
             needsDisplay = true
         }
     }
@@ -261,6 +232,7 @@ class PlanckianLocusView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         if let nearest = closestSample(to: pt) {
             proposedKelvin = nearest.kelvin
+            scheduleDragPost(kelvin: nearest.kelvin)
             needsDisplay = true
         }
     }
@@ -268,6 +240,10 @@ class PlanckianLocusView: NSView {
     override func mouseUp(with event: NSEvent) {
         let pt = convert(event.locationInWindow, from: nil)
         if let nearest = closestSample(to: pt) {
+            // Cancel any pending debounced post and send the
+            // final value immediately on release.
+            dragPostTask?.cancel()
+            dragPostTask = nil
             // Optimistic update: the camera value will round-trip
             // back through `processPropertyStateJson` over the next
             // publish, but the menu may still be visible until
@@ -279,4 +255,19 @@ class PlanckianLocusView: NSView {
         proposedKelvin = nil
         needsDisplay = true
     }
+
+    private func scheduleDragPost(kelvin: Int) {
+        dragPostTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in
+            self?.onValueSelected?(kelvin)
+        }
+        dragPostTask = task
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + dragPostDelay, execute: task)
+    }
+
+    // Local Sample = the shared one; helps the call sites above
+    // read as "geometry.samples" rather than
+    // "PlanckianLocusGeometry.Sample" repeatedly.
+    typealias Sample = PlanckianLocusGeometry.Sample
 }

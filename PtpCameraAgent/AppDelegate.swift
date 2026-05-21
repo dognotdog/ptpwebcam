@@ -835,6 +835,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // entry doesn't suddenly degrade from a real model name.
             let cameraId = newCam.cameraId
             if let prev = extCameras[cameraId] {
+                // Empty-props republish for a camera that already
+                // has populated properties: treat as transient
+                // noise. Observed on the Z8 mid-session — the
+                // extension occasionally emits an empty publish
+                // while live view is still running, and naively
+                // overwriting the agent's stored state would
+                // revert the menu to "Opening PTP session…"
+                // until the next populated publish lands. Real
+                // disconnects come through the `.disconnected`
+                // case which removes the entry outright, so
+                // silently dropping the empty publish here can't
+                // mask an actual session-loss.
+                if newCam.properties.isEmpty && !prev.properties.isEmpty {
+                    AppDelegate.log("PtpCameraAgent: ignoring empty-props republish for \(cameraId) (have \(prev.properties.count) prev props)")
+                    return
+                }
                 if newCam.properties.isEmpty {
                     newCam.blockingApps = prev.blockingApps
                     newCam.isBusyUnknownHolder = prev.isBusyUnknownHolder
@@ -1225,8 +1241,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Autofocus trigger. Per-vendor support:
         //   Nikon:  AfDrive (0x90C1) — solid.
-        //   Sony:   AutofocusButton toggle (0xD2C1) — flaky on A7-series in
-        //           tethered mode, so labelled experimental.
+        //   Sony:   AutofocusButton toggle (0xD2C1).
         //   Leica:  LEReleaseStages (0x9004) with push/release stages, the
         //           same release-ladder Adobe Lightroom's plugin uses.
         //   Fuji:   Camera Action property write 0xD208 = 0x0200 + standard
@@ -1250,8 +1265,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }()
         if supportsAf {
             menu.addItem(NSMenuItem.separator())
-            let title = vendor == .sony ? "  Autofocus (experimental)" : "  Autofocus"
-            let afItem = NSMenuItem(title: title,
+            let afItem = NSMenuItem(title: "  Autofocus",
                                     action: #selector(extAutofocusAction(_:)),
                                     keyEquivalent: "")
             afItem.target = self
@@ -1327,7 +1341,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 // Attach WB sub-properties (tune grid / color-temp) to each WB mode value.
                 if propId == 0x5005,
-                   let subPropIds = nikonWbSubProperties[enumVal.uint32Value] {
+                   case let subPropIds = ExtCamera.whiteBalanceSubPropertyIds(
+                       forModeValue: enumVal.uint32Value),
+                   !subPropIds.isEmpty {
                     let subPropMenu = NSMenu()
                     for subId in subPropIds {
                         guard let subProp = camera.properties[subId] else { continue }
@@ -1982,11 +1998,11 @@ final class SonyStepperView: NSView {
     }
 }
 
-// WB tune property IDs that get a grid view instead of an enum list.
-private let nikonWbTuneIds: Set<UInt32> = [
-    0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
-    0xD150, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
-]
+// (Was: `nikonWbTuneIds`. The agent now routes through
+// `camera.tuneStyle(forPropertyId:)` in CameraModel.swift, which
+// owns the canonical list of tune property IDs and the
+// 1D-vs-2D distinction. The local Set was last-referenced before
+// the menu/HUD dispatch unification and is now dead.)
 
 // Properties that are intrinsically read-only sensor readings, even if the
 // camera reports them as writable in its property descriptor. Sony A7 in
@@ -2000,18 +2016,11 @@ private let intrinsicallyReadOnlyProps: Set<UInt32> = [
     0xD218,   // Sony Battery Level
 ]
 
-// WB mode value → list of sub-property IDs shown below that value's menu item.
-// Mirrors PtpCameraNikon.uiPtpSubProperties.
-private let nikonWbSubProperties: [UInt32: [UInt32]] = [
-    0x0002: [0xD017, 0xD141],  // Auto          → WB Auto Tune + WB Auto Type
-    0x0004: [0xD01A],          // Daylight       → WB Sunny Tune
-    0x0005: [0xD019, 0xD14F],  // Fluorescent    → WB Fluorescent Tune + Fluorescent Type
-    0x0006: [0xD018],          // Tungsten       → WB Incandescent Tune
-    0x0007: [0xD01B],          // Flash          → WB Flash Tune
-    0x8010: [0xD01C],          // Cloudy         → WB Cloudy Tune
-    0x8011: [0xD01D],          // Shade          → WB Shade Tune
-    0x8012: [0xD01E, 0xD150],  // Color Temp     → WB Color Temperature + Color Temp Tune
-]
+// (Was: `nikonWbSubProperties`. The canonical mapping lives in
+// `CameraModel.swift` as `nikonWhiteBalanceSubProperties` and is
+// exposed via `ExtCamera.whiteBalanceSubPropertyIds(forModeValue:)`
+// — used both by the agent's per-mode WB submenu and the HUD's
+// `whiteBalanceTunePropertyIds()`. Single source of truth.)
 
 private let extPropDisplayNames: [UInt32: String] = [
     // PTP standard (0x5xxx)

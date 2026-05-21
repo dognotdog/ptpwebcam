@@ -913,40 +913,17 @@ private struct TuneCellSwatch: View {
 
 // MARK: - Tune helpers (colour, encoding)
 
-/// Decode a 2D grid value to its draw-loop (x, y) cell. `y=0` is
-/// the visually top row, matching `WbTuneGridView.valueFrom`. The
-/// two encodings the menu's grid view recognises:
-///   • `rangeMax=168` (Nikon dense): `value = x + y*13`
-///   • `rangeMax=1224` (Sony sparse): `value = x*2 + y*100`
+/// File-local aliases for the WB-tune grid encoding so the existing
+/// call sites in this file keep their short names. The real
+/// implementations live in `CameraModel.swift` and are shared
+/// with the agent's NSView pickers.
 private func decodeGrid2D(value: Int, rangeMax: Int) -> (x: Int, y: Int) {
-    let gridSize = 13
-    if rangeMax == 168 {
-        let y = max(0, min(gridSize - 1, value / gridSize))
-        let x = max(0, min(gridSize - 1, value - y * gridSize))
-        return (x, y)
-    }
-    if rangeMax == 1224 {
-        let y = max(0, min(gridSize - 1, value / 100))
-        let x = max(0, min(gridSize - 1, (value - y * 100) / 2))
-        return (x, y)
-    }
-    return (0, 0)
+    decodeWbTuneGrid(value: value, rangeMax: rangeMax)
 }
-
-/// Inverse of `decodeGrid2D`. Produces the canonical PTP value
-/// for a grid cell — what `postSet` should send when the user
-/// clicks a cell.
 private func encodeGrid2D(x: Int, y: Int, rangeMax: Int) -> Int {
-    if rangeMax == 168  { return x + y * 13 }
-    if rangeMax == 1224 { return x * 2 + y * 100 }
-    return 0
+    encodeWbTuneGrid(x: x, y: y, rangeMax: rangeMax)
 }
-
-/// 0..1 fraction of a grid coordinate (used for colour blending).
-private func gridFraction(_ idx: Int) -> Double {
-    let gridSize = 13
-    return Double(idx) / Double(gridSize - 1)
-}
+private func gridFraction(_ idx: Int) -> Double { wbTuneGridFraction(idx) }
 
 /// Colour used in the 2D grid swatches. Bilinear blend of four
 /// corner colours sized so the matrix centre — which represents
@@ -1133,6 +1110,15 @@ private struct PlanckianLocusView: View {
     /// back the new value.
     @State private var proposedKelvin: Int? = nil
 
+    /// Debounce timer used to fire `onSelect` while the user is
+    /// still dragging. Without this the camera would only learn
+    /// the new CT on drag-end; with it the value updates roughly
+    /// 150 ms after the user pauses, so a slow drag through the
+    /// locus continuously tracks the live preview instead of
+    /// jumping at the end.
+    @State private var dragPostTask: DispatchWorkItem? = nil
+    private let dragPostDelay: TimeInterval = 0.15
+
     /// View dimensions. Wide enough that the locus has visible
     /// curvature, short enough that the chip doesn't dominate
     /// the preview.
@@ -1144,67 +1130,44 @@ private struct PlanckianLocusView: View {
     /// corner / outline without clipping.
     private let inset: CGFloat = 14
 
-    /// Locus geometry computed once per body evaluation. Holds
-    /// the per-sample CT + view position, plus the chromaticity
-    /// extents needed to drive both the locus mapping and the
-    /// background chromaticity-fill rendering. Bundled so we
-    /// don't recompute the polynomial fits and the min/max
-    /// extents independently for each visual layer.
-    private struct LocusGeometry {
-        let samples: [(kelvin: Int, point: CGPoint)]
-        let minX: Double
-        let spanX: Double
-        let minY: Double
-        let spanY: Double
-    }
-    private var geometry: LocusGeometry {
-        var chromPoints: [(t: Int, x: Double, y: Double)] = []
-        var t = rangeMin
-        while t <= rangeMax {
-            let (x, y) = planckianChromaticity(kelvin: Double(t))
-            chromPoints.append((t, x, y))
-            t += step
-        }
-        guard let firstX = chromPoints.map(\.x).min(),
-              let lastX = chromPoints.map(\.x).max(),
-              let firstY = chromPoints.map(\.y).min(),
-              let lastY = chromPoints.map(\.y).max() else {
-            return LocusGeometry(samples: [], minX: 0, spanX: 1, minY: 0, spanY: 1)
-        }
-        // Pad the chromaticity window slightly so the locus
-        // doesn't sit flush against the rendered chromaticity
-        // background's edges — gives the diagram a bit of CIE
-        // context (greens above the locus, magentas below).
-        let pad: Double = 0.04
-        let minX = firstX - pad
-        let maxX = lastX + pad
-        let minY = firstY - pad
-        let maxY = lastY + pad
-        let spanX = max(0.0001, maxX - minX)
-        let spanY = max(0.0001, maxY - minY)
-        let pts: [(Int, CGPoint)] = chromPoints.map { sample in
-            let nx = (sample.x - minX) / spanX
-            let ny = 1.0 - (sample.y - minY) / spanY
-            let px = inset + CGFloat(nx) * (viewWidth - 2 * inset)
-            let py = inset + CGFloat(ny) * (viewHeight - 2 * inset)
-            return (sample.t, CGPoint(x: px, y: py))
-        }
-        return LocusGeometry(samples: pts, minX: minX, spanX: spanX, minY: minY, spanY: spanY)
+    private var geometry: PlanckianLocusGeometry {
+        PlanckianLocusGeometry(rangeMin: rangeMin, rangeMax: rangeMax, step: step)
     }
 
-    /// Find the locus sample whose point is closest to the given
-    /// drag location. Used to map a drag position to a CT — the
-    /// user doesn't have to drag exactly on the curve.
-    private func closestSample(in geom: LocusGeometry, to p: CGPoint) -> (kelvin: Int, point: CGPoint)? {
-        var best: (kelvin: Int, point: CGPoint)?
-        var bestDist = CGFloat.infinity
-        for s in geom.samples {
-            let dx = s.point.x - p.x
-            let dy = s.point.y - p.y
-            let d = dx * dx + dy * dy
-            if d < bestDist { bestDist = d; best = s }
-        }
-        return best
+    /// Cached chromaticity-fill image. Computed once per geometry
+    /// (range + step + view-size + inset) and re-used by SwiftUI's
+    /// `Image(decorative:scale:)` — far cheaper than the per-frame
+    /// Canvas pixel loop we used before.
+    @State private var chromaticityImage: CGImage?
+
+    /// Re-render the chromaticity-fill image when geometry inputs
+    /// change. Sized to match the rendered view so the bitmap
+    /// fills at 1:1 point density.
+    private func ensureChromaticityImage() {
+        if chromaticityImage != nil { return }
+        chromaticityImage = renderChromaticityFillImage(
+            geometry: geometry,
+            width: Int(viewWidth), height: Int(viewHeight),
+            inset: Int(inset))
+    }
+
+    private func viewPoint(for sample: PlanckianLocusGeometry.Sample,
+                           geom: PlanckianLocusGeometry) -> CGPoint {
+        geom.viewPoint(for: sample, viewWidth: viewWidth,
+                       viewHeight: viewHeight, inset: inset)
+    }
+
+    /// Reset the debounce timer to fire `onSelect(kelvin)` after
+    /// `dragPostDelay` of quiet. Replaces any in-flight task so a
+    /// fast drag through several samples coalesces to one post
+    /// per pause, rather than spamming the camera with a SET
+    /// every drag-frame.
+    private func scheduleDragPost(kelvin: Int) {
+        dragPostTask?.cancel()
+        let task = DispatchWorkItem { onSelect(kelvin) }
+        dragPostTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + dragPostDelay,
+                                      execute: task)
     }
 
     private var displayedKelvin: Int { proposedKelvin ?? currentKelvin }
@@ -1212,7 +1175,7 @@ private struct PlanckianLocusView: View {
     var body: some View {
         let geom = geometry
         ZStack {
-            chromaticityBackground(geom: geom)
+            chromaticityBackground
             // Locus drawn as a single subtle white polyline. We
             // used to paint each segment with its own
             // chromaticity colour, but that made the cool / blue
@@ -1228,15 +1191,27 @@ private struct PlanckianLocusView: View {
         }
         .frame(width: viewWidth, height: viewHeight)
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .onAppear { ensureChromaticityImage() }
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    if let nearest = closestSample(in: geom, to: value.location) {
+                    if let nearest = geom.closestSample(
+                        to: value.location, viewWidth: viewWidth,
+                        viewHeight: viewHeight, inset: inset) {
                         proposedKelvin = nearest.kelvin
+                        scheduleDragPost(kelvin: nearest.kelvin)
                     }
                 }
                 .onEnded { value in
-                    if let nearest = closestSample(in: geom, to: value.location) {
+                    if let nearest = geom.closestSample(
+                        to: value.location, viewWidth: viewWidth,
+                        viewHeight: viewHeight, inset: inset) {
+                        // Cancel any pending debounced post and
+                        // send the final value immediately so
+                        // there's no 150 ms tail after the user
+                        // lets go.
+                        dragPostTask?.cancel()
+                        dragPostTask = nil
                         onSelect(nearest.kelvin)
                         // Keep `proposedKelvin` set so the marker
                         // stays where the user dropped it even
@@ -1264,39 +1239,20 @@ private struct PlanckianLocusView: View {
     // MARK: Layers
 
     /// CIE-style chromaticity field around the Planckian locus.
-    /// Each cell of a small grid covering the view computes its
-    /// chromaticity (x, y) by inverting the same locus→view map
-    /// used for the curve sampling, then renders the sRGB colour
-    /// at that chromaticity. Out-of-gamut chromaticities clip to
-    /// a darker shade — those areas are intentionally a hint of
-    /// "this isn't a real CIE colour" without rendering as black.
-    private func chromaticityBackground(geom: LocusGeometry) -> some View {
-        Canvas { context, size in
-            // 1 pt cells — render at native point resolution so
-            // the chromaticity field reads as a smooth colour
-            // gradient with no visible cell boundaries. The
-            // background is a one-shot draw (only re-renders on
-            // chip expand or property publish, not on every
-            // drag-frame), so 24k fills is fine for performance.
-            let cellSize: CGFloat = 1
-            let cols = Int(ceil(size.width / cellSize))
-            let rows = Int(ceil(size.height / cellSize))
-            for col in 0..<cols {
-                let cellX = CGFloat(col) * cellSize
-                let nx = Double((cellX + cellSize / 2 - inset) / max(1, viewWidth - 2 * inset))
-                let chromX = geom.minX + max(0, min(1, nx)) * geom.spanX
-                for row in 0..<rows {
-                    let cellY = CGFloat(row) * cellSize
-                    let ny = Double((cellY + cellSize / 2 - inset) / max(1, viewHeight - 2 * inset))
-                    let chromY = geom.minY + (1.0 - max(0, min(1, ny))) * geom.spanY
-                    let rgb = chromaticityRGB(x: chromX, y: chromY)
-                    let color = Color(red: rgb.0, green: rgb.1, blue: rgb.2)
-                    context.fill(
-                        Path(CGRect(x: cellX, y: cellY,
-                                    width: cellSize, height: cellSize)),
-                        with: .color(color))
-                }
-            }
+    /// Renders a pre-computed CGImage produced once by the shared
+    /// `renderChromaticityFillImage` helper in CameraModel.swift —
+    /// far cheaper than the per-cell Canvas loop we used before,
+    /// and bit-exact with the agent-menu picker that calls the
+    /// same helper.
+    @ViewBuilder
+    private var chromaticityBackground: some View {
+        if let cg = chromaticityImage {
+            Image(decorative: cg, scale: 1.0)
+                .resizable()
+                .frame(width: viewWidth, height: viewHeight)
+        } else {
+            Color.black
+                .frame(width: viewWidth, height: viewHeight)
         }
     }
 
@@ -1305,11 +1261,13 @@ private struct PlanckianLocusView: View {
     /// (cool end) backgrounds without competing with the
     /// chromaticity colours.
     @ViewBuilder
-    private func locusPath(geom: LocusGeometry) -> some View {
+    private func locusPath(geom: PlanckianLocusGeometry) -> some View {
         if geom.samples.count >= 2 {
             Path { p in
-                p.move(to: geom.samples.first!.point)
-                for s in geom.samples.dropFirst() { p.addLine(to: s.point) }
+                p.move(to: viewPoint(for: geom.samples.first!, geom: geom))
+                for s in geom.samples.dropFirst() {
+                    p.addLine(to: viewPoint(for: s, geom: geom))
+                }
             }
             .stroke(Color.white.opacity(0.7),
                     style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
@@ -1322,7 +1280,7 @@ private struct PlanckianLocusView: View {
     }
 
     @ViewBuilder
-    private func marker(geom: LocusGeometry) -> some View {
+    private func marker(geom: PlanckianLocusGeometry) -> some View {
         let target = displayedKelvin
         // Pick the sample whose Kelvin is closest to the displayed
         // value, in case the property's step doesn't divide
@@ -1336,7 +1294,7 @@ private struct PlanckianLocusView: View {
                 .frame(width: 10, height: 10)
                 .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
                 .shadow(color: .black.opacity(0.4), radius: 2)
-                .position(current.point)
+                .position(viewPoint(for: current, geom: geom))
                 .allowsHitTesting(false)
         }
     }

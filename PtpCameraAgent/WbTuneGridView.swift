@@ -23,10 +23,11 @@ class WbTuneGridView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     // Convert draw-loop (x, y) — y=0 is top — to encoded PTP value.
+    // Delegates to the shared `encodeWbTuneGrid` helper in
+    // `CameraModel.swift` so the agent menu and the host-app HUD
+    // matrix picker stay in lockstep on the encoding.
     private func valueFrom(x: Int, y: Int) -> Int {
-        if rangeMin == 0 && rangeMax == 168  && gridSize == 13 { return x + y * gridSize }
-        if rangeMin == 0 && rangeMax == 1224 && gridSize == 13 { return x * 2 + y * 100 }
-        return 0
+        encodeWbTuneGrid(x: x, y: y, rangeMax: rangeMax)
     }
 
     // Convert AppKit point (y=0 at bottom) to draw-loop cell (y=0 at top).
