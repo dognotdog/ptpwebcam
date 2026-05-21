@@ -96,7 +96,12 @@ enum SemanticCameraProperty: CaseIterable {
     /// has in its `properties` dict.
     var candidatePropertyIds: [UInt32] {
         switch self {
-        case .iso:                  return [0x500F]
+        // 0xD21E is Sony's ISO-with-Auto-sentinel property (see the
+        // formatter rule: 0xFFFFFF → "Auto", otherwise the value).
+        // Most Sony bodies expose both 0xD21E and 0x500F; 0x500F is
+        // sometimes a stale mirror, so prefer the vendor-specific
+        // one. Falls back to 0x500F for Nikon / Canon / others.
+        case .iso:                  return [0xD21E, 0x500F]
         case .shutterSpeed:         return [0xD100, 0xD20D, 0x500D]
         case .aperture:             return [0x5007, 0xD1A9]
         // PTP-standard ExposureBias (0x5010) covers Nikon/Sony in stills.
@@ -201,6 +206,91 @@ extension ExtCamera {
     }
 }
 
+// MARK: - Planckian locus + chromaticity math (shared)
+
+/// Cubic approximations of the CIE 1931 Planckian locus
+/// chromaticity coordinates, from Kim et al. (2002). Same
+/// piecewise polynomial split the camera-science world uses for
+/// "blackbody temperature → CIE (x, y)" conversions.
+///
+/// Returns the chromaticity (x, y) for the given correlated colour
+/// temperature in Kelvin. Valid for ~1667–25000 K; outside that
+/// range the polynomial fit degrades but doesn't blow up.
+///
+/// Lives in the shared model file so both the host-app HUD
+/// (`PreviewHud.swift`) and the agent menu's NSView-based picker
+/// (`PlanckianLocusView.swift`) can use the same math.
+public func planckianChromaticity(kelvin t: Double) -> (x: Double, y: Double) {
+    let invT  = 1.0 / t
+    let invT2 = invT * invT
+    let invT3 = invT2 * invT
+    let x: Double
+    if t < 4000 {
+        x = -0.2661239e9 * invT3 - 0.2343589e6 * invT2 + 0.8776956e3 * invT + 0.179910
+    } else {
+        x = -3.0258469e9 * invT3 + 2.1070379e6 * invT2 + 0.2226347e3 * invT + 0.240390
+    }
+    let x2 = x * x
+    let x3 = x2 * x
+    let y: Double
+    if t < 2222 {
+        y = -1.1063814 * x3 - 1.34811020 * x2 + 2.18555832 * x - 0.20219683
+    } else if t < 4000 {
+        y = -0.9549476 * x3 - 1.37418593 * x2 + 2.09137015 * x - 0.16748867
+    } else {
+        y =  3.0817580 * x3 - 5.87338670 * x2 + 3.75112997 * x - 0.37001483
+    }
+    return (x, y)
+}
+
+/// Convert CIE 1931 (x, y) chromaticity coordinates (assuming
+/// Y = 1) to a brightness-equalised sRGB triple suitable for
+/// rendering. Standard sRGB transformation matrix, gamut clip,
+/// max-channel normalisation, luminance-equalisation to a fixed
+/// target Y, and sRGB gamma encoding — see the long header
+/// comment in this function for the rationale.
+///
+/// Returns gamma-encoded sRGB components in `[0, 1]`. Callers
+/// wrap in `Color`, `NSColor(srgbRed:...)`, or whatever fits
+/// their surface.
+public func chromaticityRGB(x: Double, y: Double) -> (Double, Double, Double) {
+    guard y > 0 else { return (0, 0, 0) }
+    // XYZ with Y = 1
+    let X = x / y
+    let Y = 1.0
+    let Z = (1 - x - y) / y
+    // sRGB linear (D65 reference white)
+    var r =  3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z
+    var g = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z
+    var b =  0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z
+    // Clip out-of-gamut negatives.
+    r = max(0, r); g = max(0, g); b = max(0, b)
+    // Normalise to brightest channel = 1.
+    let maxC = max(r, max(g, b))
+    if maxC > 0 { r /= maxC; g /= maxC; b /= maxC }
+    // Equalise to a target perceived luminance so the rendered
+    // field reads as a smooth gradient instead of a bright spike
+    // at the white point.
+    let targetY: Double = 0.55
+    let currentY = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if currentY > 0 {
+        if currentY >= targetY {
+            let scale = targetY / currentY
+            r *= scale; g *= scale; b *= scale
+        } else if currentY < 1 {
+            let t = (targetY - currentY) / (1 - currentY)
+            r = (1 - t) * r + t
+            g = (1 - t) * g + t
+            b = (1 - t) * b + t
+        }
+    }
+    // sRGB gamma encode.
+    func encode(_ u: Double) -> Double {
+        u <= 0.0031308 ? 12.92 * u : 1.055 * pow(u, 1 / 2.4) - 0.055
+    }
+    return (encode(r), encode(g), encode(b))
+}
+
 // MARK: - Tune (matrix / bar) visualisation
 
 /// PTP property IDs that represent white-balance fine-tune controls,
@@ -224,6 +314,51 @@ private let tunePropertyIds: Set<UInt32> = [
     // 0..168 / 0..1224 encodings.
     0xD210, 0xD21C, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
 ]
+
+/// Which colour axis a 1D tune bar represents. Drives the bar's
+/// fill gradient — Sony's two-axis WB fine-tune uses the same
+/// integer encoding for both axes, so the only way to tell them
+/// apart at render time is by propId.
+///
+///   • `.greenMagenta` — green (low end) ↔ magenta (high end).
+///     Used for the Nikon per-mode tunes, the Color Temp Tune,
+///     and Sony's G-M tune (0xD210). Center cell renders gray.
+///   • `.amberBlue` — yellow/amber (low end) ↔ blue (high end).
+///     Used for Sony's A-B tune (0xD21C). Center cell renders
+///     gray. Yellow and blue are true RGB complements, so the
+///     same direct-RGB linear interpolation the green↔magenta
+///     bar uses produces a neutral midpoint here too.
+public enum TuneBarAxis: Equatable {
+    case greenMagenta
+    case amberBlue
+
+    /// Pick the right axis for a tune property id. Today only
+    /// Sony's 0xD21C is on the amber↔blue axis; everything else
+    /// defaults to green↔magenta. Add propIds here as we
+    /// encounter other A-B tunes (Panasonic, etc).
+    public static func forPropertyId(_ propId: UInt32) -> TuneBarAxis {
+        propId == 0xD21C ? .amberBlue : .greenMagenta
+    }
+
+    /// Direct sRGB linear interpolation between the two axis
+    /// endpoints. Centre (`t = 0.5`) lands on exact neutral gray
+    /// for both axes because the endpoints are RGB complements
+    /// in each case.
+    public func color(t: Double) -> (Double, Double, Double) {
+        switch self {
+        case .greenMagenta:
+            // green (0, 1, 0) ↔ magenta (1, 0, 1)
+            return (t, 1.0 - t, t)
+        case .amberBlue:
+            // yellow (1, 1, 0) ↔ blue (0, 0, 1)
+            let a = (1.0, 1.0, 0.0)
+            let b = (0.0, 0.0, 1.0)
+            return (a.0 + (b.0 - a.0) * t,
+                    a.1 + (b.1 - a.1) * t,
+                    a.2 + (b.2 - a.2) * t)
+        }
+    }
+}
 
 /// Visual style for a HUD tune chip. The PreviewHud picks one based
 /// on the property's published range — the same heuristic the agent

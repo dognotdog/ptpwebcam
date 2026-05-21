@@ -227,10 +227,10 @@ struct PreviewHud: View {
             return "CT"
         case 0xD141, 0xD14F:       // WB Auto Type / Fluorescent Type
             return "Type"
-        case 0xD210:               // Sony G-M tune
-            return "GM"
-        case 0xD21C:               // Sony A-B tune
-            return "AB"
+        case 0xD210:               // Sony G-M tune (green↔magenta)
+            return "G-M"
+        case 0xD21C:               // Sony A-B tune (amber↔blue)
+            return "A-B"
         default:                   // every per-mode Nikon tune ID
             return "Tune"
         }
@@ -309,9 +309,26 @@ private struct ChipPill: View {
         .allowsHitTesting(isExpanded)
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+        // Distinguish display-only from editable chips. Both keep
+        // a translucent pill background (text floating bare over
+        // the preview's video isn't legible enough), but editable
+        // chips wear the more solid `.thinMaterial` plus a
+        // visible outline + drop shadow — they read as raised
+        // tap targets. Display-only chips use the much-more-
+        // transparent `.ultraThinMaterial` with no outline and no
+        // shadow, and the whole thing dims to 0.65 opacity — they
+        // recede visually but stay legible against the video.
+        .background(
+            interactive
+                ? AnyShapeStyle(.thinMaterial)
+                : AnyShapeStyle(.ultraThinMaterial),
+            in: Capsule())
+        .overlay(Capsule().stroke(
+            Color.white.opacity(interactive ? 0.30 : 0),
+            lineWidth: 0.5))
+        .shadow(color: .black.opacity(interactive ? 0.3 : 0),
+                radius: interactive ? 4 : 0, y: interactive ? 2 : 0)
+        .opacity(interactive ? 1.0 : 0.65)
         // The entire pill is a tap target. Without this, clicks on
         // the HStack's inter-child spacing (between the label and
         // the wheel) had no inner Button to absorb them and fell
@@ -683,12 +700,15 @@ private struct TuneChip: View {
         // see `body`.
         switch style {
         case .bar1D(let rMin, let rMax):
+            let axis = TuneBarAxis.forPropertyId(propId)
             if isExpanded {
                 TuneBarStrip(camera: camera, propId: propId, prop: prop,
                              rangeMin: rMin, rangeMax: rMax,
+                             axis: axis,
                              cellHeight: chipHeight)
             } else {
                 collapsedSwatchBar1D(rangeMin: rMin, rangeMax: rMax,
+                                     axis: axis,
                                      isExpanded: isExpanded)
             }
         case .grid2D(let rMax):
@@ -700,6 +720,7 @@ private struct TuneChip: View {
     /// current value's position on the green↔magenta axis. Clicking
     /// expands the chip to the full 13-cell strip.
     private func collapsedSwatchBar1D(rangeMin: Int, rangeMax: Int,
+                                      axis: TuneBarAxis,
                                       isExpanded: Bool) -> some View {
         let span = max(1, rangeMax - rangeMin)
         let t = max(0.0, min(1.0, Double(prop.value.intValue - rangeMin) / Double(span)))
@@ -711,7 +732,7 @@ private struct TuneChip: View {
             // when collapsed. Picked ~30% of the swatch's side
             // length so the rounding reads at any chip size.
             TuneCellSwatch(
-                color: greenMagentaColor(t: t),
+                color: axisColor(axis: axis, t: t),
                 size: chipHeight - 2,
                 isCurrent: true,
                 cornerRadius: 5)
@@ -753,6 +774,7 @@ private struct TuneBarStrip: View {
     let prop: ExtCameraProperty
     let rangeMin: Int
     let rangeMax: Int
+    let axis: TuneBarAxis
     let cellHeight: CGFloat
 
     private let cellCount = 13
@@ -770,7 +792,7 @@ private struct TuneBarStrip: View {
                                    value: UInt32(value(forCellIndex: idx)))
                 } label: {
                     TuneCellSwatch(
-                        color: greenMagentaColor(t: t),
+                        color: axisColor(axis: axis, t: t),
                         size: side,
                         isCurrent: idx == currentIdx)
                 }
@@ -963,15 +985,14 @@ private func matrixColor(xt: Double, yt: Double) -> Color {
     return Color(red: mid.0, green: mid.1, blue: mid.2)
 }
 
-/// Pure green↔magenta blend for the 1D inline bar — same Y axis
-/// the matrix uses, with X fixed at the neutral midpoint. By
-/// direct RGB interpolation (`green (0,1,0)` ↔ `magenta (1,0,1)`)
-/// the centre `t=0.5` lands on exactly `(0.5, 0.5, 0.5)`.
-private func greenMagentaColor(t: Double) -> Color {
-    let g: (Double, Double, Double) = (0.0, 1.0, 0.0)
-    let m: (Double, Double, Double) = (1.0, 0.0, 1.0)
-    let mid = lerpRGB(g, m, t: t)
-    return Color(red: mid.0, green: mid.1, blue: mid.2)
+/// Cell colour for fraction `t` along a 1D tune bar's axis.
+/// Delegates to `TuneBarAxis.color(t:)` (in CameraModel.swift) so
+/// menu and HUD render the same gradient. Centre `t = 0.5` lands
+/// on exact neutral gray for both axes because each picks RGB-
+/// complementary endpoints.
+private func axisColor(axis: TuneBarAxis, t: Double) -> Color {
+    let rgb = axis.color(t: t)
+    return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
 }
 
 /// Component-wise linear interpolation between two RGB triplets.
@@ -1071,103 +1092,12 @@ private struct ColorTemperatureChip: View {
 }
 
 // MARK: - Planckian locus geometry + colour
-
-/// Cubic approximations of the CIE 1931 Planckian locus
-/// chromaticity coordinates, from Kim et al. (2002). Same
-/// piecewise polynomial split the camera-science world uses for
-/// "blackbody temperature → CIE (x, y)" conversions.
-///
-/// Returns the chromaticity (x, y) for the given correlated colour
-/// temperature in Kelvin. Valid for ~1667–25000 K; outside that
-/// range the polynomial fit degrades but doesn't blow up.
-private func planckianChromaticity(kelvin t: Double) -> (x: Double, y: Double) {
-    let invT  = 1.0 / t
-    let invT2 = invT * invT
-    let invT3 = invT2 * invT
-    let x: Double
-    if t < 4000 {
-        x = -0.2661239e9 * invT3 - 0.2343589e6 * invT2 + 0.8776956e3 * invT + 0.179910
-    } else {
-        x = -3.0258469e9 * invT3 + 2.1070379e6 * invT2 + 0.2226347e3 * invT + 0.240390
-    }
-    let x2 = x * x
-    let x3 = x2 * x
-    let y: Double
-    if t < 2222 {
-        y = -1.1063814 * x3 - 1.34811020 * x2 + 2.18555832 * x - 0.20219683
-    } else if t < 4000 {
-        y = -0.9549476 * x3 - 1.37418593 * x2 + 2.09137015 * x - 0.16748867
-    } else {
-        y =  3.0817580 * x3 - 5.87338670 * x2 + 3.75112997 * x - 0.37001483
-    }
-    return (x, y)
-}
-
-/// Convert CIE 1931 (x, y) chromaticity coordinates (assuming
-/// Y = 1) to an sRGB Color suitable for rendering. Uses the
-/// standard sRGB transformation matrix, clips out-of-gamut
-/// values, and equalises perceived luminance across all
-/// chromaticities so the rendered field reads as a smooth field
-/// of colours instead of having a bright white-point peak.
-///
-/// Without the luminance-equalisation pass the previous
-/// max-channel normalisation meant every chromaticity was "fully
-/// on" in at least one channel, but their *relative luminances*
-/// still varied (white Y = 1.0, saturated blue Y ≈ 0.07). That's
-/// why the 6500 K white area used to outshine the cool blue / warm
-/// orange ends in the rendered diagram. Forcing every output
-/// chromaticity to the same target `Y` makes the field read
-/// evenly: dim the white area, brighten saturated areas by
-/// blending in white (pastel-ising them) — preserving hue while
-/// matching luminance.
-private func chromaticityRGB(x: Double, y: Double) -> (Double, Double, Double) {
-    guard y > 0 else { return (0, 0, 0) }
-    // XYZ with Y = 1
-    let X = x / y
-    let Y = 1.0
-    let Z = (1 - x - y) / y
-    // sRGB linear (D65 reference white)
-    var r =  3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z
-    var g = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z
-    var b =  0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z
-    // Clip out-of-gamut negatives (these chromaticities can't be
-    // displayed faithfully on sRGB; clipping projects them to the
-    // nearest reachable hue).
-    r = max(0, r); g = max(0, g); b = max(0, b)
-    // Normalise to brightest channel = 1 so saturated colours
-    // don't render as a near-black sliver of their natural Y.
-    let maxC = max(r, max(g, b))
-    if maxC > 0 { r /= maxC; g /= maxC; b /= maxC }
-    // Equalise to a target perceived luminance. Rec. 709 / sRGB
-    // luminance coefficients (these match the green-heavy weight
-    // human eyes assign to each primary). 0.55 is bright enough
-    // that the field still feels colourful but dim enough that the
-    // overlay locus and marker pop visually against it.
-    let targetY: Double = 0.55
-    let currentY = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    if currentY > 0 {
-        if currentY >= targetY {
-            // Bright chromaticity — scale all channels down.
-            let scale = targetY / currentY
-            r *= scale; g *= scale; b *= scale
-        } else if currentY < 1 {
-            // Dim chromaticity — blend toward white to raise
-            // luminance to the target. Algebra: for
-            // c' = (1-t)·c + t·1, the equation
-            // (1-t)·Y + t·1 = targetY  solves to
-            // t = (targetY − Y) / (1 − Y).
-            let t = (targetY - currentY) / (1 - currentY)
-            r = (1 - t) * r + t
-            g = (1 - t) * g + t
-            b = (1 - t) * b + t
-        }
-    }
-    // sRGB gamma encode.
-    func encode(_ u: Double) -> Double {
-        u <= 0.0031308 ? 12.92 * u : 1.055 * pow(u, 1 / 2.4) - 0.055
-    }
-    return (encode(r), encode(g), encode(b))
-}
+//
+// `planckianChromaticity(kelvin:)` and `chromaticityRGB(x:, y:)`
+// have moved to the shared `CameraModel.swift` so the agent's
+// NSView-based menu picker can use the same math. Tuple-returning
+// pure functions, no SwiftUI dependency. See CameraModel for the
+// implementations + rationale comments.
 
 /// CIE-style picker for camera WB color temperature. Shows the
 /// Planckian locus drawn through a chromaticity-coloured area;

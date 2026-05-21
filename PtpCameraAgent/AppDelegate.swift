@@ -1261,7 +1261,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // Build the appropriate submenu for a writable ext-camera property.
-    // Priority: grid (WB tune) → enum (with optional WB sub-props) → slider (range, no enum).
+    // Priority: 2D WB-tune matrix → 1D WB-tune bar → Planckian locus
+    // (CT props) → enum (with optional WB sub-props) → slider (range,
+    // no enum).
     private func buildExtPropSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
                                      camera: ExtCamera, vendor: ProtocolFamily = .unknown,
                                      parentItem: NSMenuItem? = nil) -> NSMenu? {
@@ -1271,12 +1273,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // for the known-physical-read-only set so they don't get sliders.
         if intrinsicallyReadOnlyProps.contains(propId) { return nil }
 
-        // Grid view for WB fine-tune matrix properties (only for the known 0-168 / 0-1224 encodings).
-        if nikonWbTuneIds.contains(propId),
-           let rMin = prop.rangeMin, let rMax = prop.rangeMax,
-           rMin.intValue == 0, rMax.intValue == 168 || rMax.intValue == 1224 {
-            return buildWbTuneGridSubmenu(prop, propId: propId, cameraId: camera.cameraId,
-                                         rangeMin: rMin.intValue, rangeMax: rMax.intValue)
+        // WB tune properties: 2D matrix for the 168/1224 encodings,
+        // 1D green↔magenta bar for everything else. Both branches
+        // reuse the same NSView pickers the host-app HUD uses, so
+        // the menu and HUD look and behave identically.
+        if let tune = camera.tuneStyle(forPropertyId: propId) {
+            switch tune {
+            case .grid2D(let rangeMax):
+                return buildWbTuneGridSubmenu(
+                    prop, propId: propId, cameraId: camera.cameraId,
+                    rangeMin: 0, rangeMax: rangeMax)
+            case .bar1D(let rangeMin, let rangeMax):
+                return buildWbTune1DBarSubmenu(
+                    prop, propId: propId, cameraId: camera.cameraId,
+                    rangeMin: rangeMin, rangeMax: rangeMax)
+            }
+        }
+
+        // Colour-temperature Kelvin values: Planckian-locus picker
+        // (same NSView the HUD's CT chip uses).
+        if camera.isColorTemperatureProperty(propId),
+           let rMin = prop.rangeMin, let rMax = prop.rangeMax {
+            let step = max(1, prop.rangeStep?.intValue ?? 100)
+            return buildPlanckianLocusSubmenu(
+                prop, propId: propId, cameraId: camera.cameraId,
+                rangeMin: rMin.intValue, rangeMax: rMax.intValue, step: step)
         }
 
         // Sony incremental properties (ISO / aperture / shutter on A7-series
@@ -1340,6 +1361,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // NSMenuItem containing a WbTuneGridView.
+    /// Insets around custom NSView-based menu items, split per
+    /// axis because the two macOS UI eras need very different
+    /// values:
+    ///
+    /// • Pre-26 menus render custom views flush against their
+    ///   rounded corners — we need a uniform 8 pt on all sides
+    ///   for them to breathe.
+    ///
+    /// • macOS 26 ("Tahoe", Liquid Glass) adds its own generous
+    ///   vertical padding around custom NSMenuItem views, so we
+    ///   add zero vertical ourselves (otherwise the picker reads
+    ///   as floating in too much air). It does NOT add equivalent
+    ///   horizontal padding though, so we still need a moderate
+    ///   horizontal inset for the picker to clear the menu's
+    ///   rounded corners.
+    private static let menuPickerHInset: CGFloat = {
+        if #available(macOS 26.0, *) { return 12 }
+        return 8
+    }()
+    private static let menuPickerVInset: CGFloat = {
+        if #available(macOS 26.0, *) { return 0 }
+        return 8
+    }()
+
+    /// Wrap a picker NSView in a padded container and stick it on
+    /// the NSMenuItem. Used by all three custom-picker submenus
+    /// (2D grid, 1D bar, Planckian locus) so they share the same
+    /// margin treatment.
+    private func wrappedMenuItem(picker: NSView) -> NSMenuItem {
+        let pickerSize = picker.frame.size
+        let hInset = Self.menuPickerHInset
+        let vInset = Self.menuPickerVInset
+        let wrapper = NSView(frame: NSRect(
+            x: 0, y: 0,
+            width: pickerSize.width + 2 * hInset,
+            height: pickerSize.height + 2 * vInset))
+        picker.setFrameOrigin(NSPoint(x: hInset, y: vInset))
+        wrapper.addSubview(picker)
+        let item = NSMenuItem()
+        item.view = wrapper
+        return item
+    }
+
     private func buildWbTuneGridSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
                                         cameraId: String, rangeMin: Int, rangeMax: Int) -> NSMenu {
         let size = WbTuneGridView.idealSize(gridSize: 13)
@@ -1351,10 +1415,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         grid.onValueSelected = { [weak self] val in
             self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
         }
-        let gridItem = NSMenuItem()
-        gridItem.view = grid
         let submenu = NSMenu()
-        submenu.addItem(gridItem)
+        submenu.addItem(wrappedMenuItem(picker: grid))
+        return submenu
+    }
+
+    /// 1D bar picker on either the green↔magenta or amber↔blue
+    /// axis, picked by propId (Sony 0xD21C is the only A-B tune
+    /// the agent and HUD both know about today). Mirrors the
+    /// HUD's `TuneBarStrip` so menu and HUD look identical.
+    private func buildWbTune1DBarSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                         cameraId: String, rangeMin: Int, rangeMax: Int) -> NSMenu {
+        let size = WbTune1DBarView.idealSize()
+        let bar = WbTune1DBarView(frame: NSRect(origin: .zero, size: size))
+        bar.axis = TuneBarAxis.forPropertyId(propId)
+        bar.rangeMin = rangeMin
+        bar.rangeMax = rangeMax
+        bar.currentValue = prop.value.intValue
+        bar.onValueSelected = { [weak self] val in
+            self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
+        }
+        let submenu = NSMenu()
+        submenu.addItem(wrappedMenuItem(picker: bar))
+        return submenu
+    }
+
+    /// CIE-style Planckian-locus picker for colour-temperature
+    /// Kelvin properties (Nikon 0xD01E, Sony 0xD20F). Same view
+    /// the HUD's CT chip uses, just rendered into an NSMenuItem
+    /// for the agent's status-bar menu surface.
+    private func buildPlanckianLocusSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
+                                            cameraId: String,
+                                            rangeMin: Int, rangeMax: Int, step: Int) -> NSMenu {
+        let size = PlanckianLocusView.idealSize()
+        let picker = PlanckianLocusView(frame: NSRect(origin: .zero, size: size))
+        picker.configure(rangeMin: rangeMin, rangeMax: rangeMax, step: step,
+                         currentKelvin: prop.value.intValue)
+        picker.onValueSelected = { [weak self] val in
+            self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
+        }
+        let submenu = NSMenu()
+        submenu.addItem(wrappedMenuItem(picker: picker))
         return submenu
     }
 

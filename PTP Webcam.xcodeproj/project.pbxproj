@@ -153,6 +153,8 @@
 		FF003333000000000000FF05 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF003333000000000000FF00 /* CameraModel.swift */; };
 		FF004444000000000000FF06 /* CameraPropertyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF004444000000000000FF00 /* CameraPropertyStore.swift */; };
 		FF005555000000000000FF07 /* PreviewHud.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF005555000000000000FF00 /* PreviewHud.swift */; };
+		FF006666000000000000FF08 /* WbTune1DBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF006666000000000000FF00 /* WbTune1DBarView.swift */; };
+		FF007777000000000000FF09 /* PlanckianLocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF007777000000000000FF00 /* PlanckianLocusView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -533,6 +535,8 @@
 		FF003333000000000000FF00 /* CameraModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraModel.swift; sourceTree = "<group>"; };
 		FF004444000000000000FF00 /* CameraPropertyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraPropertyStore.swift; path = PtpWebcamApp/CameraPropertyStore.swift; sourceTree = SOURCE_ROOT; };
 		FF005555000000000000FF00 /* PreviewHud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PreviewHud.swift; path = PtpWebcamApp/PreviewHud.swift; sourceTree = SOURCE_ROOT; };
+		FF006666000000000000FF00 /* WbTune1DBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WbTune1DBarView.swift; sourceTree = "<group>"; };
+		FF007777000000000000FF00 /* PlanckianLocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanckianLocusView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -718,6 +722,8 @@
 				AA001111000000000000AA00 /* WbTuneGridView.swift */,
 				FF001111000000000000FF00 /* PropertyFormatter.swift */,
 				FF003333000000000000FF00 /* CameraModel.swift */,
+				FF006666000000000000FF00 /* WbTune1DBarView.swift */,
+				FF007777000000000000FF00 /* PlanckianLocusView.swift */,
 				DA1B26A22B1BC1A30075AAAB /* Assets.xcassets */,
 				DA1B26A42B1BC1A30075AAAB /* MainMenu.xib */,
 				DA1B26A72B1BC1A30075AAAB /* PtpCameraAgent.entitlements */,
@@ -1578,6 +1584,8 @@
 				DAC52C8D2FB7F05A0026922E /* DarwinNotify.swift in Sources */,
 				A1B2C3D4E5F60050A1B2C3D4 /* SupportedCameras.swift in Sources */,
 				FF003333000000000000FF05 /* CameraModel.swift in Sources */,
+				FF006666000000000000FF08 /* WbTune1DBarView.swift in Sources */,
+				FF007777000000000000FF09 /* PlanckianLocusView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
