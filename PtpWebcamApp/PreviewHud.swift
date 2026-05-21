@@ -262,12 +262,6 @@ private struct ChipPill: View {
     /// `.onHover` handler at the bottom of `body`.
     @State private var pendingCollapse: DispatchWorkItem?
 
-    /// Visible slot count for the expanded wheel viewport. Three is
-    /// the natural "prev / current / next" reading; the strip itself
-    /// renders ALL enum values but only this many slot-widths of it
-    /// peek through the clip mask. Values past ±1 from centre fade
-    /// to opacity 0 so they don't crowd the visible window.
-    private let visibleSlots: Int = 3
 
     /// Vertical content height the chip uses. Picked to match the
     /// natural height of the callout-bold-monospaced text so we don't
@@ -412,12 +406,31 @@ private struct ChipPill: View {
 
     // MARK: Wheel
 
-    /// The selector-wheel viewport. Renders all enum values at fixed
-    /// offsets relative to the current value's index; when current
-    /// changes, every value's offset shifts by the same slot width,
-    /// producing the unified-strip slide. Same structure whether the
-    /// chip is collapsed (viewport width = 1 slot, only centre shown)
-    /// or expanded (viewport width = 3 slots, prev/centre/next shown).
+    /// Per-value layout metrics for the wheel. Each value gets its
+    /// own natural width (so "1/60" doesn't have to sit in a slot
+    /// sized for "1/8000"), with cumulative centre x-positions for
+    /// the offset-based wheel slide.
+    private struct WheelMetrics {
+        let widths: [CGFloat]
+        let centers: [CGFloat]      // centre x of each slot
+        /// Width of the chip's visible window (the chip's intrinsic
+        /// width). Collapsed = just the current value; expanded =
+        /// current + immediate neighbours.
+        let viewportWidth: CGFloat
+    }
+
+    /// Spacing between adjacent wheel slots. Small because each
+    /// slot has its own natural width; we just need a gap so
+    /// values don't visually touch.
+    private static let wheelSlotSpacing: CGFloat = 6
+
+    /// The selector-wheel viewport. Renders all enum values at
+    /// cumulative positions; the chip's intrinsic width tracks the
+    /// current ± visible-neighbour widths so a long value's slot
+    /// is wide enough for it without padding every other value to
+    /// the same width. Same structure whether the chip is collapsed
+    /// (viewport = current value's width) or expanded (viewport =
+    /// span of current + immediate neighbours).
     @ViewBuilder
     private func valueWheel(isExpanded: Bool, interactive: Bool) -> some View {
         // Fallback to a single-element list if the property has no
@@ -425,40 +438,49 @@ private struct ChipPill: View {
         // expansion is gated by `interactive` so we never try to
         // step through a non-enum property.
         let allValues = prop.enumValues ?? [prop.value]
-        let currentIdx = allValues.firstIndex { $0.uint32Value == prop.value.uint32Value } ?? 0
-        let slotWidth = computeSlotWidth(for: allValues)
-        let visible = isExpanded ? visibleSlots : 1
-        ZStack {
+        let currentIdx = allValues.firstIndex {
+            $0.uint32Value == prop.value.uint32Value
+        } ?? 0
+        let metrics = computeWheelMetrics(
+            for: allValues, currentIdx: currentIdx, isExpanded: isExpanded)
+        ZStack(alignment: .leading) {
             ForEach(allValues.indices, id: \.self) { idx in
                 wheelSlot(idx: idx,
                           allValues: allValues,
                           currentIdx: currentIdx,
-                          slotWidth: slotWidth,
+                          metrics: metrics,
                           isExpanded: isExpanded,
                           interactive: interactive)
             }
         }
-        .frame(width: slotWidth * CGFloat(visible), height: chipHeight)
+        .frame(width: metrics.viewportWidth, height: chipHeight)
+        // Offset the whole strip so the current value's centre
+        // lands at the viewport's centre. When `currentIdx`
+        // changes the offset changes; SwiftUI's implicit animation
+        // (driven by the `.animation` modifier below) interpolates
+        // the offset value smoothly, producing the wheel-rotation
+        // slide.
+        .offset(x: metrics.viewportWidth / 2 - metrics.centers[currentIdx])
         .clipped()
-        // Driver: when the current index moves, every slot's offset
-        // and opacity (computed in `wheelSlot`) gets a new value,
-        // and SwiftUI animates those transitions in lockstep — the
-        // entire wheel slides as a single ribbon.
+        // Driver: when the current index moves, every slot's
+        // opacity, the strip's offset, and the chip's intrinsic
+        // width all change in lockstep.
         .animation(.easeInOut(duration: 0.22), value: currentIdx)
         .animation(.easeInOut(duration: 0.22), value: isExpanded)
     }
 
-    /// One slot of the wheel. Every slot uses the SAME font, weight,
-    /// and foreground colour — only `.opacity` differs between the
-    /// centre and side slots, because opacity is the only one of
-    /// those three properties SwiftUI knows how to interpolate. Font
-    /// weight and `.foregroundStyle(.primary/.secondary)` don't
-    /// animate, so swapping them on every wheel rotation was what
-    /// produced the abrupt contrast jump the user reported.
+    /// One slot of the wheel. Each slot uses its own natural width
+    /// (`metrics.widths[idx]`) and sits at its cumulative centre
+    /// position. Style is identical across slots — bold callout,
+    /// primary foreground — with only `.opacity` differing so
+    /// SwiftUI can interpolate the contrast smoothly during
+    /// rotation. Font weight and foregroundStyle would jump abruptly
+    /// because SwiftUI doesn't tween them; staying uniform avoids
+    /// that.
     private func wheelSlot(idx: Int,
                            allValues: [NSNumber],
                            currentIdx: Int,
-                           slotWidth: CGFloat,
+                           metrics: WheelMetrics,
                            isExpanded: Bool,
                            interactive: Bool) -> some View {
         let value = allValues[idx]
@@ -481,13 +503,6 @@ private struct ChipPill: View {
         }
         return Button {
             if absDx == 0 {
-                // Centre tap toggles expansion. When collapsed it
-                // expands; when expanded it collapses. Replaces what
-                // used to be a separate `.onTapGesture` on the
-                // outer pill — keeping the toggle inside the wheel
-                // means the hit area exactly matches the centre slot
-                // (so a click on the label OR the side slots doesn't
-                // accidentally toggle).
                 guard interactive else { return }
                 expandedPropId = isExpanded ? nil : propId
             } else {
@@ -495,55 +510,70 @@ private struct ChipPill: View {
             }
         } label: {
             Text(valueStr)
-                // Single weight everywhere — bolding only the centre
-                // would force a non-animatable font change on every
-                // wheel rotation. Keeping every slot bold gives the
-                // sliding ribbon a uniform appearance.
                 .font(.callout.monospacedDigit().bold())
-                // Single foreground; contrast comes entirely from
-                // the `.opacity` modifier below, which IS animatable.
                 .foregroundStyle(.primary)
-                .frame(width: slotWidth, height: chipHeight)
+                .frame(width: metrics.widths[idx], height: chipHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .opacity(opacity)
-        .offset(x: CGFloat(dx) * slotWidth)
-        // Hit-test only the slots the user can actually see. When
-        // collapsed: only the centre. When expanded: centre and
-        // immediate neighbours. Buffer slots (|dx| > 1) pass clicks
-        // through so the user can't accidentally invoke a SET on an
-        // invisible value.
+        // Absolute positioning within the ZStack — each slot
+        // claims its own slice of the strip's x axis based on the
+        // cumulative metrics. The parent's `.offset(...)` then
+        // shifts the whole strip so the current slot sits at the
+        // viewport centre.
+        .position(x: metrics.centers[idx], y: chipHeight / 2)
+        // Hit-test only the slots the user can actually see.
         .allowsHitTesting(absDx <= (isExpanded ? 1 : 0))
     }
 
-    /// Pick a slot width that fits the widest enum value's formatted
-    /// string at the wheel's font/weight. Done once per render —
-    /// cheap because enum lists are typically < 50 entries.
-    /// Approximation; we use NSAttributedString.size as the truth
-    /// rather than a character-count heuristic so weird-width values
-    /// like "+1.0 EV" or "Aperture Priority Mode" still get a slot
-    /// that actually contains them.
-    private func computeSlotWidth(for values: [NSNumber]) -> CGFloat {
-        // Measure with bold monospaced-digit at callout size — that's
-        // the centre-slot styling, the widest the value will ever be
-        // rendered. Sizing slots to fit the bold variant means the
-        // regular-weight side slots have a little extra breathing
-        // room, which looks fine.
+    /// Compute the wheel's layout metrics. Each value's slot is
+    /// sized to its natural rendered width (with a small visual
+    /// padding); cumulative centres are derived from the running
+    /// total. Viewport width is just the current value's slot when
+    /// collapsed, or the span from prev's slot through next's
+    /// slot when expanded — so a long value in the middle of a
+    /// list of short ones doesn't bloat every neighbouring slot.
+    private func computeWheelMetrics(for values: [NSNumber],
+                                     currentIdx: Int,
+                                     isExpanded: Bool) -> WheelMetrics {
         let pointSize = NSFont.preferredFont(forTextStyle: .callout).pointSize
         let font = NSFont.monospacedDigitSystemFont(ofSize: pointSize, weight: .bold)
-        var maxWidth: CGFloat = 0
-        for value in values {
-            let str = formatExtPropRaw(value, propId: propId, vendor: camera.vendor)
-            let width = (str as NSString).size(withAttributes: [.font: font]).width
-            if width > maxWidth { maxWidth = width }
+        let slotPadding: CGFloat = 4  // small inset around the text in a slot
+        let spacing = Self.wheelSlotSpacing
+        // Natural width per value.
+        let widths: [CGFloat] = values.map { v in
+            let str = formatExtPropRaw(v, propId: propId, vendor: camera.vendor)
+            let w = (str as NSString).size(withAttributes: [.font: font]).width
+            return max(20, ceil(w) + slotPadding)
         }
-        // Small horizontal breathing room (6 pt total = 3 each side)
-        // so the text isn't flush against the slot edges. The
-        // lower bound (26 pt) keeps very short values like "100" or
-        // "f/4" from collapsing to an awkwardly narrow slot.
-        return max(26, ceil(maxWidth) + 6)
+        // Cumulative centres: each slot sits adjacent to the
+        // previous one with `spacing` between centres-of-edges.
+        var centers: [CGFloat] = []
+        var x: CGFloat = 0
+        for (i, w) in widths.enumerated() {
+            x += w / 2
+            centers.append(x)
+            x += w / 2 + spacing
+            _ = i
+        }
+        // Viewport width: collapsed = current slot's width;
+        // expanded = span across centre + immediate neighbours.
+        let cur = widths[currentIdx]
+        let viewportWidth: CGFloat = {
+            if !isExpanded { return cur }
+            var w = cur
+            if currentIdx > 0 {
+                w += spacing + widths[currentIdx - 1]
+            }
+            if currentIdx < values.count - 1 {
+                w += spacing + widths[currentIdx + 1]
+            }
+            return w
+        }()
+        return WheelMetrics(widths: widths, centers: centers, viewportWidth: viewportWidth)
     }
+
 }
 
 // MARK: - Tune chip (colour matrix / bar)
