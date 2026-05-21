@@ -79,8 +79,8 @@ let nikonExtPropValueNames: [UInt32: [UInt32: String]] = [
         0x801F: "Wide (C2)",
     ],
     0xD061: [  // Focus Mode (StillFocusMode on Z-series)
-        0x0000: "AF-S", 0x0001: "AF-C / AF-F",
-        0x0002: "[C] Continuous", 0x0003: "Manual Lens", 0x0004: "Manual",
+        0x0000: "AF-S Single", 0x0001: "AF-F Full-Time",
+        0x0002: "AF-C Continuous", 0x0003: "Manual Lens", 0x0004: "Manual",
     ],
     0xD1AC: [  // LV Image Size
         0x0000: "Undefined", 0x0001: "QVGA (320×240)",

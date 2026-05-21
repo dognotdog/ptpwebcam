@@ -102,11 +102,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 	// re-run applicationDidFinishLaunching (which would restart the agent).
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-	// Dock click / "Open" again: re-show the main subscription window. Return
-	// `true` to suppress AppKit's automatic window-restore behavior — we're
-	// surfacing the window ourselves so the user always lands on the same
-	// content rather than whatever preview window happened to be last.
+	// Dock click / "Open" again: only surface the main subscription
+	// window when there are *no* visible windows. If a preview window
+	// (or anything else) is already open, the user expects a dock
+	// click to bring the app forward without spawning a new About
+	// pane on top — letting AppKit's default reopen handling do its
+	// thing (return false) gives us exactly that.
+	//
+	// `hasVisibleWindows` excludes minimised / hidden windows by
+	// design, so a minimised preview still counts as "no visible
+	// windows" and gets the About — which matches what users expect
+	// (you can't see your preview, so the dock click should give you
+	// *something*).
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+		if flag {
+			// AppKit's default reopen behaviour: bring the app
+			// forward, deminiaturise / un-hide if needed.
+			return false
+		}
 		MainWindowController.shared.present()
 		return true
 	}

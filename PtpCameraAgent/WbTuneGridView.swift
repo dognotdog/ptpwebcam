@@ -64,14 +64,46 @@ class WbTuneGridView: NSView {
         }
     }
 
+    // Bilinear blend of four corner colours. Endpoints picked as
+    // true RGB complements (blue ↔ yellow, green ↔ magenta) so the
+    // matrix centre — "no fine-tune offset" — is exact neutral
+    // gray (0.5, 0.5, 0.5).
+    //
+    // Corner colours after the per-axis 50/50 blend:
+    //   TL (xt=0, yt=0): blue+green   = (0.0, 0.5, 0.5)
+    //   TR (xt=1, yt=0): yellow+green = (0.5, 1.0, 0.0)
+    //   BL (xt=0, yt=1): blue+magenta = (0.5, 0.0, 1.0)
+    //   BR (xt=1, yt=1): yellow+magenta = (1.0, 0.5, 0.5)
+    //   centre = average = (0.5, 0.5, 0.5) ✓
+    //
+    // Direct sRGB linear interpolation rather than
+    // `NSColor.blended(withFraction:of:)`. `blended` works in the
+    // source colour's colourspace and applies a gamma-corrected
+    // mix; for the nominal-50% blend of e.g. NSColor.green and
+    // NSColor.magenta that produces a not-quite-neutral grey at
+    // the centre once it gets rendered. Doing the interp here on
+    // raw sRGB components and constructing the result via
+    // `NSColor(srgbRed:green:blue:)` keeps the centre cell
+    // perceptually neutral and bit-exactly matches the host-app
+    // HUD's `matrixColor` in `PreviewHud.swift`.
     private func colorFor(xt: CGFloat, yt: CGFloat) -> NSColor {
-        let xy = NSColor.blue.blended(withFraction: 0.5, of: .green)!
-        let xY = NSColor.blue.blended(withFraction: 0.5, of: .magenta)!
-        let Xy = NSColor.orange.blended(withFraction: 0.5, of: .green)!
-        let XY = NSColor.orange.blended(withFraction: 0.5, of: .magenta)!
-        let xc = xy.blended(withFraction: xt, of: Xy)!
-        let Xc = xY.blended(withFraction: xt, of: XY)!
-        return xc.blended(withFraction: yt, of: Xc)!
+        let tl: (CGFloat, CGFloat, CGFloat) = (0.0, 0.5, 0.5)
+        let tr: (CGFloat, CGFloat, CGFloat) = (0.5, 1.0, 0.0)
+        let bl: (CGFloat, CGFloat, CGFloat) = (0.5, 0.0, 1.0)
+        let br: (CGFloat, CGFloat, CGFloat) = (1.0, 0.5, 0.5)
+        let top = lerp(tl, tr, t: xt)
+        let bot = lerp(bl, br, t: xt)
+        let mid = lerp(top, bot, t: yt)
+        return NSColor(srgbRed: mid.0, green: mid.1, blue: mid.2, alpha: 1)
+    }
+
+    private func lerp(_ a: (CGFloat, CGFloat, CGFloat),
+                      _ b: (CGFloat, CGFloat, CGFloat),
+                      t: CGFloat)
+        -> (CGFloat, CGFloat, CGFloat) {
+        (a.0 + (b.0 - a.0) * t,
+         a.1 + (b.1 - a.1) * t,
+         a.2 + (b.2 - a.2) * t)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

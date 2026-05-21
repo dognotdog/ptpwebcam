@@ -77,6 +77,18 @@ enum SemanticCameraProperty: CaseIterable {
     case exposureCompensation
     case exposureMode
     case whiteBalance
+    /// Real PTP property describing the camera's focus mode (Single,
+    /// Continuous, Manual, etc). Vendor-specific on Nikon (0xD061),
+    /// PTP-standard fallback (0x500A) for everyone else.
+    case autofocusMode
+    /// Virtual role with no underlying PTP property — the HUD just
+    /// needs to know whether the camera supports the AF-trigger
+    /// command at all, so it can decide whether to render the
+    /// trigger button. Clicking the chip sends `cmd=4` on the
+    /// per-camera command channel (see `ExtCamera.postAutofocusTrigger`),
+    /// which the extension routes to its vendor-specific
+    /// `triggerAutofocus()` implementation.
+    case autofocusTrigger
 
     /// Ordered list of candidate PTP property IDs to try, from most
     /// vendor-specific to most generic. `ExtCamera.propertyId(for:)`
@@ -93,6 +105,12 @@ enum SemanticCameraProperty: CaseIterable {
         // ExposureProgramMode (0x500E) is PTP-standard; Canon uses 0xD105.
         case .exposureMode:         return [0x500E, 0xD105]
         case .whiteBalance:         return [0x5005]
+        // Nikon-specific AF Mode (Single / Continuous / Auto-Select)
+        // sits at 0xD061; falls back to the PTP-standard Focus Mode
+        // (0x500A) on bodies that don't expose the Nikon vendor one.
+        case .autofocusMode:        return [0xD061, 0x500A]
+        // Virtual — no property backs it.
+        case .autofocusTrigger:     return []
         }
     }
 
@@ -105,6 +123,9 @@ enum SemanticCameraProperty: CaseIterable {
         case .exposureCompensation: return "EV"
         case .exposureMode:         return "M"
         case .whiteBalance:         return "WB"
+        case .autofocusMode:        return "AF"
+        case .autofocusTrigger:     return "AF"   // unused — the chip
+                                                   // renders an icon, not text
         }
     }
 }
@@ -168,6 +189,141 @@ extension ExtCamera {
             0xD01E,   // Nikon: White Balance Color Temperature
             0xD20F,   // Sony: White Balance Color Temperature
         ]
+    }
+
+    /// True when the PTP property id holds a raw Kelvin reading that
+    /// the HUD should expose with the Planckian-locus picker instead
+    /// of the generic value-wheel. Numeric range properties whose
+    /// value happens to be a Kelvin number (0xD01E Nikon / 0xD20F
+    /// Sony) — the same set as `colorTemperatureCandidatePropIds`.
+    public func isColorTemperatureProperty(_ propId: UInt32) -> Bool {
+        propId == 0xD01E || propId == 0xD20F
+    }
+}
+
+// MARK: - Tune (matrix / bar) visualisation
+
+/// PTP property IDs that represent white-balance fine-tune controls,
+/// rather than enums or simple numeric ranges. These get a visual
+/// matrix (2D) or bar (1D) widget in the HUD instead of the regular
+/// value-wheel — the actual integer they carry encodes a position on
+/// a colour-tuning grid and is meaningless as a number to the user.
+///
+/// Matches `nikonWbTuneIds` in the agent menu (which is the same set
+/// used to decide whether to build a `WbTuneGridView` submenu) plus
+/// the Sony pair `0xD210` / `0xD21C` which are independent 1D axes.
+private let tunePropertyIds: Set<UInt32> = [
+    // Nikon WB mode-specific tunes (typically 1D, range 0..12,
+    // with 6 = neutral; some bodies expose them as 2D in the
+    // 0..168 / 0..1224 encodings).
+    0xD017, 0xD018, 0xD019, 0xD01A, 0xD01B, 0xD01C, 0xD01D,
+    // Nikon Color Temp Tune.
+    0xD150,
+    // Sony Green↔Magenta and Amber↔Blue axes (independent 1D),
+    // plus the mode-specific Sony tunes that show up in the
+    // 0..168 / 0..1224 encodings.
+    0xD210, 0xD21C, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
+]
+
+/// Visual style for a HUD tune chip. The PreviewHud picks one based
+/// on the property's published range — the same heuristic the agent
+/// menu uses to decide between `buildWbTuneGridSubmenu` (2D grid)
+/// and the regular slider/enum submenu (1D fallback).
+public enum TuneStyle: Equatable {
+    /// 13×13 grid. Property value encodes both axes; decoded via
+    /// `(x + y*13)` for `rangeMax=168` or `(x*2 + y*100)` for
+    /// `rangeMax=1224`. The chip shows a single colour-cell when
+    /// collapsed; expanding grows the chip downward to reveal the
+    /// full grid inline (no popover).
+    case grid2D(rangeMax: Int)
+    /// 13-cell horizontal strip on the green↔magenta axis. The
+    /// chip shows a single colour-cell when collapsed; expanding
+    /// reveals the full strip inline.
+    case bar1D(rangeMin: Int, rangeMax: Int)
+
+    /// True when this style is a 2D matrix — used by the HUD to
+    /// pick the right background shape (rounded rectangle vs the
+    /// regular capsule pill).
+    public var isGrid2D: Bool {
+        if case .grid2D = self { return true }
+        return false
+    }
+}
+
+extension ExtCamera {
+    /// Returns the tune-widget style for the property if it's a
+    /// known WB fine-tune control with a usable range; otherwise
+    /// nil, meaning the HUD should render it with the default
+    /// value-wheel instead.
+    public func tuneStyle(forPropertyId propId: UInt32) -> TuneStyle? {
+        guard tunePropertyIds.contains(propId),
+              let prop = properties[propId],
+              let rMin = prop.rangeMin?.intValue,
+              let rMax = prop.rangeMax?.intValue,
+              rMax > rMin else { return nil }
+        // 2D grid: only the specific 0..168 (13×13 dense) and
+        // 0..1224 (13×13 with x-step=2/y-step=100) encodings the
+        // legacy DAL plugin's PtpGridTuneView documented.
+        if rMin == 0, (rMax == 168 || rMax == 1224) {
+            return .grid2D(rangeMax: rMax)
+        }
+        // Anything else falls back to the 1D inline bar.
+        return .bar1D(rangeMin: rMin, rangeMax: rMax)
+    }
+}
+
+// MARK: - White-balance fine-tune sub-properties
+
+/// PTP property IDs that fine-tune the selected white balance mode.
+/// Keyed by the value of `0x5005` (WhiteBalance) the camera is
+/// currently set to. Mirrors `PtpCameraNikon.uiPtpSubProperties`
+/// and the table used by the agent's menu to add sub-items under
+/// each WB mode value — keeping the table here means the HUD and
+/// the menu can't drift on which tune controls are relevant for a
+/// given mode.
+///
+/// Color Temperature mode includes BOTH the Kelvin reading
+/// (`0xD01E` Nikon / `0xD20F` Sony) AND the Color Temp Tune
+/// (`0xD150`). The HUD's WB chip wheel renders enum value names
+/// directly via `formatExtPropRaw`, so the wheel displays the
+/// literal "Color Temperature" string — the actual Kelvin value
+/// needs its own chip next to the WB chip for the user to see it
+/// in the HUD. (The agent menu separately uses
+/// `formattedValue(forPropertyId:)` which composites the Kelvin
+/// into the WB row label, so the menu shows the Kelvin inline
+/// AND the per-mode sub-item separately — that's intentional.)
+private let nikonWhiteBalanceSubProperties: [UInt32: [UInt32]] = [
+    0x0002: [0xD017, 0xD141],           // Auto              → WB Auto Tune + WB Auto Type
+    0x0004: [0xD01A],                   // Daylight          → WB Sunny Tune
+    0x0005: [0xD019, 0xD14F],           // Fluorescent       → WB Fluorescent Tune + Fluorescent Type
+    0x0006: [0xD018],                   // Tungsten          → WB Incandescent Tune
+    0x0007: [0xD01B],                   // Flash             → WB Flash Tune
+    0x8010: [0xD01C],                   // Cloudy            → WB Cloudy Tune
+    0x8011: [0xD01D],                   // Shade             → WB Shade Tune
+    0x8012: [0xD01E, 0xD150, 0xD20F],   // Color Temperature → Kelvin (Nikon or Sony) + WB Color Temp Tune
+]
+
+extension ExtCamera {
+    /// PTP property IDs of WB fine-tune controls relevant for the
+    /// currently-selected white-balance mode. Used by both the agent
+    /// menu (as sub-items under each WB mode) and the host-app HUD
+    /// (as extra chips next to the WB chip). Filtered to only the
+    /// IDs the camera actually exposes — entry-level bodies may not
+    /// have every tune control listed in the canonical table.
+    func whiteBalanceTunePropertyIds() -> [UInt32] {
+        guard let wb = property(for: .whiteBalance) else { return [] }
+        var result: [UInt32] = []
+        // Nikon: per-mode tune IDs from the table above.
+        if let nikonTunes = nikonWhiteBalanceSubProperties[wb.value.uint32Value] {
+            result.append(contentsOf: nikonTunes.filter { properties[$0] != nil })
+        }
+        // Sony G-M / A-B tune grid: independent of WB mode, present
+        // whenever the camera exposes them. Two separate properties
+        // for the two axes — show both chips when they exist.
+        for sonyId in [UInt32(0xD210), UInt32(0xD21C)] {
+            if properties[sonyId] != nil { result.append(sonyId) }
+        }
+        return result
     }
 }
 
@@ -251,6 +407,23 @@ extension ExtCamera {
     /// and the host-app HUD use this to drive value changes.
     func postSet(propertyId: UInt32, value: UInt32) {
         let packed: UInt64 = (UInt64(3) << 56) | (UInt64(propertyId) << 32) | UInt64(value)
+        postCommand(packed: packed)
+    }
+
+    /// Fires an autofocus trigger on this camera. Same wire format
+    /// as `postSet`, but with `cmd=4` in the top byte and the
+    /// propId / value fields zero. The extension routes this to
+    /// the per-vendor `triggerAutofocus()` implementation
+    /// (Nikon AfDrive, Sony AutofocusButton, Leica release-stages,
+    /// Fuji Camera Action). Mirrors the agent menu's
+    /// `postAutofocusCommand` so the HUD button and the menu
+    /// trigger the exact same code path on the extension side.
+    func postAutofocusTrigger() {
+        let packed: UInt64 = UInt64(4) << 56
+        postCommand(packed: packed)
+    }
+
+    private func postCommand(packed: UInt64) {
         let slotName   = kDarwinPropertyCmdSlot   + "." + darwinNotifySuffix
         let notifyName = kDarwinCameraPropertyCmd + "." + darwinNotifySuffix
         var token: Int32 = 0
@@ -258,6 +431,29 @@ extension ExtCamera {
         darwin_notify_set_state(token, packed)
         darwin_notify_post(notifyName)
         notify_cancel(token)
+    }
+
+    /// True iff the extension actually implements AF triggering for
+    /// this camera's vendor. Mirrors the `supportsAf` switch in the
+    /// agent menu's `addExtCameraMenu` so the HUD only shows the
+    /// trigger button on bodies where it'll actually do something.
+    ///   • Nikon — AfDrive (0x90C1), solid.
+    ///   • Leica — LEReleaseStages (0x9004), solid.
+    ///   • Sony  — only when 0xD2C1 is in the property set; the
+    ///     A7-series tethered flow is flaky enough that the menu
+    ///     labels this "experimental" — the HUD button just won't
+    ///     appear on bodies that don't expose 0xD2C1.
+    ///   • Fuji  — always-on; the extension logs and bails cleanly
+    ///     if the prop write returns AccessDenied.
+    ///   • Canon / Panasonic / Olympus / Sigma — not wired yet, so
+    ///     no button.
+    var supportsAutofocusTrigger: Bool {
+        switch vendor {
+        case .nikon, .leica: return true
+        case .sony: return properties[0xD2C1] != nil
+        case .fuji: return true
+        default: return false
+        }
     }
 }
 
