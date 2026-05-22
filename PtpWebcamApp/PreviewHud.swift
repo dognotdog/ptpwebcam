@@ -42,6 +42,54 @@ struct HudLayout {
     )
 }
 
+/// Which edge of the preview pane a chip row anchors to. Drives
+/// the slide-in direction in `ChipSlideIn` — top-row chips animate
+/// in from above, bottom-row from below — so the HUD reveal reads
+/// like the chips dropping into / popping up from off-screen
+/// instead of fading in place.
+enum VerticalEdge {
+    case top
+    case bottom
+
+    /// Sign on the off-screen Y offset. Top edge → chips start at
+    /// `-distance` and slide DOWN to 0; bottom edge → chips start
+    /// at `+distance` and slide UP to 0. Mirrors on hide.
+    var offsetSign: CGFloat {
+        switch self {
+        case .top:    return -1
+        case .bottom: return  1
+        }
+    }
+}
+
+/// Per-chip slide-in / slide-out animator. Each chip translates
+/// vertically from its row's off-screen side (`edge`) toward 0 on
+/// show, reverses on hide, and the per-chip `index` staggers the
+/// animation start so chips cascade rather than landing in
+/// lockstep. Opacity fades alongside the offset so a chip caught
+/// mid-cascade doesn't visibly clip against the preview frame.
+private struct ChipSlideIn: ViewModifier {
+    let visible: Bool
+    let index: Int
+    let edge: VerticalEdge
+    let distance: CGFloat
+    let stagger: TimeInterval
+    let duration: TimeInterval
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: visible ? 0 : distance * edge.offsetSign)
+            .opacity(visible ? 1 : 0)
+            // Per-index delay only on the *show* direction so the
+            // chips cascade in but disappear in a single sweep. A
+            // staggered hide reads as laggy on a quick HUD toggle.
+            .animation(
+                .spring(response: duration, dampingFraction: 1.0)
+                    .delay(visible ? Double(index) * stagger : 0),
+                value: visible)
+    }
+}
+
 // MARK: - View
 
 struct PreviewHud: View {
@@ -70,19 +118,31 @@ struct PreviewHud: View {
             // of this disabled-hit-test layer, so they remain tappable.
             Color.clear
                 .allowsHitTesting(false)
-                .overlay(alignment: .top)    { chipGroup(for: layout.top) }
-                .overlay(alignment: .bottom) { chipGroup(for: layout.bottom) }
+                .overlay(alignment: .top)    { chipGroup(for: layout.top, edge: .top) }
+                .overlay(alignment: .bottom) { chipGroup(for: layout.bottom, edge: .bottom) }
                 .padding(12)
         }
-        .opacity(visible ? 1 : 0)
-        // Collapse any expanded chip whenever the HUD fades out so the
+        // Collapse any expanded chip whenever the HUD hides so the
         // next show starts clean. Single-parameter `onChange` overload
         // keeps us compatible with macOS 13.5 (current deployment).
         .onChange(of: visible) { newValue in
             if !newValue { expandedPropId = nil }
         }
-        .animation(.easeInOut(duration: 0.18), value: visible)
     }
+
+    /// Per-chip slide-in distance. Picked so the leftmost (offset=0)
+    /// chip travels just past the edge of the preview pane on hide
+    /// — long enough to read as "from off-screen" without the
+    /// animation feeling sluggish.
+    private static let chipSlideDistance: CGFloat = 24
+    /// Cascade between successive chips in a row — small enough that
+    /// the whole row resolves in under ~200 ms even with the full
+    /// six-chip layout, but large enough to read as a sequence
+    /// rather than a single block.
+    private static let chipSlideStagger: TimeInterval = 0.035
+    /// Per-chip slide duration. Spring kept critically damped so
+    /// the chips don't overshoot the resting position.
+    private static let chipSlideDuration: TimeInterval = 0.28
 
     /// One row of chips for the given roles. The chips that get
     /// rendered: one per semantic role that the camera supports,
@@ -92,8 +152,17 @@ struct PreviewHud: View {
     /// Daylight WB gets a [WB][Tune] pair in the top group; set to
     /// Color Temperature it gets [WB(Kelvin)][Tune]; Auto mode adds
     /// both the Auto Tune and Auto Type chips.
+    ///
+    /// `edge` controls the slide-in direction — top-row chips
+    /// animate from above the preview, bottom-row from below — and
+    /// the per-chip cascade fires in reading order (leftmost first)
+    /// so the row resolves like a sequence rather than a single
+    /// block. The "fade in" we used to have was a single opacity
+    /// modifier on the outer container; that fades the *whole HUD*
+    /// at once which loses the row's structure on appearance.
     @ViewBuilder
-    private func chipGroup(for roles: [SemanticCameraProperty]) -> some View {
+    private func chipGroup(for roles: [SemanticCameraProperty],
+                           edge: VerticalEdge) -> some View {
         if let cam = camera {
             let plan = chipPlan(for: roles, camera: cam)
             if !plan.isEmpty {
@@ -104,49 +173,14 @@ struct PreviewHud: View {
                 // would push every neighbour chip half its height
                 // upward).
                 HStack(alignment: .top, spacing: 6) {
-                    ForEach(plan) { item in
-                        switch item.kind {
-                        case .autofocusTrigger:
-                            AutofocusTriggerChip(camera: cam)
-                        case .property(let propId):
-                            if let prop = cam.properties[propId] {
-                                // Tune properties (the WB
-                                // fine-tune matrices and 1D ±N
-                                // bars) get a colour-cell
-                                // visualisation rather than the
-                                // numeric wheel — the raw PTP
-                                // integer encodes a position on a
-                                // colour grid and means nothing
-                                // to the user as a number.
-                                if cam.isColorTemperatureProperty(propId) {
-                                    // Kelvin values: stylised
-                                    // CIE-locus picker. Lets the
-                                    // user drag a marker along
-                                    // the Planckian curve to pick
-                                    // a CT, rather than stepping
-                                    // discrete values one at a
-                                    // time.
-                                    ColorTemperatureChip(label: item.label,
-                                                         camera: cam,
-                                                         propId: propId,
-                                                         prop: prop,
-                                                         expandedPropId: $expandedPropId)
-                                } else if let style = cam.tuneStyle(forPropertyId: propId) {
-                                    TuneChip(label: item.label,
-                                             camera: cam,
-                                             propId: propId,
-                                             prop: prop,
-                                             style: style,
-                                             expandedPropId: $expandedPropId)
-                                } else {
-                                    ChipPill(label: item.label,
-                                             camera: cam,
-                                             propId: propId,
-                                             prop: prop,
-                                             expandedPropId: $expandedPropId)
-                                }
-                            }
-                        }
+                    ForEach(Array(plan.enumerated()), id: \.element.id) { index, item in
+                        chipView(for: item, camera: cam)
+                            .modifier(ChipSlideIn(visible: visible,
+                                                  index: index,
+                                                  edge: edge,
+                                                  distance: Self.chipSlideDistance,
+                                                  stagger: Self.chipSlideStagger,
+                                                  duration: Self.chipSlideDuration))
                     }
                 }
                 .animation(.easeInOut(duration: 0.22), value: expandedPropId)
@@ -157,6 +191,48 @@ struct PreviewHud: View {
                 // instead of sliding.
                 .animation(.easeInOut(duration: 0.22),
                            value: cam.property(for: .whiteBalance)?.value.uint32Value)
+            }
+        }
+    }
+
+    /// Renders the chip view for a single `ChipPlanItem`. Split out
+    /// of `chipGroup` so the slide-in modifier wraps the whole
+    /// kind-dispatch without ballooning the closure body.
+    @ViewBuilder
+    private func chipView(for item: ChipPlanItem, camera cam: ExtCamera) -> some View {
+        switch item.kind {
+        case .autofocusTrigger:
+            AutofocusTriggerChip(camera: cam)
+        case .property(let propId):
+            if let prop = cam.properties[propId] {
+                // Tune properties (the WB
+                // fine-tune matrices and 1D ±N
+                // bars) get a colour-cell
+                // visualisation rather than the
+                // numeric wheel — the raw PTP
+                // integer encodes a position on a
+                // colour grid and means nothing
+                // to the user as a number.
+                if cam.isColorTemperatureProperty(propId) {
+                    ColorTemperatureChip(label: item.label,
+                                         camera: cam,
+                                         propId: propId,
+                                         prop: prop,
+                                         expandedPropId: $expandedPropId)
+                } else if let style = cam.tuneStyle(forPropertyId: propId) {
+                    TuneChip(label: item.label,
+                             camera: cam,
+                             propId: propId,
+                             prop: prop,
+                             style: style,
+                             expandedPropId: $expandedPropId)
+                } else {
+                    ChipPill(label: item.label,
+                             camera: cam,
+                             propId: propId,
+                             prop: prop,
+                             expandedPropId: $expandedPropId)
+                }
             }
         }
     }
@@ -223,13 +299,13 @@ struct PreviewHud: View {
     /// generic labels here.
     private func whiteBalanceTuneLabel(for propId: UInt32) -> String {
         switch propId {
-        case 0xD01E, 0xD20F:       // WB Color Temperature (Kelvin reading)
-            return "CT"
+        case 0xD01E, 0xD20F, 0xD1B6: // WB Color Temperature (Kelvin reading)
+            return "CT"                // (Nikon / Sony / Canon EVF)
         case 0xD141, 0xD14F:       // WB Auto Type / Fluorescent Type
             return "Type"
-        case 0xD210:               // Sony G-M tune (green↔magenta)
+        case 0xD210, 0xD10D:       // G-M tune (Sony / Canon EOS)
             return "G-M"
-        case 0xD21C:               // Sony A-B tune (amber↔blue)
+        case 0xD21C, 0xD10C:       // A-B tune (Sony / Canon EOS)
             return "A-B"
         default:                   // every per-mode Nikon tune ID
             return "Tune"
@@ -729,15 +805,15 @@ private struct TuneChip: View {
         // the chip's outer VStack below this row when expanded —
         // see `body`.
         switch style {
-        case .bar1D(let rMin, let rMax):
+        case .bar1D(let values):
             let axis = TuneBarAxis.forPropertyId(propId)
             if isExpanded {
                 TuneBarStrip(camera: camera, propId: propId, prop: prop,
-                             rangeMin: rMin, rangeMax: rMax,
+                             values: values,
                              axis: axis,
                              cellHeight: chipHeight)
             } else {
-                collapsedSwatchBar1D(rangeMin: rMin, rangeMax: rMax,
+                collapsedSwatchBar1D(values: values,
                                      axis: axis,
                                      isExpanded: isExpanded)
             }
@@ -749,9 +825,11 @@ private struct TuneChip: View {
     /// Collapsed swatch for a 1D bar: a single cell coloured at the
     /// current value's position on the green↔magenta axis. Clicking
     /// expands the chip to the full 13-cell strip.
-    private func collapsedSwatchBar1D(rangeMin: Int, rangeMax: Int,
+    private func collapsedSwatchBar1D(values: [Int],
                                       axis: TuneBarAxis,
                                       isExpanded: Bool) -> some View {
+        let rangeMin = values.first ?? 0
+        let rangeMax = values.last ?? 1
         let span = max(1, rangeMax - rangeMin)
         let t = max(0.0, min(1.0, Double(prop.value.intValue - rangeMin) / Double(span)))
         return Button {
@@ -793,33 +871,35 @@ private struct TuneChip: View {
     }
 }
 
-/// Inline 13-cell strip on the green↔magenta axis. Each cell maps
-/// to a portion of the property's full range; clicking sets the
-/// value to that cell's representative. For tunes whose native
-/// range is exactly 13 steps (Nikon ±6) every cell is one value.
-/// For wider ranges (Sony 0..255) cells span multiple raw values.
+/// Inline colour strip with one cell per selectable value the
+/// camera advertised. Each `values[i]` is a real PTP value the body
+/// accepts, so clicking writes that exact integer — no rounding to
+/// a synthesised step. The colour gradient runs across the strip
+/// width regardless of how many cells there are.
+///   • Nikon per-mode tunes: 13 cells (0..12, neutral 6).
+///   • Sony G-M / A-B: 13 cells synthesised from 0..255.
+///   • Canon EOS WhiteBalanceAdjust*: 19 cells (-9..+9).
 private struct TuneBarStrip: View {
     let camera: ExtCamera
     let propId: UInt32
     let prop: ExtCameraProperty
-    let rangeMin: Int
-    let rangeMax: Int
+    let values: [Int]
     let axis: TuneBarAxis
     let cellHeight: CGFloat
 
-    private let cellCount = 13
     private let cellSpacing: CGFloat = 1
 
     var body: some View {
         let currentValue = prop.value.intValue
         let currentIdx = cellIndex(forValue: currentValue)
+        let cellCount = max(2, values.count)
         let side = cellHeight - 4  // square cells, slightly inset
         HStack(spacing: cellSpacing) {
             ForEach(0..<cellCount, id: \.self) { idx in
                 let t = Double(idx) / Double(cellCount - 1)
                 Button {
                     camera.postSet(propertyId: propId,
-                                   value: UInt32(value(forCellIndex: idx)))
+                                   value: UInt32(bitPattern: Int32(values[idx])))
                 } label: {
                     TuneCellSwatch(
                         color: axisColor(axis: axis, t: t),
@@ -832,19 +912,14 @@ private struct TuneBarStrip: View {
         }
     }
 
-    /// Map a property value to the cell whose representative is
-    /// closest to it. Round-trip-safe: `value(forCellIndex(cellIndex(v)))`
-    /// returns the canonical representative for that cell.
+    /// Find the cell whose value is closest to the property's
+    /// current value. The cells are real PTP values from
+    /// `values`, so this is just a nearest-neighbour search.
     private func cellIndex(forValue value: Int) -> Int {
-        let span = max(1, rangeMax - rangeMin)
-        let normalized = Double(value - rangeMin) / Double(span)
-        let raw = Int(round(normalized * Double(cellCount - 1)))
-        return max(0, min(cellCount - 1, raw))
-    }
-
-    private func value(forCellIndex idx: Int) -> Int {
-        let normalized = Double(idx) / Double(cellCount - 1)
-        return rangeMin + Int(round(normalized * Double(rangeMax - rangeMin)))
+        guard let nearest = values.indices.min(by: {
+            abs(values[$0] - value) < abs(values[$1] - value)
+        }) else { return 0 }
+        return nearest
     }
 }
 
@@ -887,13 +962,21 @@ private struct TuneGridStrip: View {
                         // state.
                         let cellValue = encodeGrid2D(x: x, y: dlY, rangeMax: rangeMax)
                         let isCurrent = (cellValue == currentValue)
+                        // Mark the neutral / no-tune cell at the
+                        // matrix's geometric centre with a small
+                        // dot so the user can find "no offset" at
+                        // a glance — the centre cell renders as
+                        // neutral gray, hard to distinguish from
+                        // neighbouring near-gray cells otherwise.
+                        let isCenter = (x == gridSize / 2 && dlY == gridSize / 2)
                         Button {
                             camera.postSet(propertyId: propId, value: UInt32(cellValue))
                         } label: {
                             TuneCellSwatch(
                                 color: matrixColor(xt: tX, yt: tY),
                                 size: cellSize,
-                                isCurrent: isCurrent)
+                                isCurrent: isCurrent,
+                                hasCenterDot: isCenter)
                         }
                         .buttonStyle(.plain)
                         // Suppress macOS keyboard-focus ring;
@@ -915,18 +998,23 @@ private struct TuneGridStrip: View {
 /// `cornerRadius` argument lets the collapsed swatch pick a
 /// softer rounding that matches the chip's outer corner curve,
 /// while the matrix/bar cells stay tightly rounded so the grid
-/// reads as a continuous colour field.
+/// reads as a continuous colour field. `hasCenterDot` adds a
+/// small dot at the cell's centre — used to mark the matrix's
+/// neutral (no-tune) cell so the user can find it at a glance.
 private struct TuneCellSwatch: View {
     let color: Color
     let size: CGFloat
     let isCurrent: Bool
     let cornerRadius: CGFloat
+    let hasCenterDot: Bool
 
-    init(color: Color, size: CGFloat, isCurrent: Bool, cornerRadius: CGFloat = 1.5) {
+    init(color: Color, size: CGFloat, isCurrent: Bool,
+         cornerRadius: CGFloat = 1.5, hasCenterDot: Bool = false) {
         self.color = color
         self.size = size
         self.isCurrent = isCurrent
         self.cornerRadius = cornerRadius
+        self.hasCenterDot = hasCenterDot
     }
 
     var body: some View {
@@ -937,6 +1025,15 @@ private struct TuneCellSwatch: View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(isCurrent ? Color.white : Color.clear,
                             lineWidth: 1.5))
+            .overlay(
+                Group {
+                    if hasCenterDot {
+                        Circle()
+                            .fill(Color.black.opacity(0.55))
+                            .frame(width: max(2, size * 0.22),
+                                   height: max(2, size * 0.22))
+                    }
+                })
             .contentShape(Rectangle())
     }
 }
@@ -1346,52 +1443,73 @@ private struct PlanckianLocusView: View {
 
 // MARK: - Autofocus trigger chip
 
-/// Momentary-action chip that fires an AF cycle on the camera
-/// when tapped. No expand/collapse state — it's a button, not a
-/// property picker. Visually keeps the same capsule pill /
-/// background-material treatment as the other chips so it reads
-/// as a peer of the AF mode / WB chips next to it, just with an
-/// icon instead of a label/value pair.
+/// Press-and-hold chip that drives autofocus as if the user were
+/// half-pressing the camera's shutter button. Press fires
+/// `postAutofocusTrigger` (Canon: `AfCancel` → `DoAf`), release
+/// fires `postAutofocusCancel` after a short settle delay so the
+/// body has time to actually drive the AF motor before being told
+/// to release the half-press. Without that release Canon R-bodies
+/// leave the shutter latched, which blocks every subsequent
+/// `SetPropValueEx` (returns `0x2019 DeviceBusy`) and prevents the
+/// LV pipeline from cleanly restarting.
 private struct AutofocusTriggerChip: View {
     let camera: ExtCamera
 
-    /// Brief "just fired" highlight. Set true on tap, reset
-    /// after a short delay. Gives the user visual confirmation
-    /// the trigger went out, since the actual focus response
-    /// happens on the camera body and may not produce any
-    /// HUD-observable change.
-    @State private var firedFlash: Bool = false
+    /// True while the user has the chip pressed. Used both for
+    /// the pressed-state highlight and to make the press → release
+    /// gesture idempotent (so a re-entrant DragGesture.onChanged
+    /// doesn't fire `postAutofocusTrigger` again).
+    @State private var isPressed: Bool = false
+    /// Time before the cancel is posted after the user releases.
+    /// Long enough that the body has driven the AF motor to its
+    /// new target — 250 ms covers a typical AF-S cycle. Tuned by
+    /// hand on an EOS R7; values < 100 ms leave the focus
+    /// half-completed on snappier lenses.
+    private let releaseSettle: TimeInterval = 0.25
 
     /// Match `ChipPill.chipHeight` so the chip lines up
     /// vertically with the rest of the row.
     private let chipHeight: CGFloat = 18
 
     var body: some View {
-        Button {
-            camera.postAutofocusTrigger()
-            firedFlash = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                firedFlash = false
-            }
-        } label: {
-            Image(systemName: "viewfinder")
-                .font(.callout.bold())
-                .foregroundStyle(.primary)
-                .opacity(firedFlash ? 0.5 : 1.0)
-                .frame(height: chipHeight)
-                .padding(.horizontal, 4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            firedFlash
-                ? AnyShapeStyle(Color.white.opacity(0.25))
-                : AnyShapeStyle(.ultraThinMaterial),
-            in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
-        .animation(.easeOut(duration: 0.18), value: firedFlash)
+        Image(systemName: "viewfinder")
+            .font(.callout.bold())
+            .foregroundStyle(.primary)
+            .opacity(isPressed ? 0.5 : 1.0)
+            .frame(height: chipHeight)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                isPressed
+                    ? AnyShapeStyle(Color.white.opacity(0.25))
+                    : AnyShapeStyle(.ultraThinMaterial),
+                in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+            .animation(.easeOut(duration: 0.18), value: isPressed)
+            // DragGesture(minimumDistance: 0) gives us press-down /
+            // release events on a non-button view — SwiftUI's
+            // regular `Button` only fires `action` on the up edge
+            // and doesn't expose a press-down hook on macOS.
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !isPressed {
+                            isPressed = true
+                            camera.postAutofocusTrigger()
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressed = false
+                        // Settle delay so the body completes the
+                        // AF cycle before we tell it to release.
+                        DispatchQueue.main.asyncAfter(
+                            deadline: .now() + releaseSettle) {
+                            camera.postAutofocusCancel()
+                        }
+                    }
+            )
     }
 }

@@ -4,6 +4,9 @@
     "%@ is currently delivering video to a CMIO client (QuickTime, Zoom, OBS, etc.). The PTP dump can't run while live view is active. Stop the stream first, then we'll generate the dump." : {
       "comment" : "PTP dump busy dialog body, %@ is camera label"
     },
+    "%lldK" : {
+
+    },
     "Active" : {
       "comment" : "Subscription status badge — entitlement is currently active"
     },

@@ -137,7 +137,7 @@ enum PtpKnownCameras {
             (0x32E8, "1DX III", false),(0x32E9, "250D", false),
             (0x32EA, "90D", false),  (0x32EF, "M200", false),
             (0x32F1, "850D", false), (0x32F4, "R5", false),
-            (0x32F5, "R6", false),   (0x32F7, "R7", false),
+            (0x32F5, "R6", false),   (0x32F7, "R7", true),
             (0x32F8, "R10", false),  (0x32F9, "M50 II", false),
             (0x32FC, "R3", false),   (0x3303, "R5 C", false),
             (0x330B, "R6 II", false),

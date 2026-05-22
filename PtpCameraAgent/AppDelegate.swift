@@ -953,8 +953,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// per-camera property command channel; the extension routes it to
     /// `camera.triggerAutofocus()` which dispatches to the vendor implementation.
     private func postAutofocusCommand(cameraId: String) {
-        let packed: UInt64 = UInt64(4) << 56
-        postCameraCommand(cameraId: cameraId, packed: packed, label: "TRIGGER_AF")
+        // Menu single-click = press-and-release in one shot.
+        // Send TRIGGER immediately, then CANCEL after ~250 ms so
+        // the body has time to drive the AF motor before the
+        // shutter-half-press is released. Matches the HUD chip's
+        // press-and-hold timing for the no-modifier release case.
+        let trigger: UInt64 = UInt64(4) << 56
+        postCameraCommand(cameraId: cameraId, packed: trigger, label: "TRIGGER_AF")
+        let cancel: UInt64 = UInt64(5) << 56
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.postCameraCommand(cameraId: cameraId, packed: cancel, label: "CANCEL_AF")
+        }
     }
 
     /// Common per-camera Darwin-notify post for both SET_PROP and TRIGGER_AF.
@@ -1185,7 +1194,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             0xD103,   // ISO
             0xD102,   // Shutter Speed
             nil,
-            0xD10A,   // WB Color Temp
+            // Canon EOS exposes three WB-related slots; surface all
+            // three. 0xD1B4 is the live-view WB MODE selector
+            // (Auto / Daylight / Cloudy / ... — actual mode codes).
+            // 0xD10A is the still-capture WB; in Color-Temp mode it
+            // reports the Kelvin value. 0xD1B6 is the live-view
+            // Kelvin override for the preview. See
+            // `formatCanonExtProp` in `PropertyFormatter.swift` for
+            // how each is decoded.
+            0xD1B4,   // WB Mode (live view)
+            0xD10A,   // WB Still / CT
+            0xD1B6,   // EVF Color Temperature
             0xD104,   // Exposure Bias
             0xD108,   // Focus Mode
             0xD107,   // Metering Mode
@@ -1297,10 +1316,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return buildWbTuneGridSubmenu(
                     prop, propId: propId, cameraId: camera.cameraId,
                     rangeMin: 0, rangeMax: rangeMax)
-            case .bar1D(let rangeMin, let rangeMax):
+            case .bar1D(let values):
                 return buildWbTune1DBarSubmenu(
                     prop, propId: propId, cameraId: camera.cameraId,
-                    rangeMin: rangeMin, rangeMax: rangeMax)
+                    values: values)
             }
         }
 
@@ -1441,15 +1460,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the agent and HUD both know about today). Mirrors the
     /// HUD's `TuneBarStrip` so menu and HUD look identical.
     private func buildWbTune1DBarSubmenu(_ prop: ExtCameraProperty, propId: UInt32,
-                                         cameraId: String, rangeMin: Int, rangeMax: Int) -> NSMenu {
-        let size = WbTune1DBarView.idealSize()
+                                         cameraId: String, values: [Int]) -> NSMenu {
+        let size = WbTune1DBarView.idealSize(cellCount: values.count)
         let bar = WbTune1DBarView(frame: NSRect(origin: .zero, size: size))
         bar.axis = TuneBarAxis.forPropertyId(propId)
-        bar.rangeMin = rangeMin
-        bar.rangeMax = rangeMax
+        bar.values = values
         bar.currentValue = prop.value.intValue
         bar.onValueSelected = { [weak self] val in
-            self?.postPropertyCommand(cameraId: cameraId, propId: propId, value: NSNumber(value: val))
+            self?.postPropertyCommand(cameraId: cameraId, propId: propId,
+                                      value: NSNumber(value: val))
         }
         let submenu = NSMenu()
         submenu.addItem(wrappedMenuItem(picker: bar))

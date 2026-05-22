@@ -61,6 +61,21 @@ class WbTuneGridView: NSView {
                     NSColor.white.set()
                     NSBezierPath(rect: rect).stroke()
                 }
+
+                // Centre marker — a small dim dot on the
+                // middle cell so the user can see at a glance
+                // where "no fine-tune offset" lives. Matches
+                // the HUD's `TuneCellSwatch.hasCenterDot`
+                // overlay in `PreviewHud.swift`.
+                if x == gridSize / 2 && dlY == gridSize / 2 {
+                    let dotSize: CGFloat = max(2, cs * 0.22)
+                    let dotRect = CGRect(
+                        x: rect.midX - dotSize / 2,
+                        y: rect.midY - dotSize / 2,
+                        width: dotSize, height: dotSize)
+                    NSColor.black.withAlphaComponent(0.55).setFill()
+                    NSBezierPath(ovalIn: dotRect).fill()
+                }
             }
         }
     }

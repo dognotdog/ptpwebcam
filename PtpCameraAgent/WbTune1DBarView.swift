@@ -27,19 +27,34 @@ class WbTune1DBarView: NSView {
     var axis: TuneBarAxis = .greenMagenta {
         didSet { needsDisplay = true }
     }
-    var rangeMin: Int = 0
-    var rangeMax: Int = 12
+    /// Ordered list of the discrete PTP values this property
+    /// accepts. One cell per entry, in the same order as the
+    /// camera advertises them (or synthesised evenly across the
+    /// range if the camera only reported a range form — see
+    /// `tuneStyle(forPropertyId:)`). The strip width grows with
+    /// `values.count`.
+    var values: [Int] = (0...12).map { $0 } {
+        didSet { invalidateIntrinsicContentSize(); needsDisplay = true }
+    }
     var currentValue: Int = 6
     var onValueSelected: ((Int) -> Void)?
 
-    private static let cellCount: Int = 13
     private static let cellSize: CGFloat = 18
     private static let cellSpacing: CGFloat = 1
 
-    static func idealSize() -> NSSize {
-        let w = CGFloat(cellCount) * (cellSize + cellSpacing) + cellSpacing
+    /// Default width target — matches the HUD's preview-pane width
+    /// and the Planckian-locus picker so the menu has a consistent
+    /// visual rhythm. Used for the SwiftUI-equivalent default,
+    /// before any caller configures `values`.
+    static func idealSize(cellCount: Int = 13) -> NSSize {
+        let c = max(2, cellCount)
+        let w = CGFloat(c) * (cellSize + cellSpacing) + cellSpacing
         let h = cellSize + 2 * cellSpacing
         return NSSize(width: w, height: h)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        Self.idealSize(cellCount: values.count)
     }
 
     override init(frame: NSRect) { super.init(frame: frame) }
@@ -47,23 +62,28 @@ class WbTune1DBarView: NSView {
 
     // MARK: - Index ↔ value mapping
 
+    /// Find the cell whose value is closest to the camera's current
+    /// reading. Nearest-neighbour over `values` — works for both
+    /// enumerated tunes (exact match) and synthesised even-spacing
+    /// strips (closest representative).
     private func cellIndex(forValue value: Int) -> Int {
-        let span = max(1, rangeMax - rangeMin)
-        let normalized = Double(value - rangeMin) / Double(span)
-        let raw = Int(round(normalized * Double(Self.cellCount - 1)))
-        return max(0, min(Self.cellCount - 1, raw))
+        guard let nearest = values.indices.min(by: {
+            abs(values[$0] - value) < abs(values[$1] - value)
+        }) else { return 0 }
+        return nearest
     }
 
     private func value(forCellIndex idx: Int) -> Int {
-        let normalized = Double(idx) / Double(Self.cellCount - 1)
-        return rangeMin + Int(round(normalized * Double(rangeMax - rangeMin)))
+        guard !values.isEmpty else { return 0 }
+        return values[max(0, min(values.count - 1, idx))]
     }
 
     private func cellAt(_ pt: CGPoint) -> Int {
+        guard !values.isEmpty else { return 0 }
         let cs = Self.cellSize + Self.cellSpacing
         // Subtract the leading spacing so cell 0 starts at (cellSpacing, *).
         let idx = Int((pt.x - Self.cellSpacing) / cs)
-        return max(0, min(Self.cellCount - 1, idx))
+        return max(0, min(values.count - 1, idx))
     }
 
     // MARK: - Drawing
@@ -84,9 +104,11 @@ class WbTune1DBarView: NSView {
         NSColor.black.set()
         NSBezierPath(rect: bounds).fill()
 
+        guard !values.isEmpty else { return }
         let curIdx = cellIndex(forValue: currentValue)
-        for idx in 0..<Self.cellCount {
-            let t = Double(idx) / Double(Self.cellCount - 1)
+        let cellCount = values.count
+        for idx in 0..<cellCount {
+            let t = cellCount == 1 ? 0.5 : Double(idx) / Double(cellCount - 1)
             let x = CGFloat(idx) * (Self.cellSize + Self.cellSpacing) + Self.cellSpacing
             let y = Self.cellSpacing
             let rect = CGRect(x: x, y: y, width: Self.cellSize, height: Self.cellSize)

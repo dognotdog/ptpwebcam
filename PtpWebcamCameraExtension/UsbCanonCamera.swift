@@ -14,6 +14,8 @@ private let PTP_CMD_CANON_KEEPDEVICEON:       UInt16 = 0x911D
 private let PTP_CMD_CANON_REQUESTPROPVAL:     UInt16 = 0x9127
 private let PTP_CMD_CANON_SETOLCINFOGROUP:    UInt16 = 0x913D
 private let PTP_CMD_CANON_GETVIEWFINDERDATA:  UInt16 = 0x9153
+private let PTP_CMD_CANON_DOAF:               UInt16 = 0x9154
+private let PTP_CMD_CANON_AF_CANCEL:          UInt16 = 0x9160
 
 private let PTP_PROP_CANON_EVF_OUTPUTDEVICE:  UInt32 = 0xD1B0
 private let PTP_PROP_CANON_EVF_MODE:          UInt32 = 0xD1B1
@@ -40,6 +42,17 @@ private let canonUiProperties: [(id: UInt32, dataType: UInt16)] = [
     (0xD107, 6),    // Metering Mode
     (0xD108, 6),    // Focus Mode
     (0xD10A, 6),    // White Balance
+    // WB fine-tune offsets (signed, neutral at 0; range ±9 stops on
+    // most EOS bodies). Names match libgphoto2 PTP_DPC_CANON_EOS_*
+    // codes — though Canon flips the "A" / "B" axis labels relative
+    // to Nikon / Sony conventions:
+    //   • 0xD10C "WhiteBalanceAdjustA" = amber-blue tune (A-B)
+    //   • 0xD10D "WhiteBalanceAdjustB" = green-magenta tune (G-M)
+    // The R7 reports these as not-writable while the body is in
+    // Color-Temperature WB mode; they should unlock after the WB
+    // mode picker switches the camera to e.g. Daylight or Auto.
+    (0xD10C, 5),    // WB Adjust A (amber-blue, signed)
+    (0xD10D, 5),    // WB Adjust B (green-magenta, signed)
     (0xD129, 6),    // Picture Style
     (0xD12C, 6),    // LV Eye Detect
     (0xD1B0, 6),    // EVF Output Device
@@ -82,7 +95,7 @@ private enum CanonLvState { case off, waitingEvfMode, waitingOutputDevice, on }
 // We classify by USB PID. Anything we don't recognise as M-series / R-series
 // falls through to `.dslr` — the historical default that's known to work for
 // the bulk of the supported list.
-private enum CanonLvProfile { case dslr, eosMOlder, eosMNewer }
+private enum CanonLvProfile { case dslr, eosMOlder, eosMNewer, eosR }
 
 private func canonLvProfile(forPid pid: UInt16) -> CanonLvProfile {
     switch pid {
@@ -97,15 +110,22 @@ private func canonLvProfile(forPid pid: UInt16) -> CanonLvProfile {
          0x32D2,  // M50
          0x32EF:  // M200
         return .eosMOlder
-    // Newer EOS-M / R (mode 0x01, skip EVF output device write).
+    // Newer EOS-M (mode 0x01, skip EVF output device write).
+    // These bodies bring up the EVF output path themselves during
+    // SetRemoteMode(0x01) and reject an explicit EVFOutputDevice write.
+    case 0x32E7,  // M6 Mark II
+         0x32F9:  // M50 Mark II
+        return .eosMNewer
+    // EOS R mirrorless (mode 0x01, EVF output device = 2 like DSLR).
+    // Without writing EVFOutputDevice the camera returns 0xA102
+    // (EOS_NotReady) to every GetViewfinderData call. Confirmed on
+    // R7 (pid=0x32F7).
     case 0x32DA,  // R
          0x32E2,  // RP
-         0x32E7,  // M6 Mark II
          0x32F4,  // R5
          0x32F5,  // R6
          0x32F7,  // R7
          0x32F8,  // R10
-         0x32F9,  // M50 Mark II
          0x32FC,  // R3
          0x3303,  // R5 C
          0x330B,  // R6 Mark II
@@ -116,7 +136,7 @@ private func canonLvProfile(forPid pid: UInt16) -> CanonLvProfile {
          0x3314,  // R5 Mark II
          0x3320,  // R50 V
          0x3323:  // R6 Mark III
-        return .eosMNewer
+        return .eosR
     default:
         return .dslr
     }
@@ -142,6 +162,22 @@ final class UsbCanonCamera: UsbPtpCameraBase {
     override func performVendorConnect() {
         parseDeviceInfo()  // populates supportedOps
 
+        // Reset EVF to a known-off state at the START of every
+        // session. The previous extension process may have been
+        // SIGKILL'd mid-LV (macOS reload, crash, or our reinstall
+        // path); without an explicit reset here the body comes
+        // back to us with EVF still primed from before, and the
+        // first `GetViewfinderData` we then issue returns
+        // `0xA102 (EOS_NotReady)` for several seconds while the
+        // camera tries to recycle stale internal buffers — long
+        // enough for the CMIO client to give up.
+        // Writing 0 to both is harmless when the body is already
+        // off (returns 0x2001 either way); when it isn't, this is
+        // the missing teardown step that lets the new LV start-up
+        // run cleanly.
+        _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
+        _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_MODE, value: 0)
+
         // Classify the body and select the SetRemoteMode value. EOS-M and
         // newer mirrorless bodies reject SetRemoteMode(1) — they need 0x15
         // (older M) or 0x01 (newer M / R). Sending the wrong value puts the
@@ -154,6 +190,7 @@ final class UsbCanonCamera: UsbPtpCameraBase {
             case .dslr:      return 0x01
             case .eosMOlder: return 0x15
             case .eosMNewer: return 0x01
+            case .eosR:      return 0x01
             }
         }()
         if supportedOps.contains(PTP_CMD_CANON_SETREMOTEMODE) {
@@ -320,11 +357,15 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         //   .eosMOlder   → 0x08 (EOS-M specific)
         //   .eosMNewer   → skip the write entirely; the body brings up its
         //                  own output path during SetRemoteMode(0x01).
+        //   .eosR        → 2 (PC display, same as DSLR). Without this the
+        //                  R-series returns 0xA102 (EOS_NotReady) to every
+        //                  subsequent GetViewfinderData. Verified on R7.
         let evfOutputValue: UInt32?
         switch lvProfile {
         case .dslr:      evfOutputValue = 2
         case .eosMOlder: evfOutputValue = 0x08
         case .eosMNewer: evfOutputValue = nil
+        case .eosR:      evfOutputValue = 2
         }
 
         var lvState = CanonLvState.waitingEvfMode
@@ -370,20 +411,156 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
     }
 
+    /// Canon-specific teardown before `CLOSE_SESSION`. Without this the
+    /// camera carries the previous extension's EVF / RemoteMode state
+    /// across the new session — manifests as the next live-view start
+    /// returning `0xA102 (EOS_NotReady)` and the LV loop never
+    /// producing frames until the camera is power-cycled. Resetting
+    /// `EVFOutputDevice=0` then `EVFMode=0` cleanly drops the
+    /// live-view stream so the next OpenSession + SetRemoteMode(1)
+    /// starts from a known state.
+    override func performVendorCleanup() {
+        _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
+        _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_MODE, value: 0)
+    }
+
     // MARK: - Frame fetch
 
+    /// Diagnostic counter — log details for the first few frame fetches and
+    /// every periodic interval after, but not every frame (would flood logs).
+    private var frameFetchAttempts: Int = 0
+    /// Soft EOS_NotReady response code Canon returns for the first
+    /// few GetViewfinderData calls after EVF_OUTPUTDEVICE writes —
+    /// the body still needs ~0.5–1.0 s to spool up the LV pipeline
+    /// after our setup acks `OK`. Treated as a transient retryable
+    /// state inside `fetchOneFrame` so the LV loop sees a steady
+    /// stream of frames once the body is ready.
+    private static let canonRspEosNotReady: UInt16 = 0xA102
+
     override func fetchOneFrame() throws -> Data? {
-        let cmd = transport.buildCommand(code: PTP_CMD_CANON_GETVIEWFINDERDATA, parameters: [0x00100000])
-        guard let (inData, _) = try? transport.sendPtpCommand(cmd), let data = inData else { return nil }
-        return extractJpegFromLiveViewData(data)
+        frameFetchAttempts += 1
+        let verbose = frameFetchAttempts <= 5 || frameFetchAttempts % 60 == 0
+        let cmd = transport.buildCommand(
+            code: PTP_CMD_CANON_GETVIEWFINDERDATA, parameters: [0x00100000])
+
+        // EOS_NotReady (0xA102) is normal during LV start-up — the
+        // body takes a moment to fill its first viewfinder buffer
+        // after EVF_OUTPUTDEVICE goes through. Spin briefly inside
+        // this call rather than returning nil up to the LV loop:
+        // every LV-loop iteration drains pendingOps and sleeps a
+        // frame interval (~33 ms), so a bounced retry over there
+        // would let a not-yet-ready body keep its first useful
+        // frame waiting for ~100 ms, by which point a CMIO client
+        // may have already disconnected (some apps give up after
+        // 1–2 s of no frames). Tight spin caps at ~600 ms of
+        // retries — beyond that the body is genuinely stalled and
+        // we bubble the failure up so the loop's normal pacing
+        // takes over.
+        let notReadyDeadline = Date().addingTimeInterval(0.6)
+        var notReadyAttempts = 0
+
+        while true {
+            let inData: Data?
+            let rsp: Data
+            do {
+                (inData, rsp) = try transport.sendPtpCommand(cmd)
+            } catch {
+                if verbose {
+                    cameraLog.fault("GetViewfinderData attempt #\(self.frameFetchAttempts, privacy: .public) threw: \(String(describing: error), privacy: .public)")
+                }
+                throw error
+            }
+            let code = transport.responseCode(from: rsp)
+            if code == Self.canonRspEosNotReady,
+               Date() < notReadyDeadline, !stopLv, !closing {
+                notReadyAttempts += 1
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            if notReadyAttempts > 0 && verbose {
+                cameraLog.fault("GetViewfinderData attempt #\(self.frameFetchAttempts, privacy: .public) — EOS_NotReady cleared after \(notReadyAttempts, privacy: .public) inner retries, rsp=0x\(String(code, radix:16), privacy: .public)")
+            }
+            guard code == PTP_RSP_OK else {
+                if verbose {
+                    cameraLog.fault("GetViewfinderData attempt #\(self.frameFetchAttempts, privacy: .public) rsp=0x\(String(code, radix:16), privacy: .public) inLen=\(inData?.count ?? -1, privacy: .public)")
+                }
+                return nil
+            }
+            guard let data = inData else {
+                if verbose {
+                    cameraLog.fault("GetViewfinderData attempt #\(self.frameFetchAttempts, privacy: .public) OK but inData=nil")
+                }
+                return nil
+            }
+            let jpeg = extractJpegFromLiveViewData(data)
+            if jpeg == nil && verbose {
+                let headHex = data.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+                cameraLog.fault("GetViewfinderData attempt #\(self.frameFetchAttempts, privacy: .public) OK but no SOI/EOI in \(data.count, privacy: .public)B head=[\(headHex, privacy: .public)]")
+            }
+            return jpeg
+        }
+    }
+
+    // MARK: - Autofocus
+
+    /// Canon EOS AF trigger — the "press" half of a press-and-hold
+    /// pair. Sends `AfCancel` (to clear any stale half-press) then
+    /// `DoAf` (to start the AF motor) and returns immediately, so
+    /// the camera holds focus until the matching
+    /// `performAutofocusCancel` arrives.
+    /// The release happens on mouseUp from the HUD's AF chip; the
+    /// agent menu's single-click action sends a delayed cancel from
+    /// its own side so the menu path still produces a complete
+    /// "tap to autofocus" cycle.
+    override func performAutofocus() {
+        guard sessionOpen else { return }
+        if supportedOps.contains(PTP_CMD_CANON_AF_CANCEL) {
+            let rsp = sendCanonCommand(PTP_CMD_CANON_AF_CANCEL)
+            cameraLog.fault("AfCancel (pre) → 0x\(String(rsp, radix:16), privacy: .public)")
+        }
+        if supportedOps.contains(PTP_CMD_CANON_DOAF) {
+            let rsp = sendCanonCommand(PTP_CMD_CANON_DOAF)
+            cameraLog.fault("DoAf → 0x\(String(rsp, radix:16), privacy: .public)")
+        }
+    }
+
+    /// Canon EOS AF release — the "release" half of a press-and-hold
+    /// pair. Sends `AfCancel` (0x9160) to release the shutter
+    /// half-press state the body fell into after `DoAf`. Without
+    /// this release every subsequent `SetPropValueEx` returns
+    /// `0x2019 DeviceBusy` and LV won't cleanly restart.
+    override func performAutofocusCancel() {
+        guard sessionOpen,
+              supportedOps.contains(PTP_CMD_CANON_AF_CANCEL) else { return }
+        let rsp = sendCanonCommand(PTP_CMD_CANON_AF_CANCEL)
+        cameraLog.fault("AfCancel (release) → 0x\(String(rsp, radix:16), privacy: .public)")
     }
 
     // MARK: - Event polling
+
+    /// Counter so we can run `KeepDeviceOn` (0x911D) on a slower
+    /// cadence than the event poll. The LV loop calls `pollEvents`
+    /// once per `eventPollInterval` frames (every ~0.5 s at 30 fps);
+    /// we want KeepDeviceOn roughly every 5 s.
+    private var keepAliveCounter: Int = 0
 
     override func pollEvents() {
         // Safe to call GetEvent now that performVendorConnect issued
         // SetRequestOLCInfoGroup to prep the camera's event queue.
         pollGetEvent()
+
+        // EOS bodies soft-lock the SetPropValueEx code path after
+        // ~30 s of tethered live view without a heartbeat —
+        // SetPropValueEx then returns 0x2019 (DeviceBusy) on every
+        // call while LV/AF/GetEvent keep working. libgphoto2 ships
+        // a periodic `KeepDeviceOn` (0x911D) to prevent this; we
+        // do the same here, roughly every 5 s of LV runtime.
+        keepAliveCounter += 1
+        if keepAliveCounter >= 10,
+           supportedOps.contains(PTP_CMD_CANON_KEEPDEVICEON) {
+            keepAliveCounter = 0
+            _ = sendCanonCommand(PTP_CMD_CANON_KEEPDEVICEON)
+        }
     }
 
     @discardableResult
@@ -539,7 +716,22 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         if pending.propId < 0x9000 {
             sendStandardSetPropVal(propId: pending.propId, value: pending.value, dataType: pending.dataType)
         } else {
-            setPropertyEos(propId: pending.propId, value: pending.value)
+            let rsp = setPropertyEos(propId: pending.propId, value: pending.value)
+            // WB-mode dual-write: on R-series bodies the "EVF White
+            // Balance" mode slot at 0xD1B4 returns 0x2019 (DeviceBusy)
+            // when the still WB (0xD10A) is in Color Temperature mode
+            // — the body refuses to change the LV-WB mode while
+            // 0xD10A is driving it from a K value. Conversely, when
+            // the user picks a non-CT mode the still-WB slot needs to
+            // be moved out of Color-Temp too, or it will keep
+            // overriding the LV. So write both in lockstep whenever
+            // either takes a mode-code value (≤ 0xFF).
+            if (pending.propId == 0xD1B4 || pending.propId == 0xD10A)
+               && pending.value <= 0xFF {
+                let mirrorId: UInt32 = pending.propId == 0xD1B4 ? 0xD10A : 0xD1B4
+                let mirrorRsp = setPropertyEos(propId: mirrorId, value: pending.value)
+                cameraLog.fault("WB mirror SET 0x\(String(mirrorId, radix:16), privacy: .public)=\(pending.value, privacy: .public) → 0x\(String(mirrorRsp, radix:16), privacy: .public) (primary rsp=0x\(String(rsp, radix:16), privacy: .public))")
+            }
         }
         // Canon EOS doesn't issue a PROPVALCHANGED event automatically after a
         // successful SetDevicePropValueEx — we have to ask for it. Drain the

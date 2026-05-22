@@ -131,6 +131,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     enum PendingOp {
         case setProperty(PendingSet)
         case autofocus
+        case autofocusCancel
     }
     private var pendingOps: [PendingOp] = []
     private let pendingLock = NSLock()
@@ -225,8 +226,30 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         queue.async { [weak self] in self?.drainPendingOps() }
     }
 
+    /// Companion to `triggerAutofocus`. Releases any "shutter
+    /// half-press" / focus-hold state the body is in after a
+    /// previous `triggerAutofocus`. The HUD's AF chip uses these
+    /// as a press-down / release pair so the body holds focus
+    /// while the user keeps the chip pressed and releases as soon
+    /// as they let go — same behaviour as a half-press on the
+    /// camera's shutter button. Vendors that don't have a separate
+    /// cancel command default to a no-op.
+    final func cancelAutofocus() {
+        pendingLock.lock()
+        let alreadyQueued = pendingOps.contains { if case .autofocusCancel = $0 { return true } else { return false } }
+        if !alreadyQueued { pendingOps.append(.autofocusCancel) }
+        pendingLock.unlock()
+        queue.async { [weak self] in self?.drainPendingOps() }
+    }
+
     /// Vendor-specific autofocus trigger. Override per subclass.
     func performAutofocus() { }
+    /// Vendor-specific autofocus cancel. Default: no-op. Canon
+    /// overrides to send `AfCancel (0x9160)`, which releases the
+    /// shutter half-press state the body falls into after `DoAf` —
+    /// without that release every subsequent `SetPropValueEx` (and
+    /// LV restart) gets locked out with `0x2019 DeviceBusy`.
+    func performAutofocusCancel() { }
 
     final func setProperty(propId: UInt32, value: UInt32, dataType: UInt16) {
         pendingLock.lock()
@@ -583,6 +606,8 @@ class UsbPtpCameraBase: UsbCameraProtocol {
                 performPropertySet(cmd)
             case .autofocus:
                 performAutofocus()
+            case .autofocusCancel:
+                performAutofocusCancel()
             }
         }
     }

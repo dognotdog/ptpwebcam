@@ -237,11 +237,21 @@ private let canonShutterTable: [UInt32: String] = [
     0xa0: "1/8000",0xa3: "1/10000",  0xa5: "1/12800",  0xa8: "1/16000",
 ]
 
+// Canon EOS WB-mode codes. Two slots use this enum:
+//   • 0xD10A — still WB (mode codes when not in Color Temp; K values
+//     when in Color Temp)
+//   • 0xD1B4 — EVF (live-view) WB mode (mode codes only; no Color
+//     Temp entry in this enum)
+// R-series adds 0x17 = "AWB White Priority" alongside the legacy
+// 0 = "Auto" (which Canon now calls "AWB Ambience Priority"); both
+// are real auto modes with different temperature biases.
 private let canonWhiteBalanceTable: [UInt32: String] = [
     0: "Auto", 1: "Daylight", 2: "Cloudy", 3: "Tungsten",
-    4: "Fluorescent", 5: "Flash", 6: "Manual", 8: "Shade",
+    4: "Fluorescent", 5: "Flash", 6: "Manual", 7: "Custom",
+    8: "Shade",
     9: "Color Temperature", 10: "PC-1", 11: "PC-2", 12: "PC-3",
     15: "AWB White",
+    0x17: "AWB White",
 ]
 
 private let canonFocusModeTable: [UInt32: String] = [
@@ -281,7 +291,17 @@ private func formatCanonExtProp(_ value: NSNumber, propId: UInt32) -> String? {
     case 0xD10A:
         if v >= 1000 && v <= 12000 { return "\(v) K" }
         return canonWhiteBalanceTable[v] ?? "WB ?(0x\(String(v, radix: 16)))"
+    // EVF WB Mode (live-view WB selector). Mode-code enum only —
+    // shares value names with 0xD10A's mode codes.
+    case 0xD1B4:
+        return canonWhiteBalanceTable[v] ?? "WB ?(0x\(String(v, radix: 16)))"
     case 0xD1B6: return v >= 1000 && v <= 12000 ? "\(v) K" : "EVF CT ?(0x\(String(v, radix: 16)))"
+    // WB fine-tune offsets — signed Int8 in the wire data,
+    // displayed as a +N / -N stop offset from neutral.
+    // 0xD10C = amber-blue axis, 0xD10D = green-magenta axis.
+    case 0xD10C, 0xD10D:
+        let signed = Int(Int8(bitPattern: UInt8(v & 0xFF)))
+        return signed >= 0 ? "+\(signed)" : "\(signed)"
     default: return nil
     }
 }

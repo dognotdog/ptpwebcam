@@ -39,11 +39,17 @@ protocol UsbCameraProtocol: AnyObject {
     /// Trigger an autofocus cycle. Vendor-specific (Nikon AfDrive, Sony
     /// AutofocusButton toggle, etc.). Default no-op.
     func triggerAutofocus()
+    /// Release a held autofocus / shutter-half-press. Companion to
+    /// `triggerAutofocus` for the HUD's press-and-hold AF chip
+    /// (Canon: `AfCancel`). Default no-op for vendors that don't
+    /// have a separate release.
+    func cancelAutofocus()
     func close()
 }
 
 extension UsbCameraProtocol {
     func triggerAutofocus() { }
+    func cancelAutofocus() { }
 }
 
 // MARK: - PtpPropParser

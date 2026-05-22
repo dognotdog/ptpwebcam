@@ -621,6 +621,13 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		case 4:  // TRIGGER_AF
 			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: TRIGGER_AF on \(cameraId)")
 			camera.triggerAutofocus()
+		case 5:  // CANCEL_AF — companion to TRIGGER_AF. Sent on AF
+		         // chip mouse-up (HUD) or delayed after the trigger
+		         // (menu's single-click path). Vendors that don't
+		         // need a separate release no-op via the base class
+		         // default in `performAutofocusCancel`.
+			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand: CANCEL_AF on \(cameraId)")
+			camera.cancelAutofocus()
 		default:
 			PtpWebcamCameraExtensionProviderSource.log("handlePropertyCommand[\(cameraId)]: unknown cmd=\(cmd)")
 		}

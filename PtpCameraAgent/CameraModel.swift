@@ -101,19 +101,33 @@ enum SemanticCameraProperty: CaseIterable {
         // Most Sony bodies expose both 0xD21E and 0x500F; 0x500F is
         // sometimes a stale mirror, so prefer the vendor-specific
         // one. Falls back to 0x500F for Nikon / Canon / others.
-        case .iso:                  return [0xD21E, 0x500F]
-        case .shutterSpeed:         return [0xD100, 0xD20D, 0x500D]
-        case .aperture:             return [0x5007, 0xD1A9]
+        // 0xD21E is Sony's ISO-with-Auto-sentinel; Canon EOS uses 0xD103
+        // (proprietary), Nikon falls back to PTP-standard 0x500F.
+        case .iso:                  return [0xD21E, 0xD103, 0x500F]
+        // Nikon shutter 0xD100, Sony 0xD20D, Canon EOS 0xD102, PTP-std 0x500D.
+        case .shutterSpeed:         return [0xD100, 0xD20D, 0xD102, 0x500D]
+        // PTP-std aperture 0x5007 (Nikon), Sony 0xD1A9, Canon EOS 0xD101.
+        case .aperture:             return [0x5007, 0xD1A9, 0xD101]
         // PTP-standard ExposureBias (0x5010) covers Nikon/Sony in stills.
         // Nikon movie mode swaps to 0xD1AB. Canon proprietary 0xD104.
         case .exposureCompensation: return [0x5010, 0xD1AB, 0xD104]
         // ExposureProgramMode (0x500E) is PTP-standard; Canon uses 0xD105.
         case .exposureMode:         return [0x500E, 0xD105]
-        case .whiteBalance:         return [0x5005]
+        // PTP-std white balance 0x5005 (Nikon/Sony). On Canon EOS the
+        // user-facing WB mode that the live-view (and our preview)
+        // actually tracks is the "EVF White Balance" at 0xD1B4 —
+        // writable enum of mode codes (Auto / Daylight / Cloudy /
+        // Tungsten / Fluorescent / Flash / Custom / Shade / AWB
+        // White Priority). The other Canon WB-related slot, 0xD10A,
+        // is the still-capture WB which on R-series only exposes its
+        // K values when the body is in "Color Temp" mode — so we
+        // surface it as a separate CT chip via
+        // `whiteBalanceTunePropertyIds()` + `isColorTemperatureProperty`.
+        case .whiteBalance:         return [0x5005, 0xD1B4]
         // Nikon-specific AF Mode (Single / Continuous / Auto-Select)
-        // sits at 0xD061; falls back to the PTP-standard Focus Mode
-        // (0x500A) on bodies that don't expose the Nikon vendor one.
-        case .autofocusMode:        return [0xD061, 0x500A]
+        // sits at 0xD061; Canon EOS uses 0xD108; falls back to the PTP-
+        // standard Focus Mode (0x500A) on bodies exposing neither.
+        case .autofocusMode:        return [0xD061, 0xD108, 0x500A]
         // Virtual — no property backs it.
         case .autofocusTrigger:     return []
         }
@@ -140,11 +154,43 @@ extension ExtCamera {
     /// semantic role, or nil if none of the candidates are present.
     /// Used by the HUD chip layout to decide whether a chip is
     /// applicable for the current camera.
+    ///
+    /// Vendor-gating: Canon EOS reuses the 0xD1xx vendor-extension
+    /// range for properties whose codes collide with Nikon's
+    /// `PtpDeviceProperty*` codes (e.g. Canon 0xD102 = ShutterSpeed,
+    /// Nikon 0xD102 = something else). When the camera isn't Canon
+    /// we skip the Canon-only IDs so a Nikon body's accidental
+    /// presence of e.g. 0xD103 doesn't get picked up as "ISO".
     func propertyId(for role: SemanticCameraProperty) -> UInt32? {
         for candidate in role.candidatePropertyIds where properties[candidate] != nil {
+            if Self.canonOnlyPropertyIds.contains(candidate) && vendor != .canon {
+                continue
+            }
             return candidate
         }
         return nil
+    }
+
+    /// PTP vendor-extension codes Canon EOS uses for its UI properties.
+    /// Other vendors also occupy parts of the 0xD1xx range with different
+    /// meanings, so these IDs must only be matched on a Canon body.
+    /// Kept in sync with `canonUiProperties` in
+    /// `PtpWebcamCameraExtension/UsbCanonCamera.swift`.
+    private static let canonOnlyPropertyIds: Set<UInt32> = [
+        0xD101, 0xD102, 0xD103, 0xD104, 0xD105,
+        0xD107, 0xD108, 0xD10A, 0xD129, 0xD12C,
+        0xD1B0, 0xD1B1, 0xD1B2, 0xD1B4, 0xD1B6, 0xD1B7,
+    ]
+
+    /// True if `propId` is on a Canon EOS body but should be treated
+    /// as the "WB color temperature" slot. Used in both the
+    /// `isColorTemperatureProperty` check (to swap the chip out for
+    /// a Planckian-locus picker) and the chip-plan tune-list builder
+    /// (so 0xD1B6 appears next to the WB-mode chip when the body is
+    /// in Color Temp mode).
+    fileprivate var canonColorTemperaturePropertyId: UInt32? {
+        guard vendor == .canon else { return nil }
+        return properties[0xD1B6] != nil ? 0xD1B6 : nil
     }
 
     /// Convenience: the `ExtCameraProperty` for a semantic role.
@@ -208,6 +254,12 @@ extension ExtCamera {
         switch vendor {
         case .nikon, .leica: return propId == 0xD01E
         case .sony:          return propId == 0xD20F
+        // Canon EOS exposes the WB Color Temperature (Kelvin) as
+        // 0xD1B6 ("EVF Color Temperature") — separate from the WB
+        // mode selector at 0xD1B4. The property reports its current
+        // K value plus a 76-entry enum of available K values, ideal
+        // for the Planckian-locus picker.
+        case .canon:         return propId == 0xD1B6
         default:             return false
         }
     }
@@ -501,6 +553,14 @@ private let sonyTunePropertyIds: Set<UInt32> = [
     0xD210, 0xD21C, 0xD212, 0xD213, 0xD215, 0xD216, 0xD218, 0xD219, 0xD21B,
 ]
 
+private let canonTunePropertyIds: Set<UInt32> = [
+    // Canon EOS WB fine-tune offsets (signed 1D, neutral at 0).
+    // Names from libgphoto2's PTP_DPC_CANON_EOS_WhiteBalanceAdjust*
+    // codes — Canon calls the amber-blue axis "A" and the
+    // green-magenta axis "B", flipped from Sony's convention.
+    0xD10C, 0xD10D,
+]
+
 /// Which colour axis a 1D tune bar represents. Drives the bar's
 /// fill gradient — Sony's two-axis WB fine-tune uses the same
 /// integer encoding for both axes, so the only way to tell them
@@ -523,7 +583,12 @@ public enum TuneBarAxis: Equatable {
     /// defaults to green↔magenta. Add propIds here as we
     /// encounter other A-B tunes (Panasonic, etc).
     public static func forPropertyId(_ propId: UInt32) -> TuneBarAxis {
-        propId == 0xD21C ? .amberBlue : .greenMagenta
+        // Amber↔blue tunes: Sony 0xD21C, Canon EOS 0xD10C
+        // (PTP_DPC_CANON_EOS_WhiteBalanceAdjustA).
+        switch propId {
+        case 0xD21C, 0xD10C: return .amberBlue
+        default:             return .greenMagenta
+        }
     }
 
     /// Direct sRGB linear interpolation between the two axis
@@ -557,10 +622,17 @@ public enum TuneStyle: Equatable {
     /// collapsed; expanding grows the chip downward to reveal the
     /// full grid inline (no popover).
     case grid2D(rangeMax: Int)
-    /// 13-cell horizontal strip on the green↔magenta axis. The
-    /// chip shows a single colour-cell when collapsed; expanding
-    /// reveals the full strip inline.
-    case bar1D(rangeMin: Int, rangeMax: Int)
+    /// Horizontal colour strip with one cell per `values` entry —
+    /// one cell per discrete value the camera accepts on this
+    /// tune. Cell count varies per body / property:
+    ///   • Nikon per-mode tunes: 13 cells (range 0..12, neutral 6).
+    ///   • Sony G-M / A-B: 13 cells synthesised from the 0..255
+    ///     range (camera takes any UInt8; the bar samples evenly).
+    ///   • Canon EOS WhiteBalanceAdjust*: 19 cells (-9..+9
+    ///     enumerated by the body).
+    /// Clicking a cell writes that cell's exact value, so the
+    /// bar's selection is always a real value the camera accepts.
+    case bar1D(values: [Int])
 
     /// True when this style is a 2D matrix — used by the HUD to
     /// pick the right background shape (rounded rectangle vs the
@@ -587,21 +659,64 @@ extension ExtCamera {
         // applies there too.
         case .nikon, .leica: isTune = nikonTunePropertyIds.contains(propId)
         case .sony:          isTune = sonyTunePropertyIds.contains(propId)
+        case .canon:         isTune = canonTunePropertyIds.contains(propId)
         default:             isTune = false
         }
-        guard isTune,
-              let prop = properties[propId],
-              let rMin = prop.rangeMin?.intValue,
-              let rMax = prop.rangeMax?.intValue,
-              rMax > rMin else { return nil }
-        // 2D grid: only the specific 0..168 (13×13 dense) and
-        // 0..1224 (13×13 with x-step=2/y-step=100) encodings the
-        // legacy DAL plugin's PtpGridTuneView documented.
-        if rMin == 0, (rMax == 168 || rMax == 1224) {
+        guard isTune, let prop = properties[propId] else { return nil }
+
+        // 2D grid: range form with the specific 0..168 (13×13
+        // dense) and 0..1224 (13×13 with x-step=2/y-step=100)
+        // encodings the legacy DAL plugin's PtpGridTuneView
+        // documented.
+        if let rMin = prop.rangeMin?.intValue,
+           let rMax = prop.rangeMax?.intValue,
+           rMin == 0, (rMax == 168 || rMax == 1224) {
             return .grid2D(rangeMax: rMax)
         }
-        // Anything else falls back to the 1D inline bar.
-        return .bar1D(rangeMin: rMin, rangeMax: rMax)
+
+        // 1D bar — collect the selectable values for this tune.
+        // Prefer the camera's explicit enum (Canon EOS reports
+        // each ±step as a discrete entry); fall back to synthesising
+        // an evenly-spaced 13-cell strip from the property's range
+        // form (Sony 0..255 tunes don't enumerate every UInt8).
+        let values: [Int]
+        if let enumValues = prop.enumValues, enumValues.count >= 2 {
+            values = enumValues
+                .map { signedIntValue(rawUInt32: $0.uint32Value, dataType: prop.dataType) }
+                .sorted()
+        } else if let rMin = prop.rangeMin?.intValue,
+                  let rMax = prop.rangeMax?.intValue,
+                  rMax > rMin {
+            // 13 evenly-spaced cells across the range — keeps the
+            // Sony G-M / A-B bars compact instead of stretching to
+            // 256 cells.
+            let cells = 13
+            values = (0..<cells).map { idx in
+                rMin + ((rMax - rMin) * idx) / (cells - 1)
+            }
+        } else {
+            return nil
+        }
+        return .bar1D(values: values)
+    }
+}
+
+/// Reinterpret an unsigned PTP-wire value back to its signed
+/// counterpart when the property's `dataType` says so. Enum lists
+/// arrive as `[NSNumber]` of `uint32Value`s, but signed tune offsets
+/// like Canon's WhiteBalanceAdjustA (Int16, range -9..+9) come
+/// across as 0xFFF7..0x0009 — those need to be sign-extended back
+/// to native Swift `Int` before the strip sorts them, or "-1" sorts
+/// AFTER "+9" and the bar comes out reversed.
+private func signedIntValue(rawUInt32 raw: UInt32, dataType: UInt16) -> Int {
+    // PTP DataType codes: 1=INT8, 3=INT16, 5=INT32. All other
+    // codes are unsigned (UINT8=2 / UINT16=4 / UINT32=6) or
+    // non-numeric — pass through unchanged.
+    switch dataType {
+    case 1: return Int(Int8(bitPattern: UInt8(raw & 0xFF)))
+    case 3: return Int(Int16(bitPattern: UInt16(raw & 0xFFFF)))
+    case 5: return Int(Int32(bitPattern: raw))
+    default: return Int(raw)
     }
 }
 
@@ -671,6 +786,25 @@ extension ExtCamera {
         if vendor == .sony {
             for sonyId in [UInt32(0xD210), UInt32(0xD21C)] {
                 if properties[sonyId] != nil { result.append(sonyId) }
+            }
+        }
+        // Canon EOS: surface the EVF Color Temperature (0xD1B6) and
+        // the WB fine-tune offsets (0xD10C amber-blue, 0xD10D green-
+        // magenta) as sub-chips when the body actually exposes them.
+        // CT is only relevant in Color-Temp WB mode — gate it on
+        // the still-WB slot (0xD10A) reporting a K value (≥ 1000)
+        // rather than a small mode code. The tune offsets are
+        // always shown when present; the camera reports them as
+        // read-only in CT mode and writable in mode-based WB modes,
+        // and the chip pill renders correctly either way.
+        if vendor == .canon {
+            let inColorTemp =
+                (properties[0xD10A]?.value.uint32Value ?? 0) >= 1000
+            if inColorTemp, let ctId = canonColorTemperaturePropertyId {
+                result.append(ctId)
+            }
+            for tuneId in [UInt32(0xD10C), UInt32(0xD10D)] {
+                if properties[tuneId] != nil { result.append(tuneId) }
             }
         }
         return result
@@ -782,6 +916,16 @@ extension ExtCamera {
         postCommand(packed: packed)
     }
 
+    /// Cancels an in-flight autofocus on this camera. Sent on AF
+    /// chip mouse-up (after the press fired `postAutofocusTrigger`)
+    /// so the body releases the shutter-half-press state — Canon
+    /// in particular locks out subsequent `SetPropValueEx` writes
+    /// and LV restart until this release arrives.
+    func postAutofocusCancel() {
+        let packed: UInt64 = UInt64(5) << 56
+        postCommand(packed: packed)
+    }
+
     private func postCommand(packed: UInt64) {
         let slotName   = kDarwinPropertyCmdSlot   + "." + darwinNotifySuffix
         let notifyName = kDarwinCameraPropertyCmd + "." + darwinNotifySuffix
@@ -811,6 +955,13 @@ extension ExtCamera {
         case .nikon, .leica: return true
         case .sony: return properties[0xD2C1] != nil
         case .fuji: return true
+        // Canon EOS bodies support `DoAf` (0x9154); the extension's
+        // `performAutofocus` first issues `AfCancel` (0x9160) to clear
+        // any stuck half-press, then `DoAf`. We don't have the
+        // supportedOps list on the agent side, but every Canon EOS we
+        // care about advertises DoAf — falling through to a real AF
+        // attempt is correct.
+        case .canon: return true
         default: return false
         }
     }
