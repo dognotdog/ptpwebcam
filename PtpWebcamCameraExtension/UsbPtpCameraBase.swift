@@ -109,6 +109,15 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     // exit by at most one frame interval.
     var stopLv      = false
     var closing     = false
+    /// Set by `handleLiveViewTransportError` when it observes
+    /// `kIOUSBPipeStalled`. Read at the top of `runLiveViewPhase`
+    /// to decide whether to issue `transport.clearStalls()` before
+    /// the vendor's STARTLIVEVIEW. Gated because
+    /// `CLEAR_FEATURE(ENDPOINT_HALT)` against a non-halted Nikon
+    /// D800 endpoint puts the body's PTP firmware into an
+    /// error-recovery state (project memory: prior testing during
+    /// the IOKit-USB migration).
+    var liveViewNeedsStallRecovery: Bool = false
     var sessionOpen = false
 
     /// Supported PTP operation codes parsed from GetDeviceInfo.
@@ -516,6 +525,21 @@ class UsbPtpCameraBase: UsbCameraProtocol {
             return
         }
 
+        // Stall recovery is gated to "only when the previous LV
+        // session actually observed a stall" — see the same
+        // gating rule in `handleLiveViewTransportError`. The
+        // Nikon D800's PTP firmware enters an error-recovery state
+        // if `CLEAR_FEATURE(ENDPOINT_HALT)` is sent to a non-halted
+        // endpoint (project memory: prior testing during the
+        // IOKit-USB migration), so we only clear when the flag
+        // says we observed a stall earlier.
+        if liveViewNeedsStallRecovery {
+            cameraLog.fault("LV restart: clearing pipes from prior session stall")
+            transport.clearStalls()
+            _ = transport.drainBulkIn(timeout: 0.05)
+            liveViewNeedsStallRecovery = false
+        }
+
         guard startLiveViewSession() else {
             let reason = liveViewStartError ?? "Live view could not be started. The camera may be in playback mode, asleep, missing a lens, or otherwise refusing the request."
             liveViewStartError = nil
@@ -528,6 +552,12 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         cameraLog.fault("entering live view loop")
         var frameCount = 0
         var pollCounter = 0
+        /// Consecutive transport-error count. Reset on any
+        /// successful round-trip. Used to escalate from a soft
+        /// `clearStalls` recovery to bailing out of the LV loop
+        /// entirely when the USB stack is wedged beyond what stall
+        /// clears can fix.
+        var consecutiveTransportErrors = 0
 
         while !stopLv && !closing {
             autoreleasepool {
@@ -540,6 +570,11 @@ class UsbPtpCameraBase: UsbCameraProtocol {
                 let frameStart = Date()
                 do {
                     if let jpeg = try fetchOneFrame() {
+                        // Any successful frame means the pipe is
+                        // healthy again — clear the recovery
+                        // counter so a *new* burst of stalls gets
+                        // its own full retry budget.
+                        consecutiveTransportErrors = 0
                         frameCount += 1
                         if frameCount == 1 || frameCount == 10 || frameCount % 150 == 0 {
                             cameraLog.fault("frame #\(frameCount, privacy: .public) \(jpeg.count, privacy: .public)B → CMIO")
@@ -548,8 +583,9 @@ class UsbPtpCameraBase: UsbCameraProtocol {
                     }
                 } catch {
                     if !stopLv && !closing {
-                        cameraLog.fault("frame fetch error: \(String(describing: error), privacy: .public) — pausing")
-                        Thread.sleep(forTimeInterval: 0.5)
+                        handleLiveViewTransportError(
+                            error,
+                            consecutiveErrors: &consecutiveTransportErrors)
                     }
                 }
 
@@ -561,6 +597,99 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
         cameraLog.fault("LV loop exited (stopLv=\(self.stopLv, privacy: .public) closing=\(self.closing, privacy: .public))")
         if !closing { stopLiveViewSession() }
+    }
+
+    /// Maximum consecutive `bulkOutFailed` / `bulkInFailed` errors
+    /// the LV loop absorbs before forcing `stopLv`. A single
+    /// successful frame resets the counter.
+    private static let maxConsecutiveLiveViewTransportErrors = 90
+
+    /// Centralised handler for live-view-loop transport failures.
+    ///   1. Log the error. First error in a streak goes to `fault`;
+    ///      subsequent ones in the same streak go to `info` to
+    ///      avoid flooding the default log.
+    ///   2. Bail (set `stopLv`) if the streak crosses
+    ///      `maxConsecutiveLiveViewTransportErrors`.
+    ///   3. If the underlying IOReturn is `kIOUSBPipeStalled`,
+    ///      issue `CLEAR_FEATURE(ENDPOINT_HALT)` on all PTP pipes
+    ///      via `transport.clearStalls()` and drain bulk-IN.
+    ///      Otherwise skip the clear — see the in-body comment for
+    ///      the Nikon D800 firmware behaviour that drives this
+    ///      gating.
+    ///   4. 100 ms back-off before returning to the LV loop.
+    private func handleLiveViewTransportError(
+        _ error: Error,
+        consecutiveErrors: inout Int
+    ) {
+        consecutiveErrors += 1
+        // `Logger`'s `.log(level:)` autoclosure can't capture an
+        // inout — snapshot to a local before logging.
+        let attempts = consecutiveErrors
+        let errDesc = String(describing: error)
+        if attempts == 1 {
+            cameraLog.fault("frame fetch error #\(attempts, privacy: .public): \(errDesc, privacy: .public)")
+        } else {
+            cameraLog.info("frame fetch error #\(attempts, privacy: .public): \(errDesc, privacy: .public)")
+        }
+
+        if attempts > Self.maxConsecutiveLiveViewTransportErrors {
+            cameraLog.fault("LV loop bailing — \(attempts, privacy: .public) consecutive transport errors")
+            stopLv = true
+            return
+        }
+
+        // ClearStalls is gated to `kIOUSBPipeStalled` only. On the
+        // Nikon D800, calling `CLEAR_FEATURE(ENDPOINT_HALT)`
+        // against a non-halted endpoint puts the body's PTP
+        // firmware into an error-recovery state that then refuses
+        // OPEN_SESSION and STARTLIVEVIEW (project memory: prior
+        // testing during the IOKit-USB migration; see
+        // `liveViewNeedsStallRecovery` comment). The transport
+        // already issues `CancelTransaction` on the bulk-IN timeout
+        // path (`UsbPtpTransport.sendPtpCommand`), which is the
+        // appropriate cleanup for `kIOReturnNotResponding`.
+        let ioReturn = Self.ioReturnCode(from: error)
+        if ioReturn == IOUSBReturns.pipeStalled {
+            liveViewNeedsStallRecovery = true
+            transport.clearStalls()
+            _ = transport.drainBulkIn(timeout: 0.05)
+        } else if attempts == 1 {
+            // Log the raw IOReturn on the first error in a streak
+            // so the failure mode (stall vs. silence timeout vs.
+            // other) is identifiable from the log.
+            cameraLog.fault("LV error IOReturn=0x\(String(UInt32(bitPattern: ioReturn), radix:16), privacy: .public) — no stall clear (pipe not halted)")
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    /// IOReturn codes from IOUSBHost we explicitly act on,
+    /// hard-coded rather than imported via a bridging header.
+    private enum IOUSBReturns {
+        /// `kIOUSBPipeStalled` (0xE000404F as unsigned, encoded as
+        /// `Int32` here). Recovered with
+        /// `CLEAR_FEATURE(ENDPOINT_HALT)`.
+        static let pipeStalled: Int32 = -536854449
+    }
+
+    /// Extract the underlying `IOReturn` code from a transport
+    /// error. IOUSBHost reports `IOReturn` codes as
+    /// `NSError(domain: "IOUSBErrorDomain", code: <IOReturn>)`;
+    /// our transport wraps that into `UsbPtpError.bulkOutFailed` /
+    /// `.bulkInFailed` / `.openFailed`. Returns 0 if the error
+    /// isn't from the IOUSBHost framework, which routes the caller
+    /// down the no-clear path.
+    private static func ioReturnCode(from error: Error) -> Int32 {
+        let underlying: Error
+        switch error as? UsbPtpError {
+        case .bulkOutFailed(let e), .bulkInFailed(let e),
+             .openFailed(let e):
+            underlying = e
+        default:
+            underlying = error
+        }
+        let ns = underlying as NSError
+        guard ns.domain == "IOUSBErrorDomain" else { return 0 }
+        return Int32(truncatingIfNeeded: ns.code)
     }
 
     // MARK: - Pending-set drain
