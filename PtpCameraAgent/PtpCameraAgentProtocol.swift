@@ -55,6 +55,126 @@ let kDarwinCameraPropertyState = "org.ptpwebcam.darwin.PropertyState"
 let kDarwinPropertySlotPrefix  = "org.ptpwebcam.darwin.prop."
 let kDarwinPropertySlotCount   = 2048
 
+// MARK: - Stream protocol (replaces kDarwinCameraPropertyState / paged slots)
+//
+// Streams arbitrary-length binary payloads over a 256-slot Darwin notify
+// chain. The slot INDEX implicitly encodes a per-page sequence number
+// (0..255), so each slot carries a full 8 bytes of payload — no
+// in-band sequence byte is required.
+//
+//   Slots 0..254: data (8 bytes each).
+//   Slot 255    : checkpoint, packed as:
+//                   bits  0..31  CRC-32 over the cumulative dataset
+//                                up to (and including) this page.
+//                   bits 32..55  page index (24 bits).
+//                   bits 56..63  reserved (must be zero).
+//
+// Each slot has its own Darwin notify name, so the kernel does NOT
+// coalesce posts across slot boundaries within a single page — every
+// slot write the publisher emits triggers exactly one receiver
+// dispatch. Cross-page coalescing on the same slot name CAN still
+// occur if the receiver hasn't drained the prior page's post for that
+// slot before the publisher writes the next page; the NACK / CRC
+// loop handles that case (see below).
+//
+// A "page" carries `kStreamDataSlotCount * 8 = 2040` bytes of
+// payload. After each page the publisher writes the checkpoint slot
+// (slot 255) with the post-page CRC and page index.
+//
+// Special page indices, written into the checkpoint slot:
+//   • kStreamPageEndOfStream (0xFFFFFF) — sent as both the FIRST
+//     packet (start-of-transmission) and the LAST packet
+//     (end-of-transmission). The receiver resets all stream state
+//     on observing this marker.
+//   • kStreamPageRetransmitStart (0xFFFFFE) — sent before a NACK-
+//     triggered retransmit so the receiver knows the upcoming page
+//     is a retransmission (not the next forward page).
+//   • 0..0xFFFFFD — normal monotonically increasing page indices.
+//
+// Retransmission: the receiver writes the failing page index into
+// kDarwinCameraStreamNackSlot and posts kDarwinCameraStreamNack.
+// The publisher retransmits starting with the page BEFORE the
+// NACK'd one (giving the receiver a fresh baseline page) and
+// continues forward through the rest of the dataset. The publisher
+// retains transmitted-page data up to the most recent retransmit
+// origin so it can satisfy the rewind. Stale NACKs (page index
+// outside the current transmission's range) are dropped.
+//
+// Camera multiplexing: the channel is shared. Different cameras'
+// transmissions serialise via the extension's `publishQueue`. The
+// payload itself disambiguates ("id" field in the JSON).
+let kDarwinCameraStreamSlotPrefix = "org.ptpwebcam.darwin.cs.slot."
+let kDarwinCameraStreamSlotCount  = 256
+let kDarwinCameraStreamNack       = "org.ptpwebcam.darwin.cs.nack"
+let kDarwinCameraStreamNackSlot   = "org.ptpwebcam.darwin.cs.nack.slot"
+/// Control-marker notify names + slots. Each control event
+/// (transmission start, transmission end, retransmit start)
+/// gets its OWN notify name, and never reuses the page-
+/// checkpoint slot. Without this, a 1-page transmission posts
+/// `slot.255` three times — start marker, page-0 checkpoint,
+/// end marker — and the kernel coalesces them into a single
+/// dispatch whose handler reads the latest slot value, losing
+/// the start/end transitions entirely. With one name per
+/// control type, each marker name is posted at most once per
+/// transmission, so there's no same-name coalescing window.
+let kDarwinCameraStreamStart        = "org.ptpwebcam.darwin.cs.start"
+let kDarwinCameraStreamStartSlot    = "org.ptpwebcam.darwin.cs.start.slot"
+let kDarwinCameraStreamEnd          = "org.ptpwebcam.darwin.cs.end"
+let kDarwinCameraStreamEndSlot      = "org.ptpwebcam.darwin.cs.end.slot"
+let kDarwinCameraStreamRetransmit   = "org.ptpwebcam.darwin.cs.retx"
+let kDarwinCameraStreamRetransmitSlot = "org.ptpwebcam.darwin.cs.retx.slot"
+
+/// Slot 255 in the chain is the page checkpoint; the other 255
+/// carry data. Control markers (start, end, retransmit) live
+/// on their own notify names above (NOT in this slot).
+let kStreamDataSlotCount   = 255
+let kStreamCheckpointIndex = 255
+/// Payload bytes per page = 255 data slots × 8 bytes.
+let kStreamPageSize        = kStreamDataSlotCount * 8
+
+/// Maximum page index encodable in the 24-bit page-index field of
+/// the page-checkpoint slot. Reserved markers
+/// `kStreamPageEndOfStream` / `kStreamPageRetransmitStart` are
+/// now only kept around for backwards-compatibility readers; the
+/// active protocol uses the per-name control slots above to
+/// signal start, end, and retransmit.
+let kStreamPageEndOfStream    : UInt32 = 0xFFFFFF
+let kStreamPageRetransmitStart: UInt32 = 0xFFFFFE
+let kStreamPageMaxNormal      : UInt32 = 0xFFFFFD
+
+/// Pack/unpack helpers for the 64-bit checkpoint slot value.
+@inlinable
+func packStreamCheckpoint(page: UInt32, crc: UInt32) -> UInt64 {
+    let pageBits = UInt64(page & 0xFFFFFF) << 32
+    return UInt64(crc) | pageBits
+}
+
+@inlinable
+func unpackStreamCheckpoint(_ value: UInt64) -> (page: UInt32, crc: UInt32) {
+    let crc  = UInt32(value & 0xFFFFFFFF)
+    let page = UInt32((value >> 32) & 0xFFFFFF)
+    return (page, crc)
+}
+
+/// CRC-32 (IEEE 802.3 polynomial 0xEDB88320). Shared by the stream
+/// publisher (extension) and receivers (agent + host app) so any
+/// off-by-one in one side will produce a deterministic, debuggable
+/// mismatch on the other. Bitwise (not table-based) — payloads are
+/// in the ~20 KB range and this runs once per page, so the
+/// arithmetic-only form is fast enough and avoids carrying a 1 KB
+/// lookup table around.
+func ptpwebcamCRC32(_ bytes: some Sequence<UInt8>) -> UInt32 {
+    var crc: UInt32 = 0xFFFFFFFF
+    for byte in bytes {
+        crc ^= UInt32(byte)
+        for _ in 0..<8 {
+            let mask = UInt32(0) &- (crc & 1)
+            crc = (crc >> 1) ^ (0xEDB88320 & mask)
+        }
+    }
+    return crc ^ 0xFFFFFFFF
+}
+
 // Agent → Extension: please republish current camera + property state for
 // every connected camera. Posted by the agent on startup, since Darwin
 // notify posts aren't replayed for subscribers that weren't running. The

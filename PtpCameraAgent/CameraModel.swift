@@ -150,6 +150,28 @@ enum SemanticCameraProperty: CaseIterable {
 }
 
 extension ExtCamera {
+    /// Trim a PTP-reported serial for human-readable display.
+    /// Nikon bodies (D800, Z 8, …) report their serial as a fixed-
+    /// width zero-padded decimal string ("000005004922"); strip
+    /// the leading zeros so menus show the form printed on the
+    /// camera body ("5004922"). Other vendors typically use
+    /// alphanumeric serials where leading zeros may be
+    /// significant — leave them untouched. If the input
+    /// trims to empty (an all-zeros serial), return the
+    /// original so the UI still reads as "something odd here"
+    /// instead of a blank.
+    static func displaySerial(serial: String,
+                              vendor: ProtocolFamily) -> String {
+        guard vendor == .nikon, !serial.isEmpty else { return serial }
+        let trimmed = String(serial.drop(while: { $0 == "0" }))
+        return trimmed.isEmpty ? serial : trimmed
+    }
+
+    /// Convenience: trim `self.serial` for display.
+    var displaySerial: String {
+        Self.displaySerial(serial: serial, vendor: vendor)
+    }
+
     /// Returns the propertyId on this camera that fills the given
     /// semantic role, or nil if none of the candidates are present.
     /// Used by the HUD chip layout to decide whether a chip is
@@ -1150,5 +1172,375 @@ final class CameraPropertyStatePageReassembler {
             return completed
         }
         return nil
+    }
+}
+
+// MARK: - Stream receiver
+//
+// Receiver for the protocol defined in `PtpCameraAgentProtocol.swift`'s
+// stream-protocol block. Replaces `CameraPropertyStatePageReassembler`
+// — instead of one notification per *page*, the publisher posts one
+// notification per *slot* (256 distinct notify names per page, each
+// 8 bytes of payload), which removes intra-page coalescing entirely.
+// Cross-page coalescing on the same slot name is the remaining
+// failure mode; the CRC at each checkpoint catches it, the receiver
+// NACKs the failing page, and the publisher retransmits from the
+// page before (so the receiver has a known-good baseline).
+//
+// Usage shape:
+//
+//     let receiver = CameraStreamReceiver(queue: serialBackgroundQueue)
+//     receiver.onPayload = { data in /* one full transmission */ }
+//     receiver.start()
+//
+// The receiver registers 256 dispatch handlers (one per slot name)
+// on `queue`, plus the NACK send-side. `queue` must be serial — the
+// per-slot handlers all read and mutate the same receive-buffer.
+
+final class CameraStreamReceiver {
+    /// Fired on the receiver's queue when a full transmission has
+    /// been validated (bracketing 0xFFFFFF end-of-stream marker
+    /// received, all interim CRCs passed). The closure runs
+    /// before the receiver returns to idle, so a callback that
+    /// stages work for the main queue should `DispatchQueue.main.async`
+    /// to itself.
+    var onPayload: ((Data) -> Void)?
+
+    /// Optional callback for fault-level logging (CRC mismatches,
+    /// stream resets, NACK send failures). Keeps the receiver free
+    /// of an OSLog dependency so both targets can plug in their
+    /// own logging.
+    var onError: ((String) -> Void)?
+
+    /// Serial queue all slot dispatches run on. Required to be
+    /// serial — the per-slot handlers share the in-flight buffer
+    /// without their own locking.
+    private let queue: DispatchQueue
+
+    // MARK: Token tables
+
+    private var slotTokens: [Int32] = []
+    private var slotRegistered = false
+    private var nackSlotToken:   Int32 = 0
+    /// Held for the receiver's lifetime so the per-slot dispatch
+    /// closures stay alive.
+    private var slotNotifyTokens: [Int32] = []
+    /// Per-marker control slot tokens (start / end / retransmit).
+    /// Each control type has its own notify name so two control
+    /// posts within the same transmission can't coalesce against
+    /// each other.
+    private var startSlotToken: Int32 = 0
+    private var endSlotToken:   Int32 = 0
+    private var retxSlotToken:  Int32 = 0
+    private var startNotifyToken: Int32 = 0
+    private var endNotifyToken:   Int32 = 0
+    private var retxNotifyToken:  Int32 = 0
+
+    // MARK: Stream state
+    //
+    // All accessed only from `queue` (or the init path, before
+    // dispatches can fire). No additional locking needed.
+
+    private enum State {
+        case idle               // haven't seen a start marker yet
+        case receiving          // mid-transmission, accumulating pages
+        case retransmitWaiting  // saw 0xFFFFFE marker; next page replaces buffer from that page onward
+    }
+    private var state: State = .idle
+    /// Bytes confirmed by a passing checkpoint (immutable prefix
+    /// of the current transmission's full payload).
+    private var validatedPrefix: Data = Data()
+    /// Page index that the publisher most recently committed to
+    /// `validatedPrefix`. -1 == none yet (we're at the start).
+    private var lastValidatedPage: Int32 = -1
+    /// Expected total payload length, captured from the
+    /// start-of-stream marker (whose 32-bit "crc" field is
+    /// repurposed to carry `data.count`). Used to compute the
+    /// actual byte count of each page (in particular the final,
+    /// possibly-partial page) so the receiver's per-page CRC
+    /// input matches the publisher's `data.prefix(pageEnd)`.
+    private var expectedTotalLength: Int = 0
+    /// Stamp (low 32 bits) captured from the start marker. Echoed
+    /// back in the high 32 bits of any NACK we send so the
+    /// publisher can reject a NACK whose stamp doesn't match its
+    /// CURRENT transmission — that case arises when two publishes
+    /// happen back-to-back: we NACK page N of publish 1, but by
+    /// the time the publisher's NACK handler runs, publish 2 has
+    /// replaced `currentData`. Without the stamp guard the
+    /// publisher retransmits publish 2's pages, which doesn't
+    /// match what we were tracking, so we NACK again — forever.
+    private var currentStreamStamp: UInt32 = 0
+    /// Working buffer for the page in progress. Sized to
+    /// `kStreamPageSize`; filled by per-slot dispatches as they
+    /// fire, then either appended to `validatedPrefix` (CRC pass)
+    /// or discarded (CRC fail → NACK).
+    private var pendingPage = Data(count: kStreamPageSize)
+
+    // MARK: Init
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    /// Register all notify tokens and start handling stream
+    /// posts on `queue`. Safe to call once per instance.
+    func start() {
+        guard !slotRegistered else { return }
+        slotRegistered = true
+
+        slotTokens.reserveCapacity(kDarwinCameraStreamSlotCount)
+        slotNotifyTokens.reserveCapacity(kDarwinCameraStreamSlotCount)
+        for i in 0..<kDarwinCameraStreamSlotCount {
+            let name = kDarwinCameraStreamSlotPrefix + "\(i)"
+            var stateToken: Int32 = 0
+            darwin_notify_register_check(name, &stateToken)
+            slotTokens.append(stateToken)
+
+            var dispatchToken: Int32 = 0
+            // Capture `i` by value — the closure body needs the
+            // slot index to know which slot fired (the API
+            // doesn't expose that information at callback time).
+            let slotIdx = i
+            darwin_notify_register_dispatch(name, &dispatchToken, queue) { [weak self] _ in
+                self?.handleSlot(slotIdx)
+            }
+            slotNotifyTokens.append(dispatchToken)
+        }
+
+        // NACK send side: just the state slot. We don't register
+        // a dispatch — the receiver never *listens* on the NACK
+        // channel, only writes to it.
+        darwin_notify_register_check(kDarwinCameraStreamNackSlot, &nackSlotToken)
+
+        // Control-marker channels (one notify name per marker
+        // type) — listen for each independently so the receiver
+        // can never miss a start/end transition to a coalesced
+        // post on the page-checkpoint slot.
+        darwin_notify_register_check(kDarwinCameraStreamStartSlot, &startSlotToken)
+        darwin_notify_register_check(kDarwinCameraStreamEndSlot,   &endSlotToken)
+        darwin_notify_register_check(kDarwinCameraStreamRetransmitSlot, &retxSlotToken)
+        darwin_notify_register_dispatch(kDarwinCameraStreamStart,
+                                         &startNotifyToken, queue) { [weak self] _ in
+            self?.handleStartMarker()
+        }
+        darwin_notify_register_dispatch(kDarwinCameraStreamEnd,
+                                         &endNotifyToken, queue) { [weak self] _ in
+            self?.handleEndMarker()
+        }
+        darwin_notify_register_dispatch(kDarwinCameraStreamRetransmit,
+                                         &retxNotifyToken, queue) { [weak self] _ in
+            self?.handleRetransmitMarker()
+        }
+    }
+
+    // MARK: - Per-slot handler
+
+    private func handleSlot(_ slotIdx: Int) {
+        // Read the slot's current value. The publisher posts the
+        // slot's notify *after* `darwin_notify_set_state`, so by
+        // the time our dispatch runs the value is the page's
+        // contribution to this slot.
+        var value: UInt64 = 0
+        darwin_notify_get_state(slotTokens[slotIdx], &value)
+
+        if slotIdx == kStreamCheckpointIndex {
+            handleCheckpoint(value: value)
+        } else {
+            handleDataSlot(slotIdx: slotIdx, value: value)
+        }
+    }
+
+    private func handleDataSlot(slotIdx: Int, value: UInt64) {
+        // While idle or waiting for retransmit re-baseline, we
+        // still capture data into the working buffer — the
+        // checkpoint that follows will tell us how to interpret
+        // it. (Idle data-slot fires can happen if a publisher's
+        // earlier start-of-stream marker was lost to coalescing;
+        // we recover when the next checkpoint arrives.)
+        let offset = slotIdx * 8
+        let count = pendingPage.count
+        guard offset + 8 <= count else { return }
+        pendingPage.withUnsafeMutableBytes { ptr in
+            var v = value
+            memcpy(ptr.baseAddress! + offset, &v, 8)
+        }
+    }
+
+    private func handleCheckpoint(value: UInt64) {
+        let (page, crc) = unpackStreamCheckpoint(value)
+        // Control markers (start/end/retransmit) live on their
+        // own notify names now — this slot only carries numbered
+        // page checkpoints. The kStreamPageEndOfStream and
+        // kStreamPageRetransmitStart sentinel constants remain in
+        // the page-index field as defensive guards: reject them
+        // here so a stale state-slot value (left over from an
+        // earlier protocol version, or set by mistake) can't
+        // corrupt the stream.
+        guard page <= kStreamPageMaxNormal else {
+            onError?("CameraStreamReceiver: rejecting reserved page=\(String(format: "%08x", page)) in checkpoint slot — control markers should arrive on the dedicated notify names")
+            return
+        }
+        handleNumberedCheckpoint(page: page, crc: crc)
+    }
+
+    /// Dispatched when `kDarwinCameraStreamStart` fires. Resets
+    /// receiver state for a fresh transmission and captures the
+    /// publisher's declared `totalLength`.
+    private func handleStartMarker() {
+        var v: UInt64 = 0
+        darwin_notify_get_state(startSlotToken, &v)
+        let totalLength = Int(UInt32(v & 0xFFFFFFFF))
+        let stamp = UInt32(truncatingIfNeeded: v >> 32)
+        resetForNewStream()
+        expectedTotalLength = totalLength
+        currentStreamStamp = stamp
+        state = .receiving
+    }
+
+    /// Dispatched when `kDarwinCameraStreamEnd` fires. Hands off
+    /// the validated payload if its length matches the
+    /// publisher's claim and we have a non-empty buffer; resets
+    /// to idle either way so a malformed transmission doesn't
+    /// strand state across the next start marker.
+    private func handleEndMarker() {
+        var v: UInt64 = 0
+        darwin_notify_get_state(endSlotToken, &v)
+        let totalLength = Int(UInt32(v & 0xFFFFFFFF))
+        if state == .receiving,
+           !validatedPrefix.isEmpty,
+           validatedPrefix.count == totalLength {
+            let payload = validatedPrefix
+            onPayload?(payload)
+        } else if state != .idle {
+            onError?("CameraStreamReceiver: end-of-stream length mismatch — got \(validatedPrefix.count) bytes, expected \(totalLength), state=\(state)")
+        }
+        resetForNewStream()
+        state = .idle
+    }
+
+    /// Dispatched when `kDarwinCameraStreamRetransmit` fires.
+    /// The publisher is about to re-send the page indicated in
+    /// the slot value — discard the most recent validated page
+    /// (whose bytes the publisher is about to overwrite) and
+    /// clear the pending-page buffer.
+    private func handleRetransmitMarker() {
+        // A retransmit marker is only meaningful if we're already
+        // tracking a transmission (start marker received,
+        // `expectedTotalLength` known). Without that, accepting
+        // the marker would transition the state machine to
+        // `.retransmitWaiting` with `expectedTotalLength = 0`,
+        // and the next numbered checkpoint would fail
+        // `bytesInPage > 0` and emit a NACK — which the
+        // publisher answers with another retransmit marker,
+        // looping forever. Ignore stale retransmit markers
+        // arriving while idle.
+        guard state != .idle, expectedTotalLength > 0 else { return }
+        var v: UInt64 = 0
+        darwin_notify_get_state(retxSlotToken, &v)
+        let rewindToPage = UInt32(v & 0xFFFFFF)
+        if lastValidatedPage >= 0,
+           Int32(rewindToPage) <= lastValidatedPage {
+            // Discard validated pages down to (rewindToPage - 1).
+            // The publisher's first re-sent page is `rewindToPage`,
+            // so anything from rewindToPage onward in our
+            // validated prefix is about to be replaced.
+            let pagesToDrop = Int(lastValidatedPage) - Int(rewindToPage) + 1
+            let bytesToDrop = pagesToDrop * kStreamPageSize
+            let trimTo = max(0, validatedPrefix.count - bytesToDrop)
+            validatedPrefix.removeSubrange(trimTo..<validatedPrefix.count)
+            lastValidatedPage = Int32(rewindToPage) - 1
+        }
+        zeroPendingPage()
+        state = .retransmitWaiting
+    }
+
+    private func handleNumberedCheckpoint(page: UInt32, crc: UInt32) {
+        // For `.idle` we drop the data — we hadn't seen a start
+        // marker so we don't know what stream this belongs to.
+        // For `.receiving` and `.retransmitWaiting`, append the
+        // pending page's bytes to `validatedPrefix` only if the
+        // cumulative CRC matches.
+        guard state != .idle else {
+            onError?("CameraStreamReceiver: checkpoint page=\(page) while idle — start marker missed?")
+            zeroPendingPage()
+            return
+        }
+
+        // Compute the exact byte count this page contributes
+        // from the start-of-stream `expectedTotalLength`. This is
+        // the same arithmetic the publisher does on its side
+        // (`pageEnd - pageStart`, with `pageEnd = min(pageStart +
+        // kStreamPageSize, data.count)`), so the two CRC inputs
+        // match exactly even when the final page is partial.
+        let pageStart = Int(page) * kStreamPageSize
+        let pageEnd   = min(pageStart + kStreamPageSize, expectedTotalLength)
+        let bytesInPage = pageEnd - pageStart
+        guard bytesInPage > 0 else {
+            onError?("CameraStreamReceiver: checkpoint page=\(page) outside expectedTotalLength=\(expectedTotalLength)")
+            zeroPendingPage()
+            // Deliberately do NOT NACK here. If we were tracking a
+            // real transmission, `bytesInPage` would be positive
+            // (the publisher only emits checkpoints for pages it
+            // sent, and `expectedTotalLength` was set from the
+            // start marker). Reaching this branch means our state
+            // is desynced — NACKing just provokes another
+            // retransmit on a stream we can't validate anyway.
+            // Drop to idle so the next start marker re-syncs us.
+            resetForNewStream()
+            state = .idle
+            return
+        }
+        let pageBytes = pendingPage.prefix(bytesInPage)
+
+        // Append candidate, compute cumulative CRC, validate.
+        var candidate = validatedPrefix
+        candidate.append(pageBytes)
+        let computed = ptpwebcamCRC32(candidate)
+        if computed != crc {
+            onError?("CameraStreamReceiver: CRC mismatch at page=\(page) (computed=\(String(format: "%08x", computed)) expected=\(String(format: "%08x", crc))) — NACKing")
+            zeroPendingPage()
+            sendNack(page: page)
+            return
+        }
+
+        // CRC passed — commit.
+        validatedPrefix = candidate
+        lastValidatedPage = Int32(page)
+        zeroPendingPage()
+        state = .receiving
+    }
+
+    // MARK: - Helpers
+
+    private func resetForNewStream() {
+        validatedPrefix.removeAll(keepingCapacity: true)
+        lastValidatedPage = -1
+        expectedTotalLength = 0
+        zeroPendingPage()
+    }
+
+    private func zeroPendingPage() {
+        // Read `count` outside the closure. Reading `pendingPage.count`
+        // inside `pendingPage.withUnsafeMutableBytes { … }` is a
+        // re-entrant access to the same Swift stored property and
+        // the runtime traps it with "Fatal access conflict detected".
+        let count = pendingPage.count
+        pendingPage.withUnsafeMutableBytes { ptr in
+            memset(ptr.baseAddress!, 0, count)
+        }
+    }
+
+    private func sendNack(page: UInt32) {
+        // Layout: [stamp:32 | reserved:8 | page:24]. The stamp
+        // identifies which transmission this NACK refers to
+        // (captured in `handleStartMarker`); the publisher
+        // rejects the NACK if its currentStamp has advanced past
+        // this value. Without this, a NACK sent against publish
+        // 1 could be answered with retransmits of publish 2's
+        // data — the loop bug we hit in v221.
+        let payload = (UInt64(currentStreamStamp) << 32)
+                    | UInt64(page & 0xFFFFFF)
+        darwin_notify_set_state(nackSlotToken, payload)
+        darwin_notify_post(kDarwinCameraStreamNack)
     }
 }

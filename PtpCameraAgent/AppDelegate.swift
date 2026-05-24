@@ -171,6 +171,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return r
     }()
 
+    /// Stream receiver for the property-state channel — replaces the
+    /// per-page slot chain reassembler above. Runs all 256 slot
+    /// dispatch closures plus the start/end-of-stream and
+    /// retransmit-start handling on a dedicated serial background
+    /// queue. Keeping the queue off `.main` is the whole point:
+    /// `.main` UI contention used to push the legacy paged
+    /// receiver past the publisher's inter-page window, producing
+    /// torn reads on a Nikon Z8's two-page property state.
+    private var propertyStreamReceiver: CameraStreamReceiver?
+    private let propertyStreamQueue = DispatchQueue(
+        label: "org.ptpwebcam.PtpCameraAgent.propstream",
+        qos: .userInteractive)
+
+    /// Connect the stream receiver and route its assembled payloads
+    /// into the existing `processPropertyStateJson` path.
+    private func setupPropertyStateStreamReceiver() {
+        let receiver = CameraStreamReceiver(queue: propertyStreamQueue)
+        receiver.onError = { msg in AppDelegate.error(msg) }
+        receiver.onPayload = { [weak self] data in
+            // Stay off the receiver queue for the menu rebuild +
+            // sticky-replay side effects — those touch AppKit /
+            // `extCameras` state which expects main-thread access.
+            DispatchQueue.main.async { [weak self] in
+                self?.processPropertyStateJson(data)
+            }
+        }
+        receiver.start()
+        propertyStreamReceiver = receiver
+    }
+
     private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -242,19 +272,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         xpcListener.resume()
         AppDelegate.log("PtpCameraAgent: XPC listener started on \(kPtpCameraAgentMachServiceName)")
 
-        // Property state slots: extension publishes camera property JSON here.
-        propSlotTokens = (0..<kDarwinPropertySlotCount).map { i in
-            var token: Int32 = 0
-            darwin_notify_register_check(kDarwinPropertySlotPrefix + "\(i)", &token)
-            return token
-        }
-        // Per-camera claim and property-command channels are registered on-the-fly
-        // in sendClaimCommand / postPropertyCommand (same vid.pid.crc suffix scheme).
-        // Subscribe to property state notifications from extension.
-        var propStateToken: Int32 = 0
-        darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
-            self?.handlePropertyStateChange()
-        }
+        // Property state arrives via the per-slot stream protocol.
+        // The receiver runs on a dedicated background queue (see
+        // doc comment on `propertyStreamReceiver`) so 200+ slot
+        // dispatches per Z8-sized publish don't pile up against
+        // `.main` UI work.
+        setupPropertyStateStreamReceiver()
 
         // Live-view-start failure channel from extension. When the per-vendor
         // `startLiveViewSession` returns false (Nikon prohibit-condition bits,
@@ -791,12 +814,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func handlePropertyStateChange() {
-        // Delegate the slot-chain page reassembly to the shared
-        // `CameraPropertyStatePageReassembler` (in CameraModel.swift).
-        // The host app's CameraPropertyStore uses the same class so the
-        // wire-format logic only exists in one place.
-        guard let completeData = propPageReassembler.handlePage(slotTokens: propSlotTokens) else { return }
-        processPropertyStateJson(completeData)
+        // No-op: the legacy paged kDarwinCameraPropertyState channel is
+        // unused now that property state flows through
+        // `CameraStreamReceiver` (set up in
+        // `setupPropertyStateStreamReceiver()`). Kept around only so
+        // the registration call at applicationDidFinishLaunching can
+        // still bind a non-nil selector during the migration — once
+        // the legacy channel is removed we can drop this too.
     }
 
     private func processPropertyStateJson(_ jsonData: Data) {
@@ -1065,7 +1089,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Experimental bodies — anything not in our verified list — get an
         // "(experimental)" suffix so users know the support hasn't been
         // tested against real hardware and may have gaps or rough edges.
-        let displaySerial = formatSerialForDisplay(camera.serial, vendor: camera.vendor)
+        let displaySerial = camera.displaySerial
         let nameWithSerial = displaySerial.isEmpty
             ? camera.name
             : "\(camera.name) [\(displaySerial)]"
@@ -1557,12 +1581,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return submenu
     }
 
-    /// Trim a camera's PTP-reported serial for display in the menu. Nikon
-    /// bodies (D800, Z 8, …) report their serial as a fixed-width zero-padded
-    /// decimal string ("000005004922"); strip the leading zeros so the
-    /// menu shows the human-readable form printed on the camera body
-    /// ("5004922"). Other vendors typically use alphanumeric serials where
-    /// leading zeros are significant — leave them untouched.
     /// True when a camera is in our verified list — entries we've end-to-end
     /// tested against real hardware. Unknown VID/PID combinations and
     /// known-but-unconfirmed entries fall into "experimental" territory:
@@ -1571,14 +1589,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func isCameraVerified(vid: UInt16, pid: UInt16) -> Bool {
         guard let entry = PtpKnownCameras.lookup(vid: vid, pid: pid) else { return false }
         return entry.confirmed
-    }
-
-    private func formatSerialForDisplay(_ serial: String, vendor: ProtocolFamily) -> String {
-        guard vendor == .nikon, !serial.isEmpty else { return serial }
-        let trimmed = String(serial.drop(while: { $0 == "0" }))
-        // Don't return "" if the camera literally reported all zeros — show
-        // the original so it's obvious something odd is going on.
-        return trimmed.isEmpty ? serial : trimmed
     }
 
     private func formatExtPropValue(_ prop: ExtCameraProperty, vendor: ProtocolFamily = .unknown) -> String {

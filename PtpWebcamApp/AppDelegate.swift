@@ -11,6 +11,7 @@ import ServiceManagement
 import SystemExtensions
 import OSLog
 import AVFoundation
+import Combine
 import StoreKit
 
 @main
@@ -79,6 +80,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		// most useful artifact for adding support for new camera vendors.
 		installPtpDumpMenu()
 		setupPtpDumpSlotSubscriptions()
+		// Install the "Preview Video" submenu alongside it. Same
+		// File-menu submenu pattern as the dump menu: lists the
+		// cameras the extension is currently publishing, click one
+		// to open its preview window.
+		installPreviewVideoMenu()
 		// Request camera access so this app bundle is registered in TCC and appears
 		// in System Settings → Privacy & Security → Camera.
 		AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
@@ -458,6 +464,99 @@ private func openPreview(cameraName: String) {
 	/// resulting text into the GitHub issue flow (clipboard + browser)
 	/// instead of the regular copy/save delivery dialog.
 	private var pendingDumpForIssue: Bool = false
+
+	// MARK: - "Preview Video" submenu
+
+	/// File-menu submenu listing each camera the extension is
+	/// currently publishing. Clicking an entry opens (or focuses)
+	/// the preview window for that camera via the same
+	/// `openPreview(cameraName:)` path the `ptpwebcam://preview`
+	/// URL scheme uses.
+	private var previewMenuItem: NSMenuItem?
+	private var previewSubmenu: NSMenu?
+	/// Combine subscription on `CameraPropertyStore.cameras` —
+	/// rebuilds the submenu live as cameras attach / detach, so
+	/// the menu shows the right state immediately after a
+	/// hotplug without waiting for the next open.
+	private var previewMenuCamerasSubscription: AnyCancellable?
+
+	private func installPreviewVideoMenu() {
+		guard let mainMenu = NSApp.mainMenu,
+		      let fileMenuItem = mainMenu.items.first(where: {
+		          $0.submenu?.title == "File" || $0.title == "File" }),
+		      let fileMenu = fileMenuItem.submenu
+		else { return }
+		// Insert at index 0 so the user-facing "Preview Video"
+		// item sits above the (dev-leaning) PTP-dump submenu.
+		addPreviewItem(to: fileMenu, at: 0)
+		// Live-update on camera attach/detach. The store's
+		// `cameras` @Published republishes on every property-state
+		// page from the extension, so any user-visible change
+		// triggers a rebuild without us subscribing to Darwin
+		// notify ourselves.
+		previewMenuCamerasSubscription =
+			CameraPropertyStore.shared.$cameras
+				.receive(on: DispatchQueue.main)
+				.sink { [weak self] _ in self?.rebuildPreviewSubmenu() }
+	}
+
+	private func addPreviewItem(to menu: NSMenu, at index: Int) {
+		let item = NSMenuItem(
+			title: NSLocalizedString("Preview Video",
+			                         comment: "File menu — submenu listing cameras to preview"),
+			action: nil, keyEquivalent: "")
+		let submenu = NSMenu(title: item.title)
+		submenu.delegate = self  // rebuild on open as a belt-and-braces refresh
+		item.submenu = submenu
+		menu.insertItem(item, at: max(0, min(index, menu.items.count)))
+		previewMenuItem = item
+		previewSubmenu = submenu
+		rebuildPreviewSubmenu()
+	}
+
+	private func rebuildPreviewSubmenu() {
+		guard let submenu = previewSubmenu else { return }
+		submenu.removeAllItems()
+		let cameras = CameraPropertyStore.shared.cameras.values
+			.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+		if cameras.isEmpty {
+			let empty = NSMenuItem(
+				title: NSLocalizedString("No cameras available",
+				                         comment: "Empty state for Preview Video submenu"),
+				action: nil, keyEquivalent: "")
+			empty.isEnabled = false
+			submenu.addItem(empty)
+			return
+		}
+		for cam in cameras {
+			// `<Name> [<serial>]` — same suffix style the agent's
+			// status-bar menu uses (square brackets, vendor-aware
+			// trimming via `ExtCamera.displaySerial`). Skip the
+			// suffix when the extension hasn't published a
+			// serial yet (some cameras don't emit one until their
+			// PTP session is fully open), so the item doesn't
+			// read as `Camera []`.
+			let displaySerial = cam.displaySerial
+			let title = displaySerial.isEmpty
+				? cam.name
+				: "\(cam.name) [\(displaySerial)]"
+			let mi = NSMenuItem(title: title,
+			                    action: #selector(previewVideoClicked(_:)),
+			                    keyEquivalent: "")
+			mi.target = self
+			// Stash the name on the item so the handler doesn't
+			// have to re-look it up via the store at click time
+			// (the user-visible label is the source of truth the
+			// CameraPreviewWindowController matches anyway).
+			mi.representedObject = cam.name
+			submenu.addItem(mi)
+		}
+	}
+
+	@objc private func previewVideoClicked(_ sender: NSMenuItem) {
+		guard let name = sender.representedObject as? String else { return }
+		openPreview(cameraName: name)
+	}
 
 	@objc private func dumpPtpDeviceClicked(_ sender: NSMenuItem) {
 		guard let locationID = sender.representedObject as? UInt32 else { return }
@@ -939,9 +1038,18 @@ private func openPreview(cameraName: String) {
 
 extension AppDelegate: NSMenuDelegate {
 	func menuWillOpen(_ menu: NSMenu) {
-		guard menu === ptpDumpSubmenu else { return }
-		// Re-poll the extension each time the user opens the submenu — covers
-		// the case where they plugged in a new camera since launch.
-		darwin_notify_post(kDarwinPtpDumpDevicesRequest)
+		if menu === ptpDumpSubmenu {
+			// Re-poll the extension each time the user opens the
+			// submenu — covers the case where they plugged in a
+			// new camera since launch.
+			darwin_notify_post(kDarwinPtpDumpDevicesRequest)
+		} else if menu === previewSubmenu {
+			// Belt-and-braces refresh; the Combine subscription on
+			// `CameraPropertyStore.$cameras` already rebuilds live,
+			// but a synchronous rebuild here guarantees the menu
+			// items match the current store state at the exact
+			// moment of opening (no chance of a missed publish).
+			rebuildPreviewSubmenu()
+		}
 	}
 }

@@ -342,6 +342,23 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	// would otherwise overwrite each other in the slots — the kernel coalesces
 	// the `darwin_notify_post` calls and the agent only ever sees the LAST data.
 	private let publishQueue = DispatchQueue(label: "org.ptpwebcam.publish", qos: .userInteractive)
+	// Debounce table for publishPropertyState. A single property-change event
+	// (DEVICEPROPCHANGED, or a confirmation after a SET_PROP) triggers a FULL
+	// republish of the camera's 16+ KB property snapshot via the stream
+	// channel. Nikon Z8 fires several DEVICEPROPCHANGED events immediately
+	// after session open, producing back-to-back 16940-byte transmissions
+	// ~440 ms apart. Two transmissions overlapping in the receiver's drain
+	// window cause torn pages, which trigger NACKs that the publisher's NACK
+	// handler answers against the CURRENT (post-overwrite) data — the
+	// retransmit doesn't match what the receiver was tracking, so the
+	// receiver NACKs again and we spin. Coalescing republishes within a
+	// short window collapses N events into one publish and sidesteps the
+	// overlap entirely. 200 ms is short enough that the user perceives the
+	// menu as responsive (still well under the user's reaction time after
+	// changing a property) and long enough to swallow a Z8's burst of
+	// post-open events.
+	private var pendingPublishWorkItems: [String: DispatchWorkItem] = [:]
+	private static let publishPropertyStateDebounce: TimeInterval = 0.2
 	// Per-camera claim tokens: array of (slotToken, notifyToken) keyed by cameraId.
 	// We may register more than one suffix per camera (initially the USB
 	// descriptor serial, then again with the PTP serial once GetDeviceInfo
@@ -431,6 +448,22 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	// MARK: - Property State (extension → agent)
 
+	/// Coalesce multiple `publishPropertyState` calls for the same camera
+	/// into a single transmission. See `pendingPublishWorkItems` doc
+	/// comment for the back-pressure rationale. Must be called from main
+	/// (matches the existing `onPropertiesDiscovered` dispatch site).
+	private func schedulePublishPropertyState(cameraId: String) {
+		pendingPublishWorkItems[cameraId]?.cancel()
+		let item = DispatchWorkItem { [weak self] in
+			guard let self = self else { return }
+			self.pendingPublishWorkItems[cameraId] = nil
+			self.publishPropertyState(cameraId: cameraId)
+		}
+		pendingPublishWorkItems[cameraId] = item
+		DispatchQueue.main.asyncAfter(deadline: .now() + Self.publishPropertyStateDebounce,
+		                              execute: item)
+	}
+
 	private func publishPropertyState(cameraId: String) {
 		guard let props = cameraProperties[cameraId], !props.isEmpty else { return }
 
@@ -491,7 +524,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		for cameraId in cameraIdentity.keys {
 			publishCameraConnected(cameraId: cameraId)
 			if cameraProperties[cameraId]?.isEmpty == false {
-				publishPropertyState(cameraId: cameraId)
+				schedulePublishPropertyState(cameraId: cameraId)
 			}
 		}
 	}
@@ -535,14 +568,20 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 
 	private func writeJsonToPropertySlots(_ jsonData: Data) {
 		// Hand off to the publish queue so consecutive publishes don't overwrite
-		// each other's slots before the agent's notification handler can read.
+		// each other's slots before the receiver has finished reading the
+		// previous transmission. The stream publisher serialises slot writes
+		// per-page; the publishQueue serialises whole transmissions across
+		// cameras.
 		publishQueue.async { [weak self] in
-			guard let self else { return }
-			self.publishBytesViaSlotChain(jsonData,
-			                              tokens: self.propSlotTokens,
-			                              notificationName: kDarwinCameraPropertyState)
+			self?.streamPublisher.transmit(jsonData)
 		}
 	}
+
+	/// Lazy because the provider's stored property block runs before
+	/// any property-state publish, and the publisher's `init` registers
+	/// notify tokens / dispatch closures that should only live once
+	/// per process.
+	private lazy var streamPublisher = CameraStreamPublisher()
 
 	/// Per-page delay between `darwin_notify_post` calls. Gives the agent's
 	/// `.main`-queue notification handler time to drain each post — without
@@ -852,7 +891,7 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 					                                    pid: existing.pid,
 					                                    serial: ptpSerial)
 				}
-				self.publishPropertyState(cameraId: cameraId)
+				self.schedulePublishPropertyState(cameraId: cameraId)
 			}
 		}
 

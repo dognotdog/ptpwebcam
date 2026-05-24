@@ -37,37 +37,25 @@ final class CameraPropertyStore: ObservableObject {
     /// Tokens registered with notifyd. Kept alive for the process
     /// lifetime — no unsubscribe path since this is a singleton tied
     /// to the host-app process.
-    private var propSlotTokens: [Int32] = []
-    private var propStateToken: Int32 = 0
-
-    /// Reassembles the slot-chain pages into one JSON blob per publish.
-    /// Same class the agent uses (see CameraModel.swift) so any bug in
-    /// the wire format gets fixed in one place.
-    private let reassembler: CameraPropertyStatePageReassembler
+    /// Stream receiver for the property-state channel. Replaces the
+    /// per-page slot-chain reassembler that used to live here; the
+    /// per-slot-notify stream protocol removes the inter-page
+    /// coalescing window that was producing torn reads under
+    /// `.main` UI contention.
+    private var streamReceiver: CameraStreamReceiver?
+    private let receiverQueue = DispatchQueue(
+        label: "org.ptpwebcam.PtpWebcamApp.CameraPropertyStore.receiver",
+        qos: .userInteractive)
 
     private init() {
-        let r = CameraPropertyStatePageReassembler()
         let log = self.logger
-        r.onError = { msg in log.error("\(msg, privacy: .public)") }
-        self.reassembler = r
-
-        // Register every property-state slot for reads (we don't get
-        // dispatched on slot writes — only on the parent notify name —
-        // but `darwin_notify_get_state` needs a token per slot).
-        for i in 0..<kDarwinPropertySlotCount {
-            var token: Int32 = 0
-            darwin_notify_register_check(kDarwinPropertySlotPrefix + "\(i)", &token)
-            propSlotTokens.append(token)
+        let receiver = CameraStreamReceiver(queue: receiverQueue)
+        receiver.onError = { msg in log.error("\(msg, privacy: .public)") }
+        receiver.onPayload = { [weak self] payload in
+            self?.handlePayload(payload)
         }
-
-        // Subscribe to the publish notification — fired by the
-        // extension once per page during a state update. The handler
-        // pulls slot values and feeds them to the reassembler;
-        // when the reassembler returns a complete payload we parse +
-        // republish on the main queue (caller dispatch is .main).
-        darwin_notify_register_dispatch(kDarwinCameraPropertyState, &propStateToken, .main) { [weak self] _ in
-            self?.handlePage()
-        }
+        receiver.start()
+        self.streamReceiver = receiver
 
         // The extension only sends camera state on attach / on change,
         // and Darwin notify doesn't replay for late subscribers. If the
@@ -80,15 +68,23 @@ final class CameraPropertyStore: ObservableObject {
         }
     }
 
-    private func handlePage() {
-        guard let payload = reassembler.handlePage(slotTokens: propSlotTokens) else { return }
-        switch ExtCamera.parse(jsonData: payload) {
-        case .invalid:
-            logger.error("invalid property-state JSON payload (\(payload.count) bytes)")
-        case .disconnected(let cameraId):
-            cameras.removeValue(forKey: cameraId)
-        case .camera(let cam):
-            cameras[cam.cameraId] = cam
+    /// Called on `receiverQueue` once `CameraStreamReceiver` has a
+    /// fully-validated transmission to hand off. Parses the JSON
+    /// here (heavy work off `.main`), then dispatches the
+    /// `@Published` mutation back to `.main` for SwiftUI / Combine
+    /// observers.
+    private func handlePayload(_ payload: Data) {
+        let result = ExtCamera.parse(jsonData: payload)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch result {
+            case .invalid:
+                self.logger.error("invalid property-state JSON payload (\(payload.count) bytes)")
+            case .disconnected(let cameraId):
+                self.cameras.removeValue(forKey: cameraId)
+            case .camera(let cam):
+                self.cameras[cam.cameraId] = cam
+            }
         }
     }
 
