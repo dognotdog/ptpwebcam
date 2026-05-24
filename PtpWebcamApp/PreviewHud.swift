@@ -90,12 +90,42 @@ private struct ChipSlideIn: ViewModifier {
     }
 }
 
+// MARK: - Width measurement
+
+/// `GeometryReader`-backed width observer. Lives as the
+/// `.background` of whatever view we want to measure; the inner
+/// `Color.clear` writes the current width into `@Binding width`
+/// via `.onAppear` + `.onChange(of: width)`. Bypasses
+/// `PreferenceKey` / `onPreferenceChange`, which were not
+/// delivering values inside the `NSHostingView` setup the
+/// preview window uses for the HUD (Probes A, C, and D in the
+/// previous iteration all confirmed the observer never saw
+/// values past the initial default).
+private struct WidthReader: View {
+    @Binding var width: CGFloat
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear { width = geo.size.width }
+                .onChange(of: geo.size.width) { newValue in
+                    width = newValue
+                }
+        }
+    }
+}
+
 // MARK: - View
 
 struct PreviewHud: View {
     let camera: ExtCamera?
     let layout: HudLayout
     let visible: Bool
+    /// Display name to show in the top-left of the HUD, just past
+    /// the traffic-light cluster. Passed in from the controller
+    /// rather than read off `camera.name` so the window still
+    /// labels itself before the camera has been claimed (when
+    /// `camera` is still nil).
+    let cameraName: String
 
     /// PTP id of the chip currently expanded into the inline value
     /// wheel. `nil` = all chips collapsed. At most one chip can be
@@ -109,8 +139,58 @@ struct PreviewHud: View {
     /// Sony G-M 0xD210, etc.) that don't map to the semantic enum.
     @State private var expandedPropId: UInt32? = nil
 
+    /// Insets that position the chip rows and the camera-name
+    /// label inside the borderless preview window.
+    /// The top row aligns vertically with the traffic-light
+    /// buttons under the `.fullSizeContentView` setup (see
+    /// `CameraPreviewWindowController.init`). The buttons sit at
+    /// the standard macOS position in the top-left corner with
+    /// the cluster's vertical centre at ~18 pt from the window
+    /// top; placing the chips at `topChipInset = 9 pt` lines them
+    /// up so the row reads as one inline strip alongside the
+    /// buttons.
+    private static let topChipInset:    CGFloat = 9
+    private static let bottomChipInset: CGFloat = 12
+    private static let sideChipInset:   CGFloat = 12
+    /// Horizontal clearance for the traffic-light cluster
+    /// (close + minimize + zoom). Apple lays the three buttons
+    /// out at ~10 pt from the left edge and the cluster ends at
+    /// ~74 pt; we round up to 78 pt to give the camera-name label
+    /// a small gap from the last button.
+    private static let trafficLightWidth: CGFloat = 78
+    /// Minimum visual gap to leave between the right edge of the
+    /// camera-name pill and the left edge of the top chip row when
+    /// the window is just-barely wide enough to fit both. Below
+    /// that the name is hidden until the user widens the window.
+    private static let cameraNameGap: CGFloat = 12
+
+    /// Measured pill widths used to decide camera-name visibility.
+    /// Populated via background `GeometryReader` +
+    /// `PreferenceKey` (see `CameraNameWidthKey` /
+    /// `TopChipRowWidthKey`), so the layout reacts to the actual
+    /// rendered sizes — important because the chip row's width
+    /// depends on which roles the current camera exposes.
+    @State private var cameraNameWidth: CGFloat = 0
+    @State private var topChipRowWidth:  CGFloat = 0
+
+    /// Returns true when the camera-name pill can sit at
+    /// `[trafficLightWidth … trafficLightWidth + cameraNameWidth]`
+    /// without entering the area occupied by the centred top chip
+    /// row. Before either width has been measured (initial frame)
+    /// we treat the name as visible — the preference-change
+    /// callback corrects it on the next pass and the
+    /// `.animation(value: nameFits)` modifier interpolates the
+    /// transition.
+    private func cameraNameFits(containerWidth: CGFloat) -> Bool {
+        guard topChipRowWidth > 0 else { return true }
+        let chipsLeftEdge = (containerWidth - topChipRowWidth) / 2
+        let nameRightEdge = Self.trafficLightWidth + cameraNameWidth
+        return nameRightEdge + Self.cameraNameGap <= chipsLeftEdge
+    }
+
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { geo in
+            let nameFits = cameraNameFits(containerWidth: geo.size.width)
             // The transparent background must NOT swallow mouse events
             // or empty-area clicks inside the preview would never reach
             // PreviewView.mouseDown for the HUD-visibility toggle. The
@@ -118,10 +198,52 @@ struct PreviewHud: View {
             // of this disabled-hit-test layer, so they remain tappable.
             Color.clear
                 .allowsHitTesting(false)
-                .overlay(alignment: .top)    { chipGroup(for: layout.top, edge: .top) }
-                .overlay(alignment: .bottom) { chipGroup(for: layout.bottom, edge: .bottom) }
-                .padding(12)
+                // Camera name pinned to the top-left, past the
+                // traffic-light cluster. Lives in its own overlay
+                // so it doesn't compete with `chipGroup` for the
+                // top-row HStack's horizontal layout.
+                .overlay(alignment: .topLeading) {
+                    cameraNameLabel
+                        .background(
+                            WidthReader(width: $cameraNameWidth))
+                        .padding(.leading, Self.trafficLightWidth)
+                        .padding(.top, Self.topChipInset)
+                        // Hide (not remove) when the name would
+                        // collide with the centred chip row. The
+                        // label stays in the tree so its
+                        // `WidthReader` keeps reporting an
+                        // accurate width on resize — once the
+                        // window grows past the threshold,
+                        // `nameFits` flips back to true and the
+                        // opacity animation fades it in.
+                        .opacity(nameFits ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.18),
+                                   value: nameFits)
+                }
+                .overlay(alignment: .top) {
+                    chipGroup(for: layout.top, edge: .top,
+                              widthBinding: $topChipRowWidth)
+                        .padding(.top, Self.topChipInset)
+                        .padding(.horizontal, Self.sideChipInset)
+                }
+                .overlay(alignment: .bottom) {
+                    chipGroup(for: layout.bottom, edge: .bottom)
+                        .padding(.bottom, Self.bottomChipInset)
+                        .padding(.horizontal, Self.sideChipInset)
+                }
         }
+        // The window uses `.fullSizeContentView`, which means the
+        // hosting `NSHostingView` covers the area underneath the
+        // (transparent) titlebar too. SwiftUI's default behaviour is
+        // to treat that titlebar strip as a top safe-area inset and
+        // push content past it — that's the inset the chips and
+        // camera-name label were getting placed against (visually
+        // ~28 pt below the window's top), instead of next to the
+        // traffic-light buttons. Ignoring the safe area lets the
+        // chip rows position themselves directly against the
+        // window's top edge, the same coordinate space as the
+        // standard window buttons.
+        .ignoresSafeArea(.all)
         // Collapse any expanded chip whenever the HUD hides so the
         // next show starts clean. Single-parameter `onChange` overload
         // keeps us compatible with macOS 13.5 (current deployment).
@@ -160,9 +282,41 @@ struct PreviewHud: View {
     /// block. The "fade in" we used to have was a single opacity
     /// modifier on the outer container; that fades the *whole HUD*
     /// at once which loses the row's structure on appearance.
+    /// Inner text-height for chip labels, mirrored from
+    /// `ChipPill.chipHeight`. Used by `cameraNameLabel` so the
+    /// name renders at the exact same dimensions as the chips.
+    private static let chipInnerHeight: CGFloat = 18
+
+    /// Camera-name label rendered top-left next to the traffic-light
+    /// buttons. Styled like a chip *value* (the text in the wheel
+    /// slot), not a chip label: `.callout.monospacedDigit().bold()`
+    /// at full `.primary` foreground, sitting in the same outer
+    /// capsule chrome as a non-interactive chip. The camera name
+    /// reads as the prominent identifier of the window, not as a
+    /// secondary tag for some other value.
+    @ViewBuilder
+    private var cameraNameLabel: some View {
+        Text(cameraName)
+            .font(.callout.monospacedDigit().bold())
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(height: Self.chipInnerHeight)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+            .opacity(0.65)
+            .modifier(ChipSlideIn(visible: visible,
+                                  index: 0,
+                                  edge: .top,
+                                  distance: Self.chipSlideDistance,
+                                  stagger: Self.chipSlideStagger,
+                                  duration: Self.chipSlideDuration))
+    }
+
     @ViewBuilder
     private func chipGroup(for roles: [SemanticCameraProperty],
-                           edge: VerticalEdge) -> some View {
+                           edge: VerticalEdge,
+                           widthBinding: Binding<CGFloat>? = nil) -> some View {
         if let cam = camera {
             let plan = chipPlan(for: roles, camera: cam)
             if !plan.isEmpty {
@@ -191,6 +345,22 @@ struct PreviewHud: View {
                 // instead of sliding.
                 .animation(.easeInOut(duration: 0.22),
                            value: cam.property(for: .whiteBalance)?.value.uint32Value)
+                // Optional width measurement for the camera-name
+                // overlap check. The `WidthReader` writes the
+                // HStack's rendered width directly into the
+                // caller's `@State` binding via `.onAppear` /
+                // `.onChange(of: geo.size.width)` — no
+                // `PreferenceKey` involved, since
+                // PreferenceKey-based observers were not
+                // delivering values in the `NSHostingView` host
+                // we use for the HUD overlay.
+                .background(
+                    Group {
+                        if let widthBinding {
+                            WidthReader(width: widthBinding)
+                        }
+                    }
+                )
             }
         }
     }

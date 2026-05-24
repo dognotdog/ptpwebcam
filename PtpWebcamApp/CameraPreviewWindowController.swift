@@ -85,7 +85,8 @@ private struct PreviewHudContainer: View {
         PreviewHud(
             camera: CameraPropertyStore.shared.camera(matchingName: viewModel.cameraName),
             layout: .default,
-            visible: viewModel.visible)
+            visible: viewModel.visible,
+            cameraName: viewModel.cameraName)
     }
 }
 
@@ -102,13 +103,25 @@ class CameraPreviewWindowController: NSWindowController, NSWindowDelegate, AVCap
 
     init(cameraName: String) {
         self.cameraName = cameraName
+        // Borderless-look preview window: keep the standard
+        // `.titled` style mask (so the window still gets a
+        // traffic-light button cluster and standard
+        // accessibility/window-manager treatment) but pull the
+        // titlebar visually out of the way so the preview reaches
+        // the top of the window. The chips in `PreviewHud` reserve
+        // their own clearance from the top edge to avoid colliding
+        // with the traffic-light buttons.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        // Title is still set for VoiceOver and the Window menu, but
+        // hidden in the titlebar itself.
         window.title = cameraName
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.center()
         super.init(window: window)
         window.delegate = self
