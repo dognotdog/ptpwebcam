@@ -12,8 +12,6 @@
 	<array>
 		<string>$(TeamIdentifierPrefix)org.ptpwebcam.PtpWebcamApp.CameraExtension</string>
 	</array>
-	<key>com.apple.security.device.audio-input</key>
-	<true/>
 	<key>com.apple.security.device.camera</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>

@@ -26,6 +26,7 @@
 // chip's absolute centre still stays fixed.
 
 import SwiftUI
+import AppKit  // NSFont.titleBarFont
 
 // MARK: - Layout model
 
@@ -120,6 +121,14 @@ struct PreviewHud: View {
     let camera: ExtCamera?
     let layout: HudLayout
     let visible: Bool
+    /// Active-state of the host window. SwiftUI populates this
+    /// from the window's key/main state via the environment;
+    /// `controlActiveState` flips between `.key` / `.active` /
+    /// `.inactive` automatically as the user moves focus between
+    /// windows. Used by `cameraNameLabel` to dim the title's
+    /// contrast on inactive windows, matching what AppKit does
+    /// for a real `NSWindow.title`.
+    @Environment(\.controlActiveState) private var controlActiveState
     /// Display name to show in the top-left of the HUD, just past
     /// the traffic-light cluster. Passed in from the controller
     /// rather than read off `camera.name` so the window still
@@ -157,11 +166,10 @@ struct PreviewHud: View {
     /// out at ~10 pt from the left edge and the cluster ends at
     /// ~74 pt; we round up to 78 pt to give the camera-name label
     /// a small gap from the last button.
-    private static let trafficLightWidth: CGFloat = 78
-    /// Minimum visual gap to leave between the right edge of the
-    /// camera-name pill and the left edge of the top chip row when
-    /// the window is just-barely wide enough to fit both. Below
-    /// that the name is hidden until the user widens the window.
+    /// Minimum visual gap to leave between the camera-name pill
+    /// and the nearer edge of the top chip row when the window is
+    /// just-barely wide enough to fit both. Below that the name
+    /// is hidden until the user widens the window.
     private static let cameraNameGap: CGFloat = 12
 
     /// Measured pill widths used to decide camera-name visibility.
@@ -173,24 +181,38 @@ struct PreviewHud: View {
     @State private var cameraNameWidth: CGFloat = 0
     @State private var topChipRowWidth:  CGFloat = 0
 
-    /// Returns true when the camera-name pill can sit at
-    /// `[trafficLightWidth … trafficLightWidth + cameraNameWidth]`
-    /// without entering the area occupied by the centred top chip
-    /// row. Before either width has been measured (initial frame)
-    /// we treat the name as visible — the preference-change
-    /// callback corrects it on the next pass and the
+    /// Returns true when the camera-name pill (anchored to the
+    /// top-right of the preview with `sideChipInset` trailing
+    /// padding) sits clear of the centred top chip row, with
+    /// `cameraNameGap` of breathing room between them. Before
+    /// either width has been measured (initial frame) we treat
+    /// the name as visible — `WidthReader` populates both
+    /// measurements on the next layout pass and the
     /// `.animation(value: nameFits)` modifier interpolates the
     /// transition.
     private func cameraNameFits(containerWidth: CGFloat) -> Bool {
         guard topChipRowWidth > 0 else { return true }
-        let chipsLeftEdge = (containerWidth - topChipRowWidth) / 2
-        let nameRightEdge = Self.trafficLightWidth + cameraNameWidth
-        return nameRightEdge + Self.cameraNameGap <= chipsLeftEdge
+        let chipsRightEdge = (containerWidth + topChipRowWidth) / 2
+        let nameLeftEdge   = containerWidth - Self.sideChipInset - cameraNameWidth
+        return nameLeftEdge >= chipsRightEdge + Self.cameraNameGap
     }
 
     var body: some View {
         GeometryReader { geo in
             let nameFits = cameraNameFits(containerWidth: geo.size.width)
+            // The actual titlebar height of the host window
+            // (`.fullSizeContentView` makes the top safe-area
+            // inset equal the titlebar zone). Using this instead
+            // of a hardcoded vertical inset means the camera-name
+            // label vertically centres against the real
+            // traffic-light cluster — whose position macOS may
+            // shift between OS versions or accessibility settings
+            // — without us tracking those changes by hand.
+            // Falls back to a sensible default if the host hasn't
+            // surfaced a safe-area inset for some reason.
+            let titlebarHeight = geo.safeAreaInsets.top > 0
+                ? geo.safeAreaInsets.top
+                : Self.titlebarHeightFallback
             // The transparent background must NOT swallow mouse events
             // or empty-area clicks inside the preview would never reach
             // PreviewView.mouseDown for the HUD-visibility toggle. The
@@ -198,16 +220,19 @@ struct PreviewHud: View {
             // of this disabled-hit-test layer, so they remain tappable.
             Color.clear
                 .allowsHitTesting(false)
-                // Camera name pinned to the top-left, past the
-                // traffic-light cluster. Lives in its own overlay
-                // so it doesn't compete with `chipGroup` for the
-                // top-row HStack's horizontal layout.
-                .overlay(alignment: .topLeading) {
+                // Camera-name pinned to the top-trailing corner.
+                // Wrapping the label in a frame of
+                // `titlebarHeight` and pinning to top — without
+                // any `.padding(.top)` — centres the text
+                // vertically inside the titlebar zone, the same
+                // band the traffic-light cluster occupies. No
+                // hardcoded vertical inset.
+                .overlay(alignment: .topTrailing) {
                     cameraNameLabel
                         .background(
                             WidthReader(width: $cameraNameWidth))
-                        .padding(.leading, Self.trafficLightWidth)
-                        .padding(.top, Self.topChipInset)
+                        .frame(height: titlebarHeight)
+                        .padding(.trailing, Self.sideChipInset)
                         // Hide (not remove) when the name would
                         // collide with the centred chip row. The
                         // label stays in the tree so its
@@ -282,29 +307,56 @@ struct PreviewHud: View {
     /// block. The "fade in" we used to have was a single opacity
     /// modifier on the outer container; that fades the *whole HUD*
     /// at once which loses the row's structure on appearance.
-    /// Inner text-height for chip labels, mirrored from
-    /// `ChipPill.chipHeight`. Used by `cameraNameLabel` so the
-    /// name renders at the exact same dimensions as the chips.
-    private static let chipInnerHeight: CGFloat = 18
+    /// Fallback titlebar height used when the surrounding
+    /// `GeometryReader` can't report a real `safeAreaInsets.top`
+    /// (e.g. the view is hosted outside an `NSWindow` with a
+    /// titlebar). 28 pt is macOS's standard titled-window
+    /// titlebar height, matching where the traffic-light cluster
+    /// would otherwise sit.
+    private static let titlebarHeightFallback: CGFloat = 28
 
-    /// Camera-name label rendered top-left next to the traffic-light
-    /// buttons. Styled like a chip *value* (the text in the wheel
-    /// slot), not a chip label: `.callout.monospacedDigit().bold()`
-    /// at full `.primary` foreground, sitting in the same outer
-    /// capsule chrome as a non-interactive chip. The camera name
-    /// reads as the prominent identifier of the window, not as a
-    /// secondary tag for some other value.
+    /// Camera-name label rendered top-right of the preview, styled
+    /// **exactly** like a macOS window-title: same font macOS
+    /// itself uses for titlebars, via
+    /// `NSFont.titleBarFont(ofSize: NSFont.systemFontSize)`.
+    /// Going through `NSFont` rather than spelling out a size /
+    /// weight in SwiftUI means we track system changes (font
+    /// substitutions across major OS versions, accessibility
+    /// large-text settings, future `systemFontSize` shifts)
+    /// automatically. Plain text, no capsule, no material
+    /// background. The two-pass shadow keeps the title readable
+    /// over the live video — a tight near-opaque edge plus a
+    /// soft halo, both in mid-grey rather than pure black so the
+    /// result reads as a clean rim rather than a fuzzy black
+    /// smudge.
     @ViewBuilder
     private var cameraNameLabel: some View {
         Text(cameraName)
-            .font(.callout.monospacedDigit().bold())
-            .foregroundStyle(.primary)
+            .font(Font(NSFont.titleBarFont(ofSize: NSFont.systemFontSize)))
+            // Colour role + opacity attenuation. AppKit draws the
+            // real titlebar title using
+            // `NSColor.windowFrameTextColor`, but its draw path
+            // composites *through the translucent titlebar
+            // material* — that vibrancy layer effectively softens
+            // the text. Our overlay sits directly on the video
+            // content (no titlebar material exists because the
+            // window uses `titlebarAppearsTransparent = true`),
+            // so the same colour at full opacity reads harder /
+            // darker than a system titlebar title. The opacity
+            // drop here fakes the vibrancy attenuation:
+            //   • Active: 0.8 — close to "as if drawn through
+            //     the titlebar material".
+            //   • Inactive: 0.4 — matches the further dimming
+            //     AppKit applies internally when the window
+            //     loses focus.
+            .foregroundStyle(controlActiveState == .inactive
+                             ? Color(NSColor.windowFrameTextColor).opacity(0.4)
+                             : Color(NSColor.windowFrameTextColor).opacity(0.8))
             .fixedSize(horizontal: true, vertical: false)
-            .frame(height: Self.chipInnerHeight)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(.ultraThinMaterial, in: Capsule())
-            .opacity(0.65)
+            .shadow(color: Color(white: 0.5).opacity(0.7),
+                    radius: 1, y: 0.5)
+            .shadow(color: Color(white: 0.5).opacity(0.45),
+                    radius: 2.5)
             .modifier(ChipSlideIn(visible: visible,
                                   index: 0,
                                   edge: .top,

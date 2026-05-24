@@ -1875,7 +1875,6 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to preview the live camera stream from a connected USB camera.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 PTP Webcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Not used, but required by AVCaptureSession on macOS.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1918,7 +1917,6 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to preview the live camera stream from a connected USB camera.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 PTP Webcam. All rights reserved.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Not used, but required by AVCaptureSession on macOS.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
