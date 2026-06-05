@@ -404,11 +404,18 @@ final class UsbCanonCamera: UsbPtpCameraBase {
         return true
     }
 
-    override func stopLiveViewSession() {
+    override func stopLiveViewSession() -> Bool {
         // Reset the output device to 0 to tell the camera we're done. Newer
         // M/R bodies didn't have it written in the first place, but writing 0
         // is harmless (camera silently accepts it).
-        _ = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
+        // `setPropertyEos` returns the PTP response code, or 0
+        // on a USB transport failure. Map "got any response
+        // code" to success — any non-zero is a successful
+        // round-trip even if the camera complained (e.g.
+        // "wasn't in LV"); only 0 (transport failure) signals
+        // the base class to retry.
+        let code = setPropertyEos(propId: PTP_PROP_CANON_EVF_OUTPUTDEVICE, value: 0)
+        return code != 0
     }
 
     /// Canon-specific teardown before `CLOSE_SESSION`. Without this the

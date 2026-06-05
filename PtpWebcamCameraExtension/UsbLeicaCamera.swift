@@ -79,8 +79,8 @@ final class UsbLeicaCamera: UsbPtpCameraBase {
         return true
     }
 
-    override func stopLiveViewSession() {
-        guard leicaStreamActive else { return }
+    override func stopLiveViewSession() -> Bool {
+        guard leicaStreamActive else { return true }
         leicaStreamActive = false
         // Release the stream. Camera tolerates a non-polling host but
         // explicit disable lets the body return to whatever idle state
@@ -88,7 +88,13 @@ final class UsbLeicaCamera: UsbPtpCameraBase {
         let payload = encodeStandardPtpValue(0, dataType: 6 /* UINT32 */)
         let cmd = transport.buildCommand(code: PTP_CMD_SETPROPVAL,
                                           parameters: [PTP_PROP_ENABLED_STREAMS])
-        _ = try? transport.sendPtpCommand(cmd, outData: payload)
+        do {
+            _ = try transport.sendPtpCommand(cmd, outData: payload)
+            return true
+        } catch {
+            cameraLog.fault("Leica ENABLED_STREAMS=0 error: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     override func fetchOneFrame() throws -> Data? {

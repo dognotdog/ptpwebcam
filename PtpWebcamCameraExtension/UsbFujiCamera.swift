@@ -97,8 +97,12 @@ final class UsbFujiCamera: UsbPtpCameraBase {
         return false
     }
 
-    override func stopLiveViewSession() {
-        guard fujiInLiveView else { return }
+    override func stopLiveViewSession() -> Bool {
+        // No-op short-circuit if we weren't actually running LV
+        // counts as a success — nothing to undo. Suppresses the
+        // base class's retry loop in the trivially-already-off
+        // case.
+        guard fujiInLiveView else { return true }
         fujiInLiveView = false
         // CancelInitiateCapture takes a single transaction-ID parameter
         // that identifies which capture to cancel. Track the
@@ -107,7 +111,13 @@ final class UsbFujiCamera: UsbPtpCameraBase {
         // with param=0 — Fuji accepts this as "cancel current capture".
         let cmd = transport.buildCommand(code: PTP_CMD_FUJI_CANCEL_INITIATE_CAPTURE,
                                           parameters: [0])
-        _ = try? transport.sendPtpCommand(cmd)
+        do {
+            _ = try transport.sendPtpCommand(cmd)
+            return true
+        } catch {
+            cameraLog.fault("Fuji CANCEL_INITIATE_CAPTURE error: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     override func fetchOneFrame() throws -> Data? {

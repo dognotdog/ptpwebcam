@@ -110,6 +110,11 @@ let kDarwinCameraStateRepublish = "org.ptpwebcam.darwin.CameraStateRepublish"
 let kDarwinClaimCamera     = "org.ptpwebcam.darwin.ClaimCamera"
 let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 
+// Cross-process claim-state broadcast — see mirror in
+// PtpCameraAgent/PtpCameraAgentProtocol.swift for the full design.
+let kDarwinClaimAnnounce     = "org.ptpwebcam.darwin.ClaimAnnounce"
+let kDarwinClaimAnnounceSlot = "org.ptpwebcam.darwin.claimannounce"
+
 // Agent → Extension: property set command
 // Agent writes a packed uint64 command to kDarwinPropertyCmdSlot, then posts kDarwinCameraPropertyCmd.
 // Bit layout: [63:56] cmd (3=SET_PROP) | [55:48] reserved | [47:32] propId (UInt16) | [31:0] value (UInt32)
@@ -132,6 +137,21 @@ let kDarwinUsbBlockedSlotCount    = 32
 // Menu-bar status item visibility (mirrored from PtpCameraAgent copy).
 let kDarwinMenuBarHidden     = "org.ptpwebcam.darwin.MenuBarHidden"
 let kDarwinMenuBarHiddenSlot = "org.ptpwebcam.darwin.menubarhidden"
+
+// Service-health heartbeats — see the mirror copy in
+// PtpCameraAgent/PtpCameraAgentProtocol.swift for the full design notes.
+let kDarwinExtensionHeartbeat      = "org.ptpwebcam.darwin.ExtensionHeartbeat"
+let kDarwinExtensionHeartbeatSlot  = "org.ptpwebcam.darwin.extheartbeat"
+let kDarwinAgentHeartbeat          = "org.ptpwebcam.darwin.AgentHeartbeat"
+let kDarwinAgentHeartbeatSlot      = "org.ptpwebcam.darwin.agentheartbeat"
+let kDarwinAgentSawExtension       = "org.ptpwebcam.darwin.AgentSawExtension"
+let kDarwinAgentSawExtensionSlot   = "org.ptpwebcam.darwin.agentsawext"
+
+// Per-camera streaming state — see mirror in
+// PtpCameraAgent/PtpCameraAgentProtocol.swift for the full design.
+let kDarwinStreamingChanged    = "org.ptpwebcam.darwin.StreamingChanged"
+let kDarwinStreamingSlotPrefix = "org.ptpwebcam.darwin.streamcam."
+let kDarwinStreamingSlotCount  = 8
 
 // MARK: PTP property-dump channels (mirrored from PtpCameraAgent copy).
 let kDarwinPtpDumpDevicesRequest = "org.ptpwebcam.darwin.PtpDumpDevicesRequest"

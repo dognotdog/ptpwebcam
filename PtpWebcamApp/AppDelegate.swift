@@ -159,7 +159,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDele
 		}
 	}
 
-private func openPreview(cameraName: String) {
+/// Open (or front) a live preview window for `cameraName`.
+/// Internal access so SwiftUI views (e.g. the MainWindowView
+/// camera chips) can invoke the same code path the URL handler
+/// and File-menu submenu use.
+func openPreview(cameraName: String) {
 		if let existing = previewWindows[cameraName] {
 			existing.showWindow(nil)
 			existing.window?.makeKeyAndOrderFront(nil)

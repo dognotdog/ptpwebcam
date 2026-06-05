@@ -1413,6 +1413,19 @@ final class CameraStreamReceiver {
             onPayload?(payload)
         } else if state != .idle {
             onError?("CameraStreamReceiver: end-of-stream length mismatch — got \(validatedPrefix.count) bytes, expected \(totalLength), state=\(state)")
+            // Request a full restart. Without this the receiver
+            // resets to idle while the publisher's NACK handlers
+            // (queued from the page CRC failures earlier in the
+            // transmission) are still waiting to fire — they'll
+            // each emit a retransmit-marker + the corresponding
+            // pages, but `handleRetransmitMarker` correctly drops
+            // those while in `.idle` (no `expectedTotalLength`,
+            // no cumulative CRC baseline) and the receiver stays
+            // stuck. NACK page=0 tells the publisher to do a
+            // full retransmit (start marker + pages + end
+            // marker), which re-engages us cleanly via the fresh
+            // start marker.
+            sendNack(page: 0)
         }
         resetForNewStream()
         state = .idle

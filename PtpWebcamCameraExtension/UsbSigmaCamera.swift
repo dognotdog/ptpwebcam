@@ -351,9 +351,11 @@ final class UsbSigmaCamera: UsbPtpCameraBase {
         return true
     }
 
-    override func stopLiveViewSession() {
+    override func stopLiveViewSession() -> Bool {
         // No-op — Sigma doesn't have a counterpart stop opcode for 0x902B.
-        // The frame stream ends when we stop polling.
+        // The frame stream ends when we stop polling. There's no
+        // transport action to fail at, so always report success.
+        return true
     }
 
     override func fetchOneFrame() throws -> Data? {

@@ -189,6 +189,40 @@ let kDarwinCameraStateRepublish = "org.ptpwebcam.darwin.CameraStateRepublish"
 let kDarwinClaimCamera     = "org.ptpwebcam.darwin.ClaimCamera"
 let kDarwinClaimCameraSlot = "org.ptpwebcam.darwin.claim"
 
+// Cross-process "claim state changed" broadcast.
+//
+// The agent owns the persistent record of which cameras the user
+// has claimed (a `claimedCameraKeys` Set<String> in UserDefaults,
+// keyed by `vid:pid:serial`). The extension auto-reclaims any
+// camera in that set when it reconnects, so the persistence
+// matters for UX continuity across reboots / replugs.
+//
+// Before this channel existed, the agent's record was only
+// updated when the user clicked the agent menu's claim item.
+// Now that the host app's main window can also initiate a claim
+// (via the chip-tile button), the agent needs to learn about
+// claims that didn't originate from its own menu — otherwise the
+// menu's checkmark / "click to claim" suffix go out of sync with
+// reality.
+//
+// Whoever initiates a claim (agent menu OR host app chip) writes
+// the same packed payload to `kDarwinClaimAnnounceSlot` and
+// posts `kDarwinClaimAnnounce`. Subscribers (currently the agent)
+// read the slot, parse the camera identity + new state, and
+// update their local bookkeeping. The extension does NOT need to
+// listen — the per-camera suffixed `kDarwinClaimCamera`
+// notifications still drive the actual session open / close on
+// its side; this broadcast is purely a state-mirror notification.
+//
+// Bit layout matches the existing per-camera claim slot so the
+// same encode/decode helpers work for both:
+//   [63:56] cmd (1=claim, 2=release)
+//   [55:32] crc32(serial.utf8) & 0xFFFFFF
+//   [31:16] vid
+//   [15: 0] pid
+let kDarwinClaimAnnounce     = "org.ptpwebcam.darwin.ClaimAnnounce"
+let kDarwinClaimAnnounceSlot = "org.ptpwebcam.darwin.claimannounce"
+
 // Agent → Extension: property set command
 // Agent writes a packed uint64 command to kDarwinPropertyCmdSlot, then posts kDarwinCameraPropertyCmd.
 // Bit layout: [63:56] cmd (3=SET_PROP) | [55:48] reserved | [47:32] propId (UInt16) | [31:0] value (UInt32)
@@ -253,6 +287,78 @@ let kDarwinUsbBlockedSlotCount    = 32  // 32 × 8 = 256 bytes, plenty for a cam
 // Bar" doesn't exist on pre-26 macOS).
 let kDarwinMenuBarHidden     = "org.ptpwebcam.darwin.MenuBarHidden"
 let kDarwinMenuBarHiddenSlot = "org.ptpwebcam.darwin.menubarhidden"
+
+// MARK: Service-health heartbeats (extension/agent liveness + comms)
+//
+// Three Darwin notify slots that the host app polls to drive the
+// runtime-fault banners in MainWindowView:
+//
+// • kDarwinExtensionHeartbeatSlot — extension writes current wall-clock
+//   seconds (UInt64, low 64 bits = Unix epoch seconds) every ~2 s and
+//   posts the matching notify name. Host app considers the extension
+//   running if the slot's value is within `staleness threshold` of
+//   "now". Mach-time would survive wall-clock skew better, but the
+//   timebase conversion has to match exactly across all three
+//   processes; sticking with epoch seconds keeps the receiver math
+//   trivial and the only failure mode (someone yanks the system
+//   clock backward mid-session) just flashes the banner for one
+//   poll cycle.
+//
+// • kDarwinAgentHeartbeatSlot — same shape as the extension's, but
+//   posted by the agent. Lets the host app distinguish "extension
+//   down" from "agent down" — those two faults have different fix
+//   suggestions in the banner copy.
+//
+// • kDarwinAgentSawExtensionSlot — agent stamps this with epoch
+//   seconds whenever it receives ANY post from the extension
+//   (camera-state, property-stream payload, live-view-failed, etc).
+//   The host app uses it to detect "both processes are running but
+//   not talking to each other" — staleness > 30 s while both
+//   heartbeats are fresh AND there's at least one camera connected
+//   means the Darwin-notify channel between them broke (which
+//   shouldn't happen, but we've seen libnotify dispatch tokens
+//   silently disconnect after sleep/wake cycles, so it's worth
+//   surfacing).
+//
+// The post-and-slot pairs follow the same convention as every other
+// channel in this file: the *Slot constant is the notify_set_state
+// key, the non-suffixed constant is the notify_post key. Receivers
+// register_dispatch on the post key and register_check on the slot
+// key, then read with notify_get_state inside the dispatch closure.
+let kDarwinExtensionHeartbeat      = "org.ptpwebcam.darwin.ExtensionHeartbeat"
+let kDarwinExtensionHeartbeatSlot  = "org.ptpwebcam.darwin.extheartbeat"
+let kDarwinAgentHeartbeat          = "org.ptpwebcam.darwin.AgentHeartbeat"
+let kDarwinAgentHeartbeatSlot      = "org.ptpwebcam.darwin.agentheartbeat"
+let kDarwinAgentSawExtension       = "org.ptpwebcam.darwin.AgentSawExtension"
+let kDarwinAgentSawExtensionSlot   = "org.ptpwebcam.darwin.agentsawext"
+
+// MARK: - Per-camera streaming state (extension → host app)
+//
+// The extension owns the CMIO stream lifecycle and is the only
+// process that knows when a given camera is actively delivering
+// frames to a client (QuickTime, Zoom, the in-app preview, etc.).
+// The host app's main window shows a small "recording" dot on
+// each camera chip while that camera is live; this channel
+// publishes the set of currently-streaming cameras so the host
+// app can drive that indicator without inspecting CMIO state
+// directly.
+//
+// Wire format: 8 UInt64 slots. Each slot holds either 0 (empty)
+// or `crc32(cameraId.utf8)` in the low 32 bits. The extension
+// rewrites all 8 slots on every state change (set, then post
+// `kDarwinStreamingChanged`); the host app reads them in a
+// dispatch handler, builds a `Set<UInt32>` of CRCs, and matches
+// against each known ExtCamera's `cameraId` CRC. Eight slots is
+// well above any realistic simultaneous-streamer count (CMIO
+// extension ≤ 4 attached cameras in steady state, even fewer
+// usually streaming at once) and trivially extensible.
+//
+// CRC32 is the same `ptpwebcamCRC32` helper already shared with
+// the stream-protocol header below, so both sides compute byte-
+// for-byte matching values without dragging in a hash table.
+let kDarwinStreamingChanged    = "org.ptpwebcam.darwin.StreamingChanged"
+let kDarwinStreamingSlotPrefix = "org.ptpwebcam.darwin.streamcam."
+let kDarwinStreamingSlotCount  = 8
 
 // MARK: PTP property-dump channels (debugging unsupported cameras)
 //

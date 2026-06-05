@@ -432,11 +432,13 @@ final class UsbOlympusCamera: UsbPtpCameraBase {
         return true
     }
 
-    override func stopLiveViewSession() {
+    override func stopLiveViewSession() -> Bool {
         // Stream ends when polling stops. We don't reset 0xD06D — the
         // camera tolerates a non-polling host and resetting it can race
         // with an in-flight GetLiveViewImage transaction.
+        // Nothing to fail at — the flag flip is purely local.
         omdLiveViewActive = false
+        return true
     }
 
     override func fetchOneFrame() throws -> Data? {

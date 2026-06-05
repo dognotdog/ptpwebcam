@@ -83,7 +83,59 @@ final class CameraPropertyStore: ObservableObject {
             case .disconnected(let cameraId):
                 self.cameras.removeValue(forKey: cameraId)
             case .camera(let cam):
-                self.cameras[cam.cameraId] = cam
+                // Two distinct publish shapes flow through this
+                // channel:
+                //
+                //   • `publishCameraConnected` — sent on IOKit
+                //     attach AND on every `republishAllCameraState`
+                //     (agent restart). Always carries `props: []`
+                //     because the extension hasn't claimed the
+                //     camera yet OR is re-broadcasting connection
+                //     metadata without re-running discovery.
+                //
+                //   • `publishPropertyState` — the real,
+                //     post-discovery snapshot. Carries the full
+                //     property dict.
+                //
+                // Without the merge below, an unconditional
+                // `cameras[id] = cam` lets a connected-publish
+                // overwrite a previously-rich ExtCamera with one
+                // whose properties dict is empty. The HUD chips
+                // that bind to those properties (ISO, shutter,
+                // aperture, WB, AF mode, …) silently drop out;
+                // only `AutofocusTriggerChip` — which depends on
+                // `supportsAutofocusTrigger`, a static
+                // vid/pid-derived flag — survives. That's the
+                // "HUD shows only AF" symptom reported on the
+                // D800 after a republish round-trip.
+                //
+                // Resolution: when the incoming payload has zero
+                // properties AND we already hold a richer
+                // snapshot for this cameraId, refresh the
+                // identity fields (name, claimKey, vid/pid/
+                // serial, vendor) from the new payload but
+                // PRESERVE the existing properties dict. A real
+                // disconnect comes through the `.disconnected`
+                // case above, not as an empty-props camera, so
+                // we don't risk leaving stale properties around
+                // for a camera that's actually gone.
+                if cam.properties.isEmpty,
+                   let existing = self.cameras[cam.cameraId],
+                   !existing.properties.isEmpty {
+                    let merged = ExtCamera(
+                        cameraId: cam.cameraId,
+                        name: cam.name,
+                        claimKey: cam.claimKey,
+                        vid: cam.vid,
+                        pid: cam.pid,
+                        serial: cam.serial,
+                        properties: existing.properties,
+                        orderedPropertyIds: existing.orderedPropertyIds,
+                        vendor: cam.vendor)
+                    self.cameras[cam.cameraId] = merged
+                } else {
+                    self.cameras[cam.cameraId] = cam
+                }
             }
         }
     }

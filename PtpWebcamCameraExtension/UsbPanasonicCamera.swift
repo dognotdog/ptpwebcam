@@ -214,10 +214,16 @@ final class UsbPanasonicCamera: UsbPtpCameraBase {
         return true
     }
 
-    override func stopLiveViewSession() {
+    override func stopLiveViewSession() -> Bool {
         let cmd = transport.buildCommand(code: PTP_CMD_PANASONIC_LIVEVIEW,
                                           parameters: [PANASONIC_LIVEVIEW_STOP_PARAM])
-        _ = try? transport.sendPtpCommand(cmd)
+        do {
+            _ = try transport.sendPtpCommand(cmd)
+            return true
+        } catch {
+            cameraLog.fault("Panasonic LIVEVIEW(STOP) error: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     override func fetchOneFrame() throws -> Data? {

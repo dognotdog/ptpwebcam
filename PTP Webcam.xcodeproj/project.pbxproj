@@ -134,6 +134,7 @@
 		DAC365F42FBB63C700404880 /* AppIconLegacy.icns in Resources */ = {isa = PBXBuildFile; fileRef = DAC365F22FBB3C5600404880 /* AppIconLegacy.icns */; };
 		DAC365F62FBCCEAE00404880 /* ptpwebcam-logo-22x22@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = DAC365F52FBCCEAE00404880 /* ptpwebcam-logo-22x22@3x.png */; };
 		DAC52C852FB548880026922E /* PtpWebcamApp.storekit in Resources */ = {isa = PBXBuildFile; fileRef = DAC52C842FB548880026922E /* PtpWebcamApp.storekit */; };
+		A1B2C3D4E5F60100A1B2C3D4 /* ptpwebcam_simple_1100.png in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60101A1B2C3D4 /* ptpwebcam_simple_1100.png */; };
 		DAC52C8C2FB7F05A0026922E /* SupportedCameras.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C8A2FB7F05A0026922E /* SupportedCameras.swift */; };
 		DAC52C8D2FB7F05A0026922E /* DarwinNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC52C872FB7F05A0026922E /* DarwinNotify.swift */; };
 		DACAB6C425BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DACAB6C325BF634E00D2B12E /* PtpWebcamPreviewAppDelegate.m */; };
@@ -507,6 +508,7 @@
 		DAC365F22FBB3C5600404880 /* AppIconLegacy.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIconLegacy.icns; sourceTree = "<group>"; };
 		DAC365F52FBCCEAE00404880 /* ptpwebcam-logo-22x22@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "ptpwebcam-logo-22x22@3x.png"; sourceTree = "<group>"; };
 		DAC52C842FB548880026922E /* PtpWebcamApp.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = PtpWebcamApp.storekit; sourceTree = "<group>"; };
+		A1B2C3D4E5F60101A1B2C3D4 /* ptpwebcam_simple_1100.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ptpwebcam_simple_1100.png; sourceTree = "<group>"; };
 		DAC52C872FB7F05A0026922E /* DarwinNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarwinNotify.swift; sourceTree = "<group>"; };
 		DAC52C892FB7F05A0026922E /* PtpCameraAgent-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PtpCameraAgent-Bridging-Header.h"; sourceTree = "<group>"; };
 		DAC52C8A2FB7F05A0026922E /* SupportedCameras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportedCameras.swift; sourceTree = "<group>"; };
@@ -679,6 +681,7 @@
 				DA1B26742B1BBCD80075AAAB /* PtpWebcamApp.entitlements */,
 				DA1B26CF2B1BC4700075AAAB /* org.ptpwebcam.PtpWebcamApp.PtpCameraAgent.plist */,
 				DAC52C842FB548880026922E /* PtpWebcamApp.storekit */,
+				A1B2C3D4E5F60101A1B2C3D4 /* ptpwebcam_simple_1100.png */,
 			);
 			path = PtpWebcamApp;
 			sourceTree = "<group>";
@@ -1386,6 +1389,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DAC52C852FB548880026922E /* PtpWebcamApp.storekit in Resources */,
+				A1B2C3D4E5F60100A1B2C3D4 /* ptpwebcam_simple_1100.png in Resources */,
 				DA1B26702B1BBCD80075AAAB /* Assets.xcassets in Resources */,
 				DA1B26732B1BBCD80075AAAB /* MainMenu.xib in Resources */,
 				DD005555000000000000DD09 /* AppIcon.icon in Resources */,

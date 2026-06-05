@@ -342,6 +342,20 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 	// would otherwise overwrite each other in the slots — the kernel coalesces
 	// the `darwin_notify_post` calls and the agent only ever sees the LAST data.
 	private let publishQueue = DispatchQueue(label: "org.ptpwebcam.publish", qos: .userInteractive)
+
+	/// Heartbeat — see init() for the full design notes. Held
+	/// strongly so the timer outlives the registration scope.
+	private var extHeartbeatTimer: DispatchSourceTimer?
+	private var extHeartbeatToken: Int32 = 0
+
+	/// Notify tokens for the streaming-state slot chain
+	/// (`kDarwinStreamingSlotPrefix.0..N`). Populated in init();
+	/// `publishStreamingSet()` writes through them.
+	private var streamingSlotTokens: [Int32] = []
+	/// Camera IDs currently streaming. Read/written only from
+	/// `publishQueue` so we never race with property publishes
+	/// for slot writes.
+	private var streamingCameraIds: Set<String> = []
 	// Debounce table for publishPropertyState. A single property-change event
 	// (DEVICEPROPCHANGED, or a confirmation after a SET_PROP) triggers a FULL
 	// republish of the camera's 16+ KB property snapshot via the stream
@@ -432,6 +446,34 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			let locationID = UInt32(value & 0xFFFFFFFF)
 			self?.handleDumpCommand(locationID: locationID)
 		}
+
+		// Service-health heartbeat. The host app polls
+		// kDarwinExtensionHeartbeatSlot every ~2 s and shows a fault
+		// banner if the stored epoch-second timestamp gets stale.
+		// Posted on a dedicated DispatchSourceTimer running on
+		// `publishQueue` so the post happens off `.main` and shares
+		// serialisation with every other slot write (avoids torn
+		// reads if the heartbeat fires mid-property-publish).
+		extHeartbeatToken = Self.registerCheckToken(kDarwinExtensionHeartbeatSlot,
+		                                            label: "extHeartbeatSlot")
+
+		// Streaming-state slots (see kDarwinStreamingSlotPrefix
+		// docs). Eight check tokens; `publishStreamingSet()` writes
+		// CRC32(cameraId) into the first N and zeros the rest.
+		streamingSlotTokens = (0..<kDarwinStreamingSlotCount).map { i in
+			Self.registerCheckToken(kDarwinStreamingSlotPrefix + "\(i)",
+			                        label: "streamingSlot[\(i)]")
+		}
+		let timer = DispatchSource.makeTimerSource(queue: publishQueue)
+		timer.schedule(deadline: .now(), repeating: 2.0, leeway: .milliseconds(200))
+		timer.setEventHandler { [weak self] in
+			guard let self = self else { return }
+			let now = UInt64(Date().timeIntervalSince1970)
+			darwin_notify_set_state(self.extHeartbeatToken, now)
+			darwin_notify_post(kDarwinExtensionHeartbeat)
+		}
+		timer.resume()
+		extHeartbeatTimer = timer
 
 		let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
 		PtpWebcamCameraExtensionProviderSource.log("PtpWebcam extension started build=\(buildVersion)")
@@ -564,6 +606,51 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 		guard let jsonData = try? JSONSerialization.data(withJSONObject: dict) else { return }
 		writeJsonToPropertySlots(jsonData)
 		PtpWebcamCameraExtensionProviderSource.log("publishCameraRemoved: \(cameraId)")
+		// A camera that goes away can't still be streaming — sweep
+		// it out of the streaming set so the host app's red dot
+		// clears in the same tick the chip disappears.
+		markStreaming(cameraId: cameraId, streaming: false)
+	}
+
+	/// Update `streamingCameraIds` and push the resulting set
+	/// across the slot chain, then fire the change notification.
+	/// All slot writes happen on `publishQueue` for the same
+	/// reason property publishes do (no contention with other
+	/// extension-side slot consumers).
+	private func markStreaming(cameraId: String, streaming: Bool) {
+		publishQueue.async { [weak self] in
+			guard let self = self else { return }
+			let changed: Bool
+			if streaming {
+				changed = self.streamingCameraIds.insert(cameraId).inserted
+			} else {
+				changed = self.streamingCameraIds.remove(cameraId) != nil
+			}
+			guard changed else { return }   // skip the notify when set didn't move
+			self.publishStreamingSet()
+		}
+	}
+
+	/// Write the current `streamingCameraIds` to the slot chain
+	/// (one CRC32 per occupied slot, zeros for the rest) and
+	/// post `kDarwinStreamingChanged`. Truncates silently if more
+	/// than `kDarwinStreamingSlotCount` cameras are streaming —
+	/// an unrealistic case for a typical 1–2 camera workflow,
+	/// but the truncation is logged so it can be spotted if it
+	/// ever happens in the field.
+	private func publishStreamingSet() {
+		let crcs = streamingCameraIds.map { id -> UInt32 in
+			ptpwebcamCRC32(Array(id.utf8))
+		}
+		if crcs.count > kDarwinStreamingSlotCount {
+			PtpWebcamCameraExtensionProviderSource.log(
+				"publishStreamingSet: \(crcs.count) streaming cameras exceeds \(kDarwinStreamingSlotCount) slots — truncating")
+		}
+		for i in 0..<kDarwinStreamingSlotCount {
+			let value: UInt64 = i < crcs.count ? UInt64(crcs[i]) : 0
+			darwin_notify_set_state(streamingSlotTokens[i], value)
+		}
+		darwin_notify_post(kDarwinStreamingChanged)
 	}
 
 	private func writeJsonToPropertySlots(_ jsonData: Data) {
@@ -1161,6 +1248,7 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		deviceSource.onStreamingStarted = { [weak self] in
 			guard let self = self else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(cameraId)")
+			self.markStreaming(cameraId: cameraId, streaming: true)
 			// Only start live view if camera has been claimed (PTP session is open).
 			if let camera = self.usbCameras[cameraId] {
 				camera.startLiveView()
@@ -1171,6 +1259,7 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 		deviceSource.onStreamingStopped = { [weak self] in
 			guard let self = self else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming stopped for \(cameraId)")
+			self.markStreaming(cameraId: cameraId, streaming: false)
 			self.pendingLiveViewStart.remove(cameraId)
 			// Stop live view but keep PTP session open — claimed camera stays claimed.
 			self.usbCameras[cameraId]?.stopLiveView()

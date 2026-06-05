@@ -363,8 +363,35 @@ final class CameraStreamPublisher {
             return
         }
 
-        let resendFrom: UInt32 = nackPage == 0 ? 0 : nackPage - 1
-        log.fault("NACK page=\(nackPage, privacy: .public) — retransmitting from page=\(resendFrom, privacy: .public)")
+        // NACK page=0 is the receiver's "full restart" request,
+        // sent when it can't recover from where it is (e.g., a
+        // length-mismatch end-of-stream put it back into `.idle`
+        // and the cumulative CRC baseline is gone). A
+        // retransmit-marker-only approach can't recover from
+        // that — the receiver's idle state means it'll drop the
+        // retransmit pages because it has no expectedTotalLength
+        // and no cumulative-CRC baseline to validate against.
+        // Treat NACK page=0 as a full re-do: emit a fresh start
+        // marker (re-engages the receiver from idle), send every
+        // page, emit the end marker. Effectively re-running
+        // `transmit()` with the same stamp and data.
+        if nackPage == 0 {
+            let totalLength = UInt32(state.data.count)
+            log.fault("NACK page=0 — full restart, \(state.pageCount, privacy: .public) page(s)")
+            emitStartMarker(totalLength: totalLength, stamp: stamp)
+            Thread.sleep(forTimeInterval: Self.interPageDelay)
+            for p in 0..<state.pageCount {
+                sendPage(p, stamp: stamp)
+                Thread.sleep(forTimeInterval: Self.interPageDelay)
+                guard stateOf(stamp: stamp) != nil else { return }
+            }
+            emitEndMarker(totalLength: totalLength)
+            Thread.sleep(forTimeInterval: Self.postEndMarkerDelay)
+            return
+        }
+
+        let resendFrom: UInt32 = nackPage - 1
+        log.fault("NACK page=\(nackPage, privacy: .public) — partial retransmit from page=\(resendFrom, privacy: .public)")
 
         emitRetransmitMarker(rewindToPage: resendFrom)
         Thread.sleep(forTimeInterval: Self.interPageDelay)

@@ -104,11 +104,127 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     let cameraLog: Logger
     let queue: DispatchQueue
 
-    // Lifecycle flags. Plain Bools — single-bit monotonic writes from main,
-    // best-effort reads from the camera queue. A stale read just delays loop
-    // exit by at most one frame interval.
-    var stopLv      = false
+    // Lifecycle flags.
+    //
+    // `closing` is monotonic — set once by close(), never cleared.
+    // Reads don't need locking because it only ever transitions
+    // false → true; a stale read costs at most one extra loop
+    // iteration before the closing check trips.
     var closing     = false
+
+    // MARK: - Live-view state machine
+    //
+    // The live-view lifecycle is modeled as two enums:
+    //
+    //   • `LiveViewDesired` — what the caller (CMIO, the user) wants.
+    //     Two values: `.off` (default) and `.on` (set by startLiveView).
+    //   • `LiveViewActual` — what we believe the camera firmware is
+    //     currently doing. Four values including the two transitional
+    //     phases `.startingUp` and `.shuttingDown` that explicitly
+    //     model the period between issuing STARTLIVEVIEW / STOPLIVEVIEW
+    //     and the camera firmware confirming the mirror has settled.
+    //
+    // A single driver (`driveLiveViewState`) running on `queue`
+    // compares the two and runs the appropriate transition. The
+    // transitions own the PTP commands (STARTLIVEVIEW / STOPLIVEVIEW)
+    // and the confirmation polls (DeviceReady). The frame loop
+    // never issues those commands — it only runs while
+    // `actualLiveViewState == .on` and exits when desired flips.
+    //
+    // Why this shape: the previous design fired-and-forgot
+    // STOPLIVEVIEW as a post-loop afterthought, so any path that
+    // skipped the post-loop step (USB disconnect mid-stream,
+    // closing flag set while inside the loop, transport-error
+    // bail) left DSLR mirrors stuck up because the camera firmware
+    // never received the close command. Putting STOPLIVEVIEW
+    // inside the transition function — with retry on transport
+    // failure and a DeviceReady poll afterwards — closes those
+    // gaps without a generic reconciler.
+    enum LiveViewDesired: Equatable { case off, on }
+    enum LiveViewActual:  Equatable { case off, startingUp, on, shuttingDown }
+
+    /// Lock guarding the LV state pair + the force-stop latch.
+    /// Held only for the duration of state reads/writes; never
+    /// held across PTP transactions.
+    private let lvStateLock = NSLock()
+    private var _desiredLv:    LiveViewDesired = .off
+    private var _actualLv:     LiveViewActual  = .off
+    /// Latched by the transport-error escalation path or the
+    /// per-vendor "too many NOTLIVEVIEW" path to force the loop
+    /// out without changing the user's desired state. Reset
+    /// inside `performStartupTransition` so a subsequent
+    /// startLiveView gets a clean budget.
+    private var _lvForceStop:  Bool = false
+
+    /// What the caller wants the LV state to be. Updated by
+    /// `setDesiredLiveView` (called from `startLiveView` /
+    /// `stopLiveView`). Readable from any thread.
+    final var desiredLiveViewState: LiveViewDesired {
+        lvStateLock.lock(); defer { lvStateLock.unlock() }
+        return _desiredLv
+    }
+
+    /// What we believe the camera firmware is actually doing,
+    /// based on confirmed PTP transactions. Updated by the
+    /// transition functions. Readable from any thread.
+    final var actualLiveViewState: LiveViewActual {
+        lvStateLock.lock(); defer { lvStateLock.unlock() }
+        return _actualLv
+    }
+
+    /// True when the LV frame loop should bail. Computed from
+    /// the state machine + the closing flag + the force-stop
+    /// latch. Replaces the old plain `stopLv` Bool — preserves
+    /// the name so call sites in vendor subclasses (Nikon's
+    /// `waitForDeviceReady`, `restartLiveView`, etc.) read
+    /// naturally without restructuring.
+    final var stopLv: Bool {
+        lvStateLock.lock(); defer { lvStateLock.unlock() }
+        return closing || _desiredLv != .on || _lvForceStop
+    }
+
+    /// Update the desired LV state and kick the driver. Safe
+    /// from any thread.
+    private func setDesiredLiveView(_ s: LiveViewDesired, reason: String) {
+        lvStateLock.lock()
+        let prior = _desiredLv
+        _desiredLv = s
+        lvStateLock.unlock()
+        if prior != s {
+            cameraLog.fault("desired LV: \(String(describing: prior), privacy: .public) → \(String(describing: s), privacy: .public) (\(reason, privacy: .public))")
+            queue.async { [weak self] in self?.driveLiveViewState() }
+        }
+    }
+
+    /// Update the actual state — should only be called from the
+    /// camera queue (inside a transition function or the frame
+    /// loop's enter/exit hooks).
+    private func setActualLiveView(_ s: LiveViewActual) {
+        lvStateLock.lock()
+        let prior = _actualLv
+        _actualLv = s
+        lvStateLock.unlock()
+        if prior != s {
+            cameraLog.fault("actual LV: \(String(describing: prior), privacy: .public) → \(String(describing: s), privacy: .public)")
+        }
+    }
+
+    /// Latch the force-stop flag. Called by handlers that need
+    /// to bail the LV loop without changing what the user asked
+    /// for. Cleared on next successful startup. Exposed to
+    /// subclasses (e.g. Nikon's `fetchOneFrame` when NOTLIVEVIEW
+    /// loops past its retry budget) — they used to write
+    /// `stopLv = true` directly, which is no longer valid now
+    /// that `stopLv` is computed.
+    func setLvForceStop(_ reason: String) {
+        lvStateLock.lock()
+        let was = _lvForceStop
+        _lvForceStop = true
+        lvStateLock.unlock()
+        if !was {
+            cameraLog.fault("LV force-stop latched: \(reason, privacy: .public)")
+        }
+    }
     /// Set by `handleLiveViewTransportError` when it observes
     /// `kIOUSBPipeStalled`. Read at the top of `runLiveViewPhase`
     /// to decide whether to issue `transport.clearStalls()` before
@@ -192,34 +308,37 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         queue.async { [weak self] in self?.runOpenSessionPhase() }
     }
 
-    /// True once `startLiveView()` has spun up the LV phase on the camera
-    /// queue and not yet observed `stopLv`. We need this to distinguish
-    /// "claimed but idle" from "claimed and currently streaming" when the app
-    /// asks for a PTP dump — idle claimed cameras can be dumped from
-    /// in-memory state without touching the USB bus.
-    private(set) var liveViewRunning: Bool = false
+    /// True while the camera is actively streaming. Derived
+    /// from the state machine: `.startingUp`, `.on`, and
+    /// `.shuttingDown` all count as "in use" for the purposes
+    /// of guarding work that can't run alongside the LV loop
+    /// (e.g., the PTP property dump). Only `.off` is "idle."
+    final var liveViewRunning: Bool {
+        actualLiveViewState != .off
+    }
 
     final func startLiveView() {
         guard !closing else { return }
-        stopLv = false
-        liveViewRunning = true
-        queue.async { [weak self] in
-            self?.runLiveViewPhase()
-            self?.liveViewRunning = false
-        }
+        setDesiredLiveView(.on, reason: "startLiveView()")
     }
 
     final func stopLiveView() {
-        stopLv = true
-        // `liveViewRunning` is cleared by the queue closure above once the
-        // LV loop unwinds. Setting it eagerly here would race with a fast
-        // dump that arrives while the loop is still tearing down.
+        setDesiredLiveView(.off, reason: "stopLiveView()")
     }
 
     final func close() {
-        stopLv  = true
         closing = true
-        queue.async { [weak self] in self?.runCleanUpPhase() }
+        // close() drives LV to off regardless of what the user
+        // asked for. The driver checks `closing` first and runs
+        // the shutdown transition unconditionally if actual
+        // isn't already `.off`, which catches the failure mode
+        // where a CMIO disconnect, USB unplug, or process
+        // teardown skipped the normal STOPLIVEVIEW.
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.driveLiveViewState()
+            self.runCleanUpPhase()
+        }
     }
 
     /// Entry point for autofocus. Enqueues an `.autofocus` op (collapsing
@@ -327,9 +446,27 @@ class UsbPtpCameraBase: UsbCameraProtocol {
     /// Called every `eventPollInterval` frames inside the LV loop.
     func pollEvents() {}
 
-    /// Send STOPLIVEVIEW (or vendor equivalent) when the LV loop exits cleanly.
-    /// Not called when `closing` is set — `performVendorCleanup` handles that path.
-    func stopLiveViewSession() {}
+    /// Send STOPLIVEVIEW (or vendor equivalent). Called by the
+    /// shutdown transition for every LV close, including the
+    /// `closing` path — vendors no longer need a separate
+    /// `performVendorCleanup` LV-stop entry. Return true if the
+    /// command was issued successfully, false on transport error;
+    /// the base class retries up to a small budget on failure
+    /// (with a brief sleep between attempts). Return true on a
+    /// camera-side "not in LV" / "already stopped" response too —
+    /// those are functional successes from our point of view.
+    func stopLiveViewSession() -> Bool { true }
+
+    /// Vendor hook to confirm the camera firmware has finished
+    /// the post-STOPLIVEVIEW transition (most importantly, on
+    /// DSLR bodies, that the physical mirror has returned to
+    /// its down position). Default no-op; vendors with mirrors
+    /// override to poll DeviceReady (or equivalent) until the
+    /// camera acks. Called by `performShutdownTransition`
+    /// AFTER STOPLIVEVIEW has been issued, BEFORE `actualLv`
+    /// transitions to `.off`. Should have a bounded timeout —
+    /// blocking forever stalls the camera queue.
+    func confirmLiveViewSettled() {}
 
     /// Execute a single queued property-set command. Vendor-specific because
     /// Sony has SetPropStep, Canon has SetPropValEx (0x9110), Nikon uses standard.
@@ -517,52 +654,179 @@ class UsbPtpCameraBase: UsbCameraProtocol {
         cameraLog.fault("  serial offset=\(serialOffset, privacy: .public) raw=\(previewHex, privacy: .public) decoded=\(self.deviceSerial ?? "(none)", privacy: .public)")
     }
 
-    // MARK: - Phase 2: live view loop
+    // MARK: - Phase 2: live view state machine
+    //
+    // `driveLiveViewState` is the entry point. It's queued on the
+    // camera queue whenever desired changes, when close() runs, or
+    // re-queued by itself after a transition completes if the
+    // desired state flipped during the transition.
+    //
+    // Transitions are synchronous on the queue, so by the time
+    // driveLiveViewState runs, `actualLiveViewState` is always
+    // either `.off` or `.on` — never one of the transitional
+    // states (those only exist *inside* a transition function).
 
-    private func runLiveViewPhase() {
-        guard sessionOpen && !closing else {
-            cameraLog.fault("startLiveView called but session not ready (open=\(self.sessionOpen, privacy: .public) closing=\(self.closing, privacy: .public))")
+    private func driveLiveViewState() {
+        // closing is an override — always force toward .off
+        // regardless of what the user asked for. Catches the
+        // case where close() arrives mid-loop or shortly after
+        // a stopLiveView that hasn't finished its shutdown yet.
+        if closing {
+            if actualLiveViewState != .off {
+                performShutdownTransition()
+            }
             return
         }
 
+        let desired = desiredLiveViewState
+        let actual  = actualLiveViewState
+        switch (desired, actual) {
+        case (.on, .off):
+            // Run the full startup → loop → shutdown cycle. The
+            // shutdown transition at the end is what guarantees
+            // the mirror comes down even if the loop exited via
+            // an unusual path (transport error escalation,
+            // closing flipped mid-loop, etc.). It's idempotent
+            // on the camera side, so an extra invocation is
+            // harmless.
+            guard performStartupTransition() else { return }
+            runFrameLoop()
+            performShutdownTransition()
+            // The desired flag may have flipped back to .on while
+            // we were tearing down (user re-opens the preview
+            // before our STOPLIVEVIEW round-trip completes).
+            // Re-queue ourselves to restart in that case.
+            if desiredLiveViewState == .on && !closing {
+                queue.async { [weak self] in self?.driveLiveViewState() }
+            }
+
+        case (.off, .on):
+            // We were running and the user wants us off. Run
+            // shutdown.
+            performShutdownTransition()
+            if desiredLiveViewState == .on && !closing {
+                queue.async { [weak self] in self?.driveLiveViewState() }
+            }
+
+        case (.on, .on), (.off, .off):
+            // Already converged. Nothing to do.
+            return
+
+        default:
+            // Transitional state surfaced here — shouldn't be
+            // possible because transitions run synchronously on
+            // the same queue. Log defensively in case the
+            // invariant breaks.
+            cameraLog.error("driveLiveViewState: unexpected pair (desired=\(String(describing: desired), privacy: .public) actual=\(String(describing: actual), privacy: .public))")
+        }
+    }
+
+    /// Phase: `.off` → `.startingUp` → `.on` on success, or
+    /// `.off` → `.startingUp` → `.off` on failure. The vendor's
+    /// `startLiveViewSession()` does the work; this wrapper
+    /// owns the state transition, resets the force-stop latch,
+    /// and handles the stall-recovery flag.
+    @discardableResult
+    private func performStartupTransition() -> Bool {
+        guard sessionOpen && !closing else {
+            cameraLog.fault("startup blocked: session not ready (open=\(self.sessionOpen, privacy: .public) closing=\(self.closing, privacy: .public))")
+            return false
+        }
         // Stall recovery is gated to "only when the previous LV
         // session actually observed a stall" — see the same
         // gating rule in `handleLiveViewTransportError`. The
-        // Nikon D800's PTP firmware enters an error-recovery state
-        // if `CLEAR_FEATURE(ENDPOINT_HALT)` is sent to a non-halted
-        // endpoint (project memory: prior testing during the
-        // IOKit-USB migration), so we only clear when the flag
-        // says we observed a stall earlier.
+        // Nikon D800's PTP firmware enters an error-recovery
+        // state if `CLEAR_FEATURE(ENDPOINT_HALT)` is sent to a
+        // non-halted endpoint (project memory: prior testing
+        // during the IOKit-USB migration).
         if liveViewNeedsStallRecovery {
             cameraLog.fault("LV restart: clearing pipes from prior session stall")
             transport.clearStalls()
             _ = transport.drainBulkIn(timeout: 0.05)
             liveViewNeedsStallRecovery = false
         }
+        // Reset the force-stop latch — a fresh user-driven start
+        // gets a clean budget for transport-error escalations.
+        lvStateLock.lock()
+        _lvForceStop = false
+        lvStateLock.unlock()
 
-        guard startLiveViewSession() else {
+        setActualLiveView(.startingUp)
+        let ok = startLiveViewSession()
+        if !ok {
             let reason = liveViewStartError ?? "Live view could not be started. The camera may be in playback mode, asleep, missing a lens, or otherwise refusing the request."
             liveViewStartError = nil
-            cameraLog.fault("live view session start failed: \(reason, privacy: .public)")
+            cameraLog.fault("startup failed: \(reason, privacy: .public)")
+            // Best-effort defensive STOPLIVEVIEW: the vendor may
+            // have partially issued the start sequence before
+            // bailing. Idempotent on the camera if it was never
+            // actually in LV.
+            _ = stopLiveViewSession()
+            setActualLiveView(.off)
             onLiveViewStartFailed?(reason)
-            return
+            return false
         }
-        if stopLv || closing { return }
+        // Vendor-side startup already polled DeviceReady in
+        // `startLiveViewSession` (Nikon: `waitForDeviceReady`),
+        // so by the time we get here the camera firmware has
+        // confirmed it's ready to deliver frames.
+        setActualLiveView(.on)
+        return true
+    }
 
+    /// Phase: `.on` (or `.startingUp` on a failure path) →
+    /// `.shuttingDown` → `.off`. Owns the STOPLIVEVIEW retry
+    /// budget and the mirror-settle confirmation poll. Always
+    /// runs to completion — there's no early-exit path that
+    /// could leave `actualLv` stranded in `.shuttingDown`.
+    private func performShutdownTransition() {
+        setActualLiveView(.shuttingDown)
+        // Retry STOPLIVEVIEW up to 3 times on transport failure.
+        // The previous design's `try?` swallowed errors silently,
+        // which left the camera with the mirror up whenever USB
+        // hiccupped during the close. Three attempts at 100 ms
+        // spacing is enough to ride out a transient stall
+        // without dragging out a genuine USB-dead scenario.
+        let maxAttempts = 3
+        for attempt in 1...maxAttempts {
+            if stopLiveViewSession() { break }
+            if attempt < maxAttempts {
+                cameraLog.fault("STOPLIVEVIEW attempt \(attempt, privacy: .public) failed — retrying")
+                Thread.sleep(forTimeInterval: 0.1)
+            } else {
+                cameraLog.fault("STOPLIVEVIEW failed after \(attempt, privacy: .public) attempts — proceeding to settle poll anyway")
+            }
+        }
+        // Vendor-side confirmation that the mirror has dropped /
+        // the firmware finished its post-STOP work. DSLRs need
+        // this — the mirror takes 200-400 ms physically. Z-series
+        // and mirrorless bodies make this a no-op via their
+        // override returning immediately.
+        confirmLiveViewSettled()
+        setActualLiveView(.off)
+    }
+
+    /// The frame loop — runs only while `actualLiveViewState ==
+    /// .on`. Issues no PTP commands of its own; only fetches
+    /// frames and processes them. Exits when `stopLv` is true
+    /// (closing, desired flipped to .off, or force-stop latched).
+    /// After the loop returns, the caller (`driveLiveViewState`)
+    /// runs `performShutdownTransition`.
+    private func runFrameLoop() {
         cameraLog.fault("entering live view loop")
         var frameCount = 0
         var pollCounter = 0
         /// Consecutive transport-error count. Reset on any
         /// successful round-trip. Used to escalate from a soft
         /// `clearStalls` recovery to bailing out of the LV loop
-        /// entirely when the USB stack is wedged beyond what stall
-        /// clears can fix.
+        /// entirely when the USB stack is wedged beyond what
+        /// stall clears can fix.
         var consecutiveTransportErrors = 0
 
-        while !stopLv && !closing {
+        while !stopLv {
             autoreleasepool {
                 drainPendingOps()
-                guard !stopLv && !closing else { return }
+                guard !stopLv else { return }
 
                 pollCounter += 1
                 if pollCounter % eventPollInterval == 0 { pollEvents() }
@@ -582,7 +846,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
                         onJpegFrame?(jpeg)
                     }
                 } catch {
-                    if !stopLv && !closing {
+                    if !stopLv {
                         handleLiveViewTransportError(
                             error,
                             consecutiveErrors: &consecutiveTransportErrors)
@@ -594,9 +858,7 @@ class UsbPtpCameraBase: UsbCameraProtocol {
                 if remaining > 0.001 { Thread.sleep(forTimeInterval: remaining) }
             }
         }
-
-        cameraLog.fault("LV loop exited (stopLv=\(self.stopLv, privacy: .public) closing=\(self.closing, privacy: .public))")
-        if !closing { stopLiveViewSession() }
+        cameraLog.fault("LV loop exited (stopLv computed=\(self.stopLv, privacy: .public) closing=\(self.closing, privacy: .public) desired=\(String(describing: self.desiredLiveViewState), privacy: .public))")
     }
 
     /// Maximum consecutive `bulkOutFailed` / `bulkInFailed` errors
@@ -634,7 +896,12 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
         if attempts > Self.maxConsecutiveLiveViewTransportErrors {
             cameraLog.fault("LV loop bailing — \(attempts, privacy: .public) consecutive transport errors")
-            stopLv = true
+            // Force-stop latch instead of writing `stopLv`
+            // directly (now a computed property). Leaves the
+            // user's desired state untouched: a subsequent
+            // re-open from CMIO will go through the full
+            // startup transition with a fresh error budget.
+            setLvForceStop("transport-error escalation (\(attempts) attempts)")
             return
         }
 
@@ -750,6 +1017,18 @@ class UsbPtpCameraBase: UsbCameraProtocol {
 
     private func runCleanUpPhase() {
         if sessionOpen {
+            // `performVendorCleanup` is for non-LV cleanup
+            // (anything that needs to run before CLOSE_SESSION
+            // that isn't STOPLIVEVIEW). LV shutdown has already
+            // happened via the state machine — close() drives
+            // `driveLiveViewState` ahead of this cleanup phase,
+            // and that path handles STOPLIVEVIEW with retry +
+            // mirror-settle confirmation. Vendors that
+            // previously sent STOPLIVEVIEW from
+            // `performVendorCleanup` should leave that work to
+            // the state machine and override
+            // `stopLiveViewSession` / `confirmLiveViewSettled`
+            // instead.
             performVendorCleanup()
             _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_CLOSESESSION))
             sessionOpen = false

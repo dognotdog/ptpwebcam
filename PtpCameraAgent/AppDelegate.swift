@@ -96,6 +96,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// between responsiveness and overhead — the check itself is just
     /// a couple of property reads.
     private var menuBarVisibilityPollTimer: Timer? = nil
+
+    /// Service-health heartbeat infrastructure — see
+    /// `setupServiceHealthHeartbeats()` for the full design.
+    private var agentHeartbeatTimer: DispatchSourceTimer?
+    private var agentHeartbeatSlotToken: Int32 = 0
+    private var agentSawExtSlotToken: Int32 = 0
+    private var extHeartbeatRecvToken: Int32 = 0
+    /// Slot token for `kDarwinClaimAnnounceSlot`. Read inside
+    /// `handleClaimAnnouncement` whenever the broadcast fires.
+    private var claimAnnounceSlotToken: Int32 = 0
     private var lvFailPageBuffer: Data?
     private var lvFailPageTotal: Int = 0
     private var lvFailPageCount: Int = 0
@@ -199,6 +209,61 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         receiver.start()
         propertyStreamReceiver = receiver
+    }
+
+    /// Stand up two side-channels the host app uses to drive its
+    /// service-health warning banners:
+    ///   1. An agent-liveness heartbeat published every ~2 s. The
+    ///      host app polls the slot and flags us as down if the
+    ///      stored epoch-second timestamp goes stale.
+    ///   2. A "saw extension" timestamp stamped each time we
+    ///      observe a post from the extension's heartbeat. Lets the
+    ///      host app distinguish "both processes alive but their
+    ///      Darwin-notify channel is broken" (happens occasionally
+    ///      after sleep/wake — libnotify dispatch tokens can quietly
+    ///      stop firing without unregistering) from the simpler
+    ///      "one side just isn't running" case.
+    ///
+    /// The heartbeat timer runs on a dedicated background queue so
+    /// it doesn't compete with `.main` work; the timestamp write
+    /// itself is two syscalls and would be fine on `.main`, but
+    /// keeping all service-health writes off the UI queue means a
+    /// stalled main loop can't mask an extension fault as an agent
+    /// fault.
+    private func setupServiceHealthHeartbeats() {
+        darwin_notify_register_check(kDarwinAgentHeartbeatSlot,
+                                     &agentHeartbeatSlotToken)
+        darwin_notify_register_check(kDarwinAgentSawExtensionSlot,
+                                     &agentSawExtSlotToken)
+
+        // Stamp `agentSawExtSlot` on every extension heartbeat we
+        // hear. The heartbeat is the most frequent extension-side
+        // post (every 2 s) so it's a strict superset of any other
+        // signal we could tap into for "comms alive"; using it
+        // alone keeps the bookkeeping in one place.
+        darwin_notify_register_dispatch(kDarwinExtensionHeartbeat,
+                                         &extHeartbeatRecvToken, .main) { [weak self] _ in
+            guard let self = self else { return }
+            let now = UInt64(Date().timeIntervalSince1970)
+            darwin_notify_set_state(self.agentSawExtSlotToken, now)
+            darwin_notify_post(kDarwinAgentSawExtension)
+        }
+
+        // Agent heartbeat timer. Stamp + post every 2 s with epoch
+        // seconds. Held strongly so the timer outlives this scope.
+        let queue = DispatchQueue(label: "org.ptpwebcam.agent.heartbeat",
+                                  qos: .utility)
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 2.0,
+                       leeway: .milliseconds(200))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let now = UInt64(Date().timeIntervalSince1970)
+            darwin_notify_set_state(self.agentHeartbeatSlotToken, now)
+            darwin_notify_post(kDarwinAgentHeartbeat)
+        }
+        timer.resume()
+        agentHeartbeatTimer = timer
     }
 
     private var statusItem: NSStatusItem!
@@ -308,6 +373,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var usbBlockedToken: Int32 = 0
         darwin_notify_register_dispatch(kDarwinUsbBlocked, &usbBlockedToken, .main) { [weak self] _ in
             self?.handleUsbBlocked()
+        }
+
+        setupServiceHealthHeartbeats()
+
+        // Listen for cross-process claim-state announcements
+        // (currently posted by the host app's chip-tile button
+        // and by our own sendClaimCommand). The handler mirrors
+        // the announcement into `claimedCameraKeys` and rebuilds
+        // the menu so the checkmark / "click to claim" suffix
+        // stays in sync with whatever process initiated the
+        // change. We unconditionally re-register the slot for
+        // reads each time the dispatch fires because the slot
+        // token is process-scoped — a single `register_check`
+        // up front is also valid, but the post-time read is
+        // simpler than threading the token through the closure.
+        var claimAnnTok: Int32 = 0
+        darwin_notify_register_check(kDarwinClaimAnnounceSlot, &claimAnnTok)
+        claimAnnounceSlotToken = claimAnnTok
+        var claimAnnNotifyTok: Int32 = 0
+        darwin_notify_register_dispatch(kDarwinClaimAnnounce, &claimAnnNotifyTok, .main) { [weak self] _ in
+            self?.handleClaimAnnouncement()
         }
 
         // Watch for any of our known camera-holding apps exiting — by
@@ -954,6 +1040,89 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         darwin_notify_post(notifyName)
         notify_cancel(slotToken)
         AppDelegate.log("PtpCameraAgent: posted claim cmd=\(claim ? 1 : 2) vid=\(vid) pid=\(pid) serial='\(serial)'")
+        // Broadcast the same change on the global announcement
+        // channel so any other process (currently the host app)
+        // can update its own UI. The agent itself receives this
+        // notification too but ignores its own posts via the
+        // `claimedCameraKeys` set check inside the handler.
+        AppDelegate.postClaimAnnouncement(vid: vid, pid: pid, serial: serial, claim: claim)
+    }
+
+    /// Shared encoder for the claim-announce channel — same
+    /// packing as the per-camera claim slot so the subscriber's
+    /// decode can be a single function. Static so the host-app
+    /// side can call exactly the same code path (mirrored
+    /// verbatim in `MainWindowView.sendClaimCommand`).
+    static func postClaimAnnouncement(vid: UInt16, pid: UInt16,
+                                       serial: String, claim: Bool) {
+        let crc24 = crc32StaticHelper(serial) & 0x00FFFFFF
+        let packed: UInt64 =
+            (UInt64(claim ? 1 : 2) << 56) |
+            (UInt64(crc24)           << 32) |
+            (UInt64(vid)             << 16) |
+             UInt64(pid)
+        var slotToken: Int32 = 0
+        darwin_notify_register_check(kDarwinClaimAnnounceSlot, &slotToken)
+        darwin_notify_set_state(slotToken, packed)
+        darwin_notify_post(kDarwinClaimAnnounce)
+        notify_cancel(slotToken)
+    }
+
+    /// CRC32 helper usable from a static context. Mirrors the
+    /// instance `crc32OfString` so the announcement encoder
+    /// doesn't need a Self instance.
+    private static func crc32StaticHelper(_ s: String) -> UInt32 {
+        var crc: UInt32 = 0xFFFFFFFF
+        for byte in s.utf8 {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = (crc >> 1) ^ (0xEDB88320 * (crc & 1)) }
+        }
+        return crc ^ 0xFFFFFFFF
+    }
+
+    /// Dispatch handler for `kDarwinClaimAnnounce`. Reads the
+    /// packed payload, derives the claim key, and updates
+    /// `claimedCameraKeys` + rebuilds the menu. Idempotent: if
+    /// the announcement matches our existing state (we just
+    /// posted it ourselves, or it duplicates a prior post)
+    /// nothing changes and we still rebuild — cheap and avoids
+    /// a stale check on every fire.
+    private func handleClaimAnnouncement() {
+        var packed: UInt64 = 0
+        darwin_notify_get_state(claimAnnounceSlotToken, &packed)
+        let cmd    = UInt8((packed >> 56) & 0xFF)
+        // Reconstructing serial from CRC24 isn't possible (the
+        // hash is lossy by construction). Instead we look up the
+        // ExtCamera by vid+pid+crc24 — the parser already keeps
+        // claimKey = "vid:pid:serial" so we can find it by
+        // matching the suffix the announcement encodes.
+        let crc24  = UInt32((packed >> 32) & 0xFFFFFF)
+        let vid    = UInt16((packed >> 16) & 0xFFFF)
+        let pid    = UInt16( packed        & 0xFFFF)
+        let claiming = (cmd == 1)
+        // Find the ExtCamera whose claimKey hashes to the same
+        // suffix. If the camera disappeared between the
+        // announcement and our handler running, drop the event
+        // silently — the next attach + republish will resync.
+        guard let camera = extCameras.values.first(where: { c in
+            c.vid == vid && c.pid == pid &&
+            (crc32OfString(c.serial) & 0x00FFFFFF) == crc24
+        }) else {
+            AppDelegate.log("PtpCameraAgent: claim announce vid=\(vid) pid=\(pid) crc=\(String(format: "%06x", crc24)) — no matching camera")
+            return
+        }
+        var keys = claimedCameraKeys
+        let was = keys.contains(camera.claimKey)
+        if claiming { keys.insert(camera.claimKey) } else { keys.remove(camera.claimKey) }
+        let changed = was != claiming
+        claimedCameraKeys = keys
+        AppDelegate.log("PtpCameraAgent: claim announce \(claiming ? "claim" : "release") \(camera.claimKey) changed=\(changed)")
+        // Rebuild even when not changed — the announcement is
+        // the canonical "the user's intent moved" event, and a
+        // redundant rebuild is cheaper than reasoning about
+        // whether something else (UI state, blockingApps, etc.)
+        // needs a redraw.
+        rebuildMenu()
     }
 
     private func crc32OfString(_ s: String) -> UInt32 {

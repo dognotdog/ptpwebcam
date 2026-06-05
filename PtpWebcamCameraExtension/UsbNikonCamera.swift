@@ -297,11 +297,87 @@ final class UsbNikonCamera: UsbPtpCameraBase {
 
         waitForDeviceReady()
         notLiveViewCount = 0
+        // Return value is the camera-side answer ("did STARTLIVEVIEW
+        // succeed?"), NOT the user-intent answer. If STARTLIVEVIEW
+        // returned OK, the camera is in live view (mirror up); the
+        // state machine driver should set `actualLv = .on` even if
+        // the user's `desiredLv` flipped to .off during the
+        // device-ready poll, so that `performShutdownTransition`
+        // runs cleanly and brings the mirror back down. The previous
+        // `return !stopLv && !closing` conflated "vendor refused
+        // live view" with "user changed mind during startup" — a
+        // 15-ms CMIO start→stop race would surface a spurious
+        // "live view could not be started" NSAlert even though the
+        // camera had successfully started LV.
+        if startCode == PTP_RSP_OK { return true }
+        // Non-OK STARTLIVEVIEW with no prohibit bits: ambiguous.
+        // The camera responded but didn't outright refuse. Defer
+        // to the user-intent check — if they no longer want LV,
+        // treat it as a failure so we don't enter the frame loop
+        // with a body that may not actually be streaming.
         return !stopLv && !closing
     }
 
-    override func stopLiveViewSession() {
-        _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_NIKON_STOPLIVEVIEW))
+    override func stopLiveViewSession() -> Bool {
+        do {
+            let (_, rsp) = try transport.sendPtpCommand(
+                transport.buildCommand(code: PTP_CMD_NIKON_STOPLIVEVIEW))
+            let code = transport.responseCode(from: rsp)
+            // PTP_RSP_OK (0x2001) is the normal success path.
+            // Any non-OK code here is still a successful round-
+            // trip — the camera received the command and
+            // responded, even if it's complaining that we
+            // weren't in LV. Treat as success because retrying
+            // wouldn't change the outcome and the state machine
+            // wants to know whether to advance, not whether the
+            // camera was happy.
+            if code != PTP_RSP_OK {
+                cameraLog.fault("STOPLIVEVIEW non-OK code=0x\(String(code, radix:16), privacy: .public) — treating as terminated")
+            }
+            return true
+        } catch {
+            // Transport-level failure (USB stall, NotResponding,
+            // device dead). Signal failure so the base class
+            // retries — leaving the mirror up because of a
+            // single stalled write is the exact failure mode
+            // the state machine refactor was meant to fix.
+            cameraLog.fault("STOPLIVEVIEW transport error: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// DSLR mirror-settle poll. Nikon DSLR bodies physically
+    /// drop the mirror over 200–400 ms after STOPLIVEVIEW; the
+    /// camera firmware reports DeviceReady = OK once the mirror
+    /// has finished moving. Z-series and other mirrorless
+    /// bodies (PIDs ≥ 0x0440 in Nikon's catalog) don't have a
+    /// mirror, but DeviceReady still acks correctly so a short
+    /// poll there is harmless — we skip it anyway to avoid the
+    /// otherwise-wasted round-trip.
+    override func confirmLiveViewSettled() {
+        guard transport.productId < 0x0440 else { return }
+        let deadline = Date().addingTimeInterval(1.5)
+        var polls = 0
+        while Date() < deadline {
+            polls += 1
+            do {
+                let (_, rsp) = try transport.sendPtpCommand(
+                    transport.buildCommand(code: PTP_CMD_NIKON_DEVICEREADY))
+                if transport.responseCode(from: rsp) == PTP_RSP_OK {
+                    cameraLog.fault("mirror settled (\(polls, privacy: .public) poll\(polls == 1 ? "" : "s", privacy: .public))")
+                    return
+                }
+            } catch {
+                // DeviceReady not supported, or transport
+                // already dead — either way no point in
+                // polling. The mirror will eventually settle
+                // on its own; we just lose the confirmation.
+                cameraLog.info("DEVICEREADY error during settle — proceeding")
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        cameraLog.warning("mirror settle timeout after \(polls, privacy: .public) polls — proceeding anyway")
     }
 
     private func waitForDeviceReady() {
@@ -335,7 +411,12 @@ final class UsbNikonCamera: UsbPtpCameraBase {
             notLiveViewCount += 1
             if notLiveViewCount > 20 {
                 cameraLog.fault("NOTLIVEVIEW after \(self.notLiveViewCount, privacy: .public) restarts — giving up")
-                stopLv = true
+                // `stopLv` is now a computed property derived
+                // from the state machine; bail via the
+                // force-stop latch so the loop exits cleanly
+                // and the outer shutdown transition still runs
+                // (issues STOPLIVEVIEW + polls the mirror down).
+                setLvForceStop("NOTLIVEVIEW retry budget exhausted")
                 return nil
             }
             cameraLog.fault("NOTLIVEVIEW — restarting (\(self.notLiveViewCount, privacy: .public))")
@@ -361,13 +442,29 @@ final class UsbNikonCamera: UsbPtpCameraBase {
     }
 
     private func restartLiveView() {
+        // Send STOPLIVEVIEW + STARTLIVEVIEW as a pair. The early
+        // exits below (after STOP, before START) are safe — STOP
+        // alone leaves the camera in the same state we'd want
+        // after a clean shutdown. The early exit after START
+        // would be the dangerous one (mirror up, no follow-up
+        // STOP), so we wait through `waitForDeviceReady`
+        // unconditionally even if stopLv flips during the poll —
+        // the outer state machine's `performShutdownTransition`
+        // will issue the closing STOPLIVEVIEW once the loop
+        // exits, so the mirror still comes down.
         _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_NIKON_STOPLIVEVIEW))
         Thread.sleep(forTimeInterval: 0.5)
-        if stopLv || closing { return }
+        if stopLv { return }
         do {
             let (_, rsp) = try transport.sendPtpCommand(
                 transport.buildCommand(code: PTP_CMD_NIKON_STARTLIVEVIEW))
             cameraLog.info("restart STARTLIVEVIEW code=0x\(String(self.transport.responseCode(from: rsp), radix:16), privacy: .public)")
+            // Don't short-circuit `waitForDeviceReady` on stopLv
+            // here — letting it complete means the camera is in
+            // a known-good state when the outer shutdown
+            // transition runs and issues its STOPLIVEVIEW.
+            // (`waitForDeviceReady` still has its own bounded
+            // timeout, so this won't hang.)
             waitForDeviceReady()
         } catch {
             cameraLog.error("restart error: \(String(describing: error), privacy: .public)")
@@ -417,9 +514,12 @@ final class UsbNikonCamera: UsbPtpCameraBase {
 
     // MARK: - Cleanup
 
-    override func performVendorCleanup() {
-        _ = try? transport.sendPtpCommand(transport.buildCommand(code: PTP_CMD_NIKON_STOPLIVEVIEW))
-    }
+    // No `performVendorCleanup` override: STOPLIVEVIEW now lives
+    // in the state machine's shutdown transition, which close()
+    // runs ahead of CLOSE_SESSION via `driveLiveViewState`. The
+    // pre-CLOSE_SESSION hook is reserved for any future Nikon-
+    // specific work that needs to happen between LV-off and
+    // session close, which today is nothing.
 }
 
 // MARK: - JPEG → CVPixelBuffer
