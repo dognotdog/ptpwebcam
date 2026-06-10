@@ -521,7 +521,23 @@ func openPreview(cameraName: String) {
 	private func rebuildPreviewSubmenu() {
 		guard let submenu = previewSubmenu else { return }
 		submenu.removeAllItems()
+		// Only offer cameras that are fully enumerated — i.e.
+		// claimed and discovered. The extension publishes
+		// `properties: []` immediately on USB attach and only
+		// re-publishes with populated properties after the PTP
+		// session opens AND `discoverAllProperties` completes.
+		// Cameras still in the empty-properties phase aren't ready
+		// to stream: clicking through would either open a black
+		// preview, race the claim flow, or trigger a lost
+		// `startLiveView` if CMIO connects before the camera is in
+		// `usbCameras` on the extension side. The chip row in
+		// MainWindowView gates on the same `properties.isEmpty`
+		// check and surfaces a claim dialog for that state; the
+		// agent's menu bar does the same. Keeping the three
+		// surfaces in sync means the user can't trigger a
+		// half-claimed preview from any UI entry point.
 		let cameras = CameraPropertyStore.shared.cameras.values
+			.filter { !$0.properties.isEmpty }
 			.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 		if cameras.isEmpty {
 			let empty = NSMenuItem(

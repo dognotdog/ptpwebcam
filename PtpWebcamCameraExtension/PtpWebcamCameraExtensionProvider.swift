@@ -951,6 +951,21 @@ class PtpWebcamCameraExtensionProviderSource: NSObject, CMIOExtensionProviderSou
 			guard let self else { return }
 			let cameraName = self.deviceSources[cameraId]?.device.localizedName ?? cameraId
 			self.publishLiveViewFailure(cameraName: cameraName, reason: reason)
+			// Stop the CMIO stream so CMIO's bookkeeping syncs with
+			// our state machine. Without this, CMIO believes
+			// streaming is still active (the client never got a
+			// stop event), our `desiredLv` stays `.on`, our
+			// `actualLv` is `.off`, and `setDesiredLiveView(.on)`
+			// no-ops because `desiredLv` hasn't changed — there's
+			// no path back to live view short of the user closing
+			// the preview window and reopening it. `stopStreaming()`
+			// fires our `onStreamingStopped` callback below, which
+			// flips `desiredLv` to `.off` and leaves the state
+			// machine in a clean idle state ready for the next
+			// user attempt.
+			DispatchQueue.main.async {
+				self.deviceSources[cameraId]?.stopStreaming()
+			}
 		}
 		camera.onPropertiesDiscovered = { [weak self, weak camera] discovered in
 			guard let self = self else { return }
@@ -1249,11 +1264,27 @@ extension PtpWebcamCameraExtensionProviderSource: PtpCameraAgentDelegateProtocol
 			guard let self = self else { return }
 			PtpWebcamCameraExtensionProviderSource.log("streaming started for \(cameraId)")
 			self.markStreaming(cameraId: cameraId, streaming: true)
-			// Only start live view if camera has been claimed (PTP session is open).
 			if let camera = self.usbCameras[cameraId] {
+				// Camera is claimed (PTP session open or being
+				// discovered) — kick the LV state machine. If
+				// discovery is still in flight, `setDesiredLiveView`
+				// queues `driveLiveViewState` behind the in-flight
+				// `runOpenSessionPhase` on the camera's serial
+				// queue, so the LV startup transition runs after
+				// discovery completes.
 				camera.startLiveView()
 			} else {
-				PtpWebcamCameraExtensionProviderSource.log("streaming started but camera not claimed — no live view for \(cameraId)")
+				// CMIO opened the stream before the agent's claim
+				// finished opening the PTP session. The right thing
+				// is to queue the start: `openUsbCamera`'s
+				// completion checks `pendingLiveViewStart` and
+				// fires `camera.startLiveView()` when the camera
+				// lands in `usbCameras`. Without this insert, the
+				// race silently drops the start request — the
+				// CMIO client sees streaming as active forever
+				// with no frames and no recovery path.
+				PtpWebcamCameraExtensionProviderSource.log("streaming started but camera not claimed — queueing for after claim")
+				self.pendingLiveViewStart.insert(cameraId)
 			}
 		}
 		deviceSource.onStreamingStopped = { [weak self] in
