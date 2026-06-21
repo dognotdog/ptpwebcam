@@ -22,7 +22,20 @@ Installer packages for older releases are available from the [Releases page](htt
 
 ### Building from Source
 
-If you want to build from source, you need Xcode. You can build the project and the plugin should be automatically copied into `/Library/CoreMediaIO/Plug-Ins/DAL` to be available to the system. However, apps with _Library Validation_ enabled will need to have codesigning disabled to be able to access the plugin, see the **Known Issues** section below.
+If you want to build from source, you need Xcode. For each target you need to manually change the TeamId to match your developer certificate.
+
+The build process will automatically copy the plugin into `/Library/CoreMediaIO/Plug-Ins/DAL` to be available to the system.
+Therefore you need to grant your user read-write to the following folders
+- `/Library/CoreMediaIO/Plug-Ins/DAL/`
+- `/Library/LaunchAgents/`
+- `/Library/LaunchDaemons/`
+
+Two build phases require to sudo commands, therefore you will need to setup your KeyChain with an `xcode_bash` password. You can follow instructions [here](https://forum.juce.com/t/build-script-for-automatically-moving-built-aus-into-components-folder-xcode/13112).
+You also need to replace `dog` by your username in two places
+- `askpass.sh`
+- Build Phase _load launchd_ for `org.ptpwebcam.ptpwebcamdalplugin`
+
+However, apps with _Library Validation_ enabled will need to have codesigning disabled to be able to access the plugin, see the **Known Issues** section below.
 
 ### Testing the Installation
 

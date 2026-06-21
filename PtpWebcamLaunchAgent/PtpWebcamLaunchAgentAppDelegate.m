@@ -400,6 +400,8 @@
 		camera.delegate = self;
 		[camera requestOpenSession];
 
+	} else {
+		PtpLog(@"Not supported camera detected. Brand = 0x%x; Model = 0x%x", camera.usbVendorID, camera.usbProductID);
 	}
 	else
 	{
